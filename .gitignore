@@ -39,3 +39,4 @@ web/app.wasm
 
 # Docker volumes
 .docker/
+cpak-test
