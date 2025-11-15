@@ -31,9 +31,41 @@ docker compose up -d
 
 ---
 
-### 💻 Local Development (No Docker)
+### 🛠️ Dev Container (Best for Development)
 
-**Best for**: Developers, testing, quick local runs
+**Best for**: Developers who want everything pre-configured
+
+**No Go installation needed!**
+
+```bash
+# 1. Prerequisites
+# - Install VS Code
+# - Install Docker
+# - Install "Dev Containers" extension in VS Code
+
+# 2. Open in VS Code
+code cpak
+
+# 3. Reopen in Container
+# Press F1 → "Dev Containers: Reopen in Container"
+
+# 4. Start coding!
+# Everything is ready: Go, MongoDB, all tools installed
+```
+
+✅ **Benefits:**
+- No local Go installation required
+- MongoDB included
+- All development tools pre-installed
+- Consistent environment across team
+
+See [.devcontainer/README.md](.devcontainer/README.md) for full details.
+
+---
+
+### 💻 Local Development (Manual Setup)
+
+**Best for**: Quick local runs without containers
 
 **MongoDB is required:**
 ```bash

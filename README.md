@@ -60,7 +60,21 @@ Then open http://your-server-ip:8081 in your browser.
 
 ### 💻 Local Development
 
-**For development or testing without Docker**:
+**Option 1: Dev Container (Recommended for Development)**
+
+Develop without installing Go locally using VS Code Dev Containers:
+
+1. Install [VS Code](https://code.visualstudio.com/) and [Docker](https://www.docker.com/products/docker-desktop)
+2. Install the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+3. Open the project in VS Code
+4. Press `F1` → "Dev Containers: Reopen in Container"
+5. Everything is pre-configured! Start coding immediately.
+
+See [.devcontainer/README.md](.devcontainer/README.md) for details.
+
+**Option 2: Local Installation**
+
+For development or testing without Docker:
 
 #### Prerequisites
 
