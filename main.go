@@ -25,6 +25,7 @@ func main() {
 	}
 
 	// Configure the go-app handler
+	// Resources are served at /web/ by the file server below
 	handler := &app.Handler{
 		Name:        "Achievement Keeper",
 		Description: "Cross Platform Achievement Keeper",
@@ -37,6 +38,7 @@ func main() {
 		Icon: app.Icon{
 			Default: "/web/static/icon.png",
 		},
+		Resources: app.CustomProvider("", "/web"),
 	}
 
 	// Start backend API server with MongoDB
@@ -66,10 +68,10 @@ func main() {
 	// Create frontend server
 	frontendMux := http.NewServeMux()
 	
-	// Serve static files and WASM
+	// Serve static files and WASM at /web/ path
 	frontendMux.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.Dir("web"))))
 	
-	// Serve the go-app PWA at root
+	// Serve the go-app PWA at root - it will generate HTML that loads from /web/
 	frontendMux.Handle("/", handler)
 
 	frontendServer := &http.Server{
