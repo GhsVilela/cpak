@@ -1,7 +1,9 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/maxence-charriere/go-app/v9/pkg/app"
 )
@@ -15,31 +17,77 @@ type Achievement struct {
 	Completed   bool   `json:"completed"`
 }
 
-// AchievementApp is the main app component
+// AchievementApp is the main app component with proper API integration
 type AchievementApp struct {
 	app.Compo
+	achievements []Achievement
+	loading      bool
+	error        string
 }
 
+// OnMount is called when the component is mounted
+func (a *AchievementApp) OnMount(ctx app.Context) {
+	// Load achievements from API
+	a.loadAchievements(ctx)
+}
 
+// loadAchievements fetches achievements from the backend API
+func (a *AchievementApp) loadAchievements(ctx app.Context) {
+	a.loading = true
+	a.Update()
 
+	// Perform HTTP request asynchronously
+	ctx.Async(func() {
+		// Use the backend API URL
+		apiURL := "http://localhost:8080/api/achievements"
+		
+		resp, err := http.Get(apiURL)
+		if err != nil {
+			ctx.Dispatch(func(ctx app.Context) {
+				a.loading = false
+				a.error = fmt.Sprintf("Failed to connect to API: %v", err)
+				a.Update()
+			})
+			return
+		}
+		defer resp.Body.Close()
 
+		if resp.StatusCode != http.StatusOK {
+			ctx.Dispatch(func(ctx app.Context) {
+				a.loading = false
+				a.error = fmt.Sprintf("API returned status: %d", resp.StatusCode)
+				a.Update()
+			})
+			return
+		}
+
+		var achievements []Achievement
+		if err := json.NewDecoder(resp.Body).Decode(&achievements); err != nil {
+			ctx.Dispatch(func(ctx app.Context) {
+				a.loading = false
+				a.error = fmt.Sprintf("Failed to decode response: %v", err)
+				a.Update()
+			})
+			return
+		}
+
+		ctx.Dispatch(func(ctx app.Context) {
+			a.achievements = achievements
+			a.loading = false
+			a.Update()
+		})
+	})
+}
 
 // Render renders the component
 func (a *AchievementApp) Render() app.UI {
-	// Hardcoded demo data
-	achievements := []Achievement{
-		{ID: 1, Title: "First Steps DEMO", Description: "Complete your first task", Points: 10, Completed: true},
-		{ID: 2, Title: "Getting Started DEMO", Description: "Create your profile", Points: 5, Completed: true},
-		{ID: 3, Title: "Power User DEMO", Description: "Complete 10 tasks", Points: 50, Completed: false},
-	}
-	
 	return app.Div().
 		Class("container").
 		Body(
 			app.Header().
 				Class("header").
 				Body(
-					app.H1().Text("🏆 Achievement Keeper v2 UPDATED"),
+					app.H1().Text("🏆 Achievement Keeper"),
 					app.P().
 						Class("subtitle").
 						Text("Track your gaming achievements"),
@@ -47,7 +95,7 @@ func (a *AchievementApp) Render() app.UI {
 			app.Main().
 				Class("main").
 				Body(
-					a.renderContent(achievements),
+					a.renderContent(),
 				),
 			app.Footer().
 				Class("footer").
@@ -57,21 +105,43 @@ func (a *AchievementApp) Render() app.UI {
 		)
 }
 
-func (a *AchievementApp) renderContent(achievements []Achievement) app.UI {
-	if len(achievements) == 0 {
+func (a *AchievementApp) renderContent() app.UI {
+	if a.loading {
+		return app.Div().
+			Class("loading").
+			Body(
+				app.P().Text("Loading achievements..."),
+			)
+	}
+
+	if a.error != "" {
+		return app.Div().
+			Class("error").
+			Body(
+				app.P().Text("Error: "+a.error),
+				app.Button().
+					Text("Retry").
+					OnClick(func(ctx app.Context, e app.Event) {
+						a.error = ""
+						a.loadAchievements(ctx)
+					}),
+			)
+	}
+
+	if len(a.achievements) == 0 {
 		return app.Div().
 			Class("empty").
 			Body(
-				app.P().Text("No achievements found"),
+				app.P().Text("No achievements yet. Add some achievements to get started!"),
 			)
 	}
 
 	return app.Div().
 		Class("achievements-list").
 		Body(
-			app.Range(achievements).Slice(func(i int) app.UI {
-				achievement := achievements[i]
-				return a.renderAchievement(&achievement)
+			app.Range(a.achievements).Slice(func(i int) app.UI {
+				achievement := &a.achievements[i]
+				return a.renderAchievement(achievement)
 			}),
 		)
 }
@@ -103,7 +173,11 @@ func (a *AchievementApp) renderAchievement(achievement *Achievement) app.UI {
 						Body(
 							app.Input().
 								Type("checkbox").
-								Checked(achievement.Completed),
+								Checked(achievement.Completed).
+								OnChange(func(ctx app.Context, e app.Event) {
+									achievement.Completed = !achievement.Completed
+									a.Update()
+								}),
 							app.Span().Text(" Completed"),
 						),
 				),

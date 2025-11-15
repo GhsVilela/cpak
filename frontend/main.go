@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	// Register the main component - using V2 with proper API integration
-	goapp.Route("/", &app.AchievementAppV2{})
+	// Register the main component
+	goapp.Route("/", &app.AchievementApp{})
 	goapp.RunWhenOnBrowser()
 }
