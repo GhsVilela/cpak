@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for cpak application
 
 # Stage 1: Build frontend WASM
-FROM golang:1.24.10-alpine AS wasm-builder
+FROM golang:1.21-alpine AS wasm-builder
 
 WORKDIR /build
 
@@ -16,7 +16,7 @@ COPY frontend/ ./frontend/
 RUN GOARCH=wasm GOOS=js go build -o web/app.wasm ./frontend
 
 # Stage 2: Build backend binary
-FROM golang:1.24.10-alpine AS backend-builder
+FROM golang:1.21-alpine AS backend-builder
 
 WORKDIR /build
 
