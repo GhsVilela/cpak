@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+.github
+
+# Build artifacts
+cpak
+cpak-mongo
+*.exe
+*.test
+*.out
+
+# Documentation
+README.md
+LICENSE
+*.md
+
+# Development files
+.env
+.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Scripts (not needed in container)
+build.sh
+run-with-mongo.sh
+
+# Test files
+*_test.go
+
+# Temporary files
+tmp/
+*.tmp
