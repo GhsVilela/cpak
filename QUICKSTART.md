@@ -73,7 +73,7 @@ See [.devcontainer/README.md](.devcontainer/README.md) for full details.
 docker run -d -p 27017:27017 --name mongo mongo:7
 
 # 2. Build and run
-./build.sh
+./scripts/build.sh
 ./cpak
 
 # 3. Open: http://localhost:8081

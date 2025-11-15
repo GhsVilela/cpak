@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-
 	"github.com/maxence-charriere/go-app/v9/pkg/app"
 )
 
