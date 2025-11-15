@@ -1,39 +1,44 @@
 #!/bin/bash
 set -e
 
-echo "Starting Achievement Keeper with MongoDB..."
+echo "Starting Achievement Keeper..."
 echo ""
 
-# Check if docker-compose is available
-if ! command -v docker-compose &> /dev/null && ! command -v docker &> /dev/null; then
+# Check if docker compose is available
+if ! command -v docker &> /dev/null; then
     echo "Error: Docker is not installed or not running"
-    echo "Please install Docker and Docker Compose to use MongoDB"
-    echo ""
-    echo "Alternatively, you can:"
-    echo "1. Install MongoDB locally"
-    echo "2. Set MONGODB_URI environment variable"
-    echo "3. Run the application"
+    echo "Please install Docker and Docker Compose"
     exit 1
 fi
 
-# Start MongoDB with docker-compose
-echo "Starting MongoDB container..."
+# Start the complete stack with docker compose
+echo "Starting MongoDB and application containers..."
 if command -v docker-compose &> /dev/null; then
-    docker-compose up -d mongodb
+    docker-compose up -d
 else
-    docker compose up -d mongodb
+    docker compose up -d
 fi
 
-echo "Waiting for MongoDB to be ready..."
-sleep 5
+echo ""
+echo "Waiting for services to be ready..."
+sleep 10
 
-# Set MongoDB URI
-export MONGODB_URI="mongodb://localhost:27017"
+# Check if containers are running
+if command -v docker-compose &> /dev/null; then
+    docker-compose ps
+else
+    docker compose ps
+fi
 
 echo ""
-echo "MongoDB is running on port 27017"
-echo "Starting application..."
+echo "✅ Achievement Keeper is running!"
 echo ""
-
-# Run the application
-./cpak
+echo "Access the application at:"
+echo "  - Frontend UI: http://localhost:8081"
+echo "  - Backend API: http://localhost:8080"
+echo ""
+echo "To view logs:"
+echo "  docker compose logs -f"
+echo ""
+echo "To stop:"
+echo "  docker compose down"
