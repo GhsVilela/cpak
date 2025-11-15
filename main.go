@@ -26,8 +26,8 @@ func main() {
 
 	// Configure the go-app handler
 	handler := &app.Handler{
-		Name:         "Achievement Keeper",
-		Description:  "Cross Platform Achievement Keeper",
+		Name:        "Achievement Keeper",
+		Description: "Cross Platform Achievement Keeper",
 		RawHeaders: []string{
 			`<meta name="viewport" content="width=device-width, initial-scale=1">`,
 		},
@@ -37,7 +37,6 @@ func main() {
 		Icon: app.Icon{
 			Default: "/web/static/icon.png",
 		},
-		Resources: app.LocalDir("web"),
 	}
 
 	// Start backend API server with MongoDB
@@ -67,10 +66,10 @@ func main() {
 	// Create frontend server
 	frontendMux := http.NewServeMux()
 	
-	// Serve static files
+	// Serve static files and WASM
 	frontendMux.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.Dir("web"))))
 	
-	// Serve the go-app PWA
+	// Serve the go-app PWA at root
 	frontendMux.Handle("/", handler)
 
 	frontendServer := &http.Server{
