@@ -33,3 +33,6 @@ go.work.sum
 
 # Binary
 cpak
+
+# WASM build output
+web/app.wasm
