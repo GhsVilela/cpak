@@ -6,7 +6,9 @@ A full-stack Go application demonstrating backend API with Echo framework and fr
 
 - **Backend**: RESTful API built with [Echo](https://echo.labstack.com/)
   - CRUD operations for achievements
-  - In-memory data store
+  - **MongoDB integration** with automatic seeding from external API
+  - **Data persistence** - fetches from JSONPlaceholder API on first run, then uses database
+  - In-memory fallback option for quick testing
   - CORS support for frontend communication
   - Health check endpoint
 
@@ -16,14 +18,23 @@ A full-stack Go application demonstrating backend API with Echo framework and fr
   - Responsive design
   - Beautiful gradient styling
 
+### Data Flow
+
+1. **First run**: Application checks if MongoDB is empty
+2. **External API**: Fetches sample data from JSONPlaceholder API (real external API)
+3. **Transformation**: Converts external data to achievement format
+4. **Persistence**: Saves to MongoDB database
+5. **Subsequent runs**: Retrieves data directly from MongoDB (no external API calls)
+
 ## API Endpoints
 
-- `GET /api/achievements` - Get all achievements
+- `GET /api/achievements` - Get all achievements (from MongoDB)
 - `GET /api/achievements/:id` - Get a specific achievement
 - `POST /api/achievements` - Create a new achievement
 - `PUT /api/achievements/:id` - Update an achievement
 - `DELETE /api/achievements/:id` - Delete an achievement
-- `GET /api/health` - Health check
+- `POST /api/seed` - Manually trigger external API fetch and database seeding
+- `GET /api/health` - Health check (includes database status)
 
 ## Getting Started
 
@@ -46,22 +57,50 @@ go mod download
 
 3. Build the application:
 
-**Option A: Using the build script (recommended)**
+**Option A: With MongoDB (recommended for production)**
 ```bash
 chmod +x build.sh
+./build.sh --mongo
+```
+
+**Option B: In-memory version (quick testing)**
+```bash
 ./build.sh
 ```
 
-**Option B: Manual build**
+**Option C: Manual build**
 ```bash
 # Build frontend WASM
 GOARCH=wasm GOOS=js go build -o web/app.wasm ./frontend
 
-# Build main application
-go build -o cpak .
+# Build main application (MongoDB version)
+go build -o cpak main_v2.go
+
+# OR build in-memory version
+go build -o cpak main.go
 ```
 
 ### Running the Application
+
+**With MongoDB (Recommended)**
+
+1. Start MongoDB using Docker:
+```bash
+docker-compose up -d mongodb
+```
+
+2. Run the application:
+```bash
+./run-with-mongo.sh
+```
+
+OR set the MongoDB URI manually:
+```bash
+export MONGODB_URI="mongodb://localhost:27017"
+./cpak
+```
+
+**Without MongoDB (In-memory)**
 
 Run the application:
 ```bash
@@ -73,6 +112,15 @@ This will start:
 - Frontend server on `http://localhost:8081`
 
 Open your browser and navigate to `http://localhost:8081` to see the application.
+
+**First Run with MongoDB:**
+- Application automatically fetches data from JSONPlaceholder API
+- Transforms and saves to MongoDB
+- Shows ~10 sample achievements
+
+**Subsequent Runs:**
+- Data is retrieved from MongoDB (no external API calls)
+- Fast and efficient
 
 ### Development
 
@@ -92,7 +140,7 @@ When making changes:
 You can test the API endpoints using curl:
 
 ```bash
-# Get all achievements
+# Get all achievements (from MongoDB)
 curl http://localhost:8080/api/achievements
 
 # Get a specific achievement
@@ -110,6 +158,12 @@ curl -X PUT http://localhost:8080/api/achievements/1 \
 
 # Delete an achievement
 curl -X DELETE http://localhost:8080/api/achievements/3
+
+# Manually trigger external API seeding
+curl -X POST http://localhost:8080/api/seed
+
+# Check health (includes database status)
+curl http://localhost:8080/api/health
 ```
 
 ## Project Structure
@@ -133,8 +187,11 @@ cpak/
 ## Technologies Used
 
 - **Backend**: [Echo v4](https://echo.labstack.com/) - High performance, extensible, minimalist Go web framework
+- **Database**: [MongoDB](https://www.mongodb.com/) - Document database for data persistence
+- **External API**: [JSONPlaceholder](https://jsonplaceholder.typicode.com/) - Fake REST API for testing and prototyping
 - **Frontend**: [go-app.dev v9](https://go-app.dev/) - A package to build progressive web apps (PWA) with Go programming language and WebAssembly
 - **Language**: Go 1.21+
+- **Containerization**: Docker & Docker Compose for MongoDB
 
 ## CI/CD
 
