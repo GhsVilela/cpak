@@ -24,23 +24,6 @@ func main() {
 		log.Printf("MONGODB_URI not set, using default: %s", mongoURI)
 	}
 
-	// Configure the go-app handler
-	// Resources are served at /web/ by the file server below
-	handler := &app.Handler{
-		Name:        "Achievement Keeper",
-		Description: "Cross Platform Achievement Keeper",
-		RawHeaders: []string{
-			`<meta name="viewport" content="width=device-width, initial-scale=1">`,
-		},
-		Styles: []string{
-			"/web/static/styles.css",
-		},
-		Icon: app.Icon{
-			Default: "/web/static/icon.png",
-		},
-		Resources: app.CustomProvider("", "/web"),
-	}
-
 	// Start backend API server with MongoDB
 	backendServer, err := backend.NewServer(mongoURI)
 	if err != nil {
@@ -65,18 +48,25 @@ func main() {
 	// Give backend a moment to start
 	time.Sleep(500 * time.Millisecond)
 
-	// Create frontend server
-	frontendMux := http.NewServeMux()
-	
-	// Serve static files and WASM at /web/ path
-	frontendMux.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.Dir("web"))))
-	
-	// Serve the go-app PWA at root - it will generate HTML that loads from /web/
-	frontendMux.Handle("/", handler)
+	// Configure the go-app handler to serve everything
+	handler := &app.Handler{
+		Name:        "Achievement Keeper",
+		Description: "Cross Platform Achievement Keeper",
+		RawHeaders: []string{
+			`<meta name="viewport" content="width=device-width, initial-scale=1">`,
+		},
+		Styles: []string{
+			"/web/static/styles.css",
+		},
+		Icon: app.Icon{
+			Default: "/web/static/icon.png",
+		},
+		Resources: app.LocalDir(""),
+	}
 
 	frontendServer := &http.Server{
 		Addr:    ":8081",
-		Handler: frontendMux,
+		Handler: handler,
 	}
 
 	// Start frontend server in a goroutine
