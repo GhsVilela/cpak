@@ -19,14 +19,18 @@ import (
 func main() {
 	// Configure the go-app handler
 	handler := &app.Handler{
-		Name:        "Achievement Keeper",
-		Description: "Cross Platform Achievement Keeper",
+		Name:         "Achievement Keeper",
+		Description:  "Cross Platform Achievement Keeper",
+		RawHeaders: []string{
+			`<meta name="viewport" content="width=device-width, initial-scale=1">`,
+		},
 		Styles: []string{
 			"/web/static/styles.css",
 		},
 		Icon: app.Icon{
 			Default: "/web/static/icon.png",
 		},
+		Resources: app.LocalDir("web"),
 	}
 
 	// Start backend API server in a goroutine

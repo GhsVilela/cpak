@@ -45,7 +45,19 @@ go mod download
 ```
 
 3. Build the application:
+
+**Option A: Using the build script (recommended)**
 ```bash
+chmod +x build.sh
+./build.sh
+```
+
+**Option B: Manual build**
+```bash
+# Build frontend WASM
+GOARCH=wasm GOOS=js go build -o web/app.wasm ./frontend
+
+# Build main application
 go build -o cpak .
 ```
 
@@ -61,6 +73,19 @@ This will start:
 - Frontend server on `http://localhost:8081`
 
 Open your browser and navigate to `http://localhost:8081` to see the application.
+
+### Development
+
+The application consists of two main parts:
+
+1. **Backend (Echo)**: RESTful API server located in `/backend`
+2. **Frontend (go-app.dev)**: Progressive Web App located in `/frontend`
+
+When making changes:
+- Modify backend code in `/backend/server.go`
+- Modify frontend code in `/frontend/app/`
+- Rebuild using `./build.sh` or the manual build steps
+- Restart the application
 
 ### Testing the API
 
@@ -110,6 +135,18 @@ cpak/
 - **Backend**: [Echo v4](https://echo.labstack.com/) - High performance, extensible, minimalist Go web framework
 - **Frontend**: [go-app.dev v9](https://go-app.dev/) - A package to build progressive web apps (PWA) with Go programming language and WebAssembly
 - **Language**: Go 1.21+
+
+## CI/CD
+
+The project includes a GitHub Actions workflow that automatically builds the project on every push and pull request. The workflow:
+
+- Sets up Go 1.21
+- Downloads and verifies dependencies
+- Builds both the frontend WASM and backend binary
+- Runs tests (if available)
+- Uploads build artifacts
+
+You can view the build status and download artifacts from the Actions tab in the GitHub repository.
 
 ## License
 

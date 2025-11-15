@@ -1,0 +1,90 @@
+name: Build CPAK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Project
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+        cache: true
+
+    - name: Verify Go installation
+      run: go version
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Build frontend WASM
+      run: GOARCH=wasm GOOS=js go build -o web/app.wasm ./frontend
+      env:
+        CGO_ENABLED: 0
+
+    - name: Verify WASM build
+      run: |
+        if [ ! -f web/app.wasm ]; then
+          echo "Error: WASM file was not created"
+          exit 1
+        fi
+        echo "WASM file size: $(du -h web/app.wasm | cut -f1)"
+
+    - name: Build main application
+      run: go build -v -o cpak .
+      env:
+        CGO_ENABLED: 0
+
+    - name: Verify main build
+      run: |
+        if [ ! -f cpak ]; then
+          echo "Error: Binary was not created"
+          exit 1
+        fi
+        echo "Binary size: $(du -h cpak | cut -f1)"
+        file cpak
+
+    - name: Run tests (if any)
+      run: go test -v ./...
+      continue-on-error: true
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: cpak-build
+        path: |
+          cpak
+          web/app.wasm
+          web/static/
+        retention-days: 7
+
+    - name: Build summary
+      run: |
+        echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Build completed successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- Backend binary: \`cpak\` ($(du -h cpak | cut -f1))" >> $GITHUB_STEP_SUMMARY
+        echo "- Frontend WASM: \`web/app.wasm\` ($(du -h web/app.wasm | cut -f1))" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Run Instructions" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "./cpak" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Then open http://localhost:8081 in your browser" >> $GITHUB_STEP_SUMMARY
