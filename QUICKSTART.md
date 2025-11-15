@@ -35,28 +35,17 @@ docker compose up -d
 
 **Best for**: Developers, testing, quick local runs
 
-**With MongoDB:**
+**MongoDB is required:**
 ```bash
 # 1. Start MongoDB
 docker run -d -p 27017:27017 --name mongo mongo:7
 
 # 2. Build and run
-./build.sh --mongo
+./build.sh
 ./cpak
 
 # 3. Open: http://localhost:8081
 ```
-
-**Without MongoDB (In-Memory):**
-```bash
-# 1. Build and run
-./build.sh
-./cpak
-
-# 2. Open: http://localhost:8081
-```
-
-⚠️ **Note**: In-memory mode doesn't persist data between restarts.
 
 ---
 

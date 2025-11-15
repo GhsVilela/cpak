@@ -1,9 +1,10 @@
 package backend
 
 import (
+	"context"
 	"net/http"
 	"strconv"
-	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -18,55 +19,21 @@ type Achievement struct {
 	Completed   bool   `json:"completed"`
 }
 
-// Store is a simple in-memory store for achievements
-type Store struct {
-	achievements map[int]*Achievement
-	nextID       int
-	mu           sync.RWMutex
-}
-
-// NewStore creates a new achievement store
-func NewStore() *Store {
-	store := &Store{
-		achievements: make(map[int]*Achievement),
-		nextID:       1,
-	}
-	// Add some sample data
-	store.achievements[1] = &Achievement{
-		ID:          1,
-		Title:       "First Steps",
-		Description: "Complete your first task",
-		Points:      10,
-		Completed:   true,
-	}
-	store.achievements[2] = &Achievement{
-		ID:          2,
-		Title:       "Getting Started",
-		Description: "Create your profile",
-		Points:      5,
-		Completed:   true,
-	}
-	store.achievements[3] = &Achievement{
-		ID:          3,
-		Title:       "Power User",
-		Description: "Complete 10 tasks",
-		Points:      50,
-		Completed:   false,
-	}
-	store.nextID = 4
-	return store
-}
-
-// Server wraps the Echo server and store
+// Server wraps the Echo server with MongoDB database
 type Server struct {
-	Echo  *echo.Echo
-	Store *Store
+	Echo *echo.Echo
+	DB   *Database
 }
 
-// NewServer creates a new backend server
-func NewServer() *Server {
+// NewServer creates a new backend server with database
+func NewServer(mongoURI string) (*Server, error) {
 	e := echo.New()
-	store := NewStore()
+	
+	// Connect to database
+	db, err := NewDatabase(mongoURI)
+	if err != nil {
+		return nil, err
+	}
 
 	// Middleware
 	e.Use(middleware.Logger())
@@ -74,8 +41,8 @@ func NewServer() *Server {
 	e.Use(middleware.CORS())
 
 	s := &Server{
-		Echo:  e,
-		Store: store,
+		Echo: e,
+		DB:   db,
 	}
 
 	// Routes
@@ -85,25 +52,53 @@ func NewServer() *Server {
 	e.PUT("/api/achievements/:id", s.updateAchievement)
 	e.DELETE("/api/achievements/:id", s.deleteAchievement)
 	e.GET("/api/health", s.healthCheck)
+	e.POST("/api/seed", s.seedFromExternalAPI)
 
-	return s
+	return s, nil
+}
+
+// InitializeDatabase checks if database is empty and seeds it if needed
+func (s *Server) InitializeDatabase(ctx context.Context) error {
+	count, err := s.DB.CountAchievements(ctx)
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		return s.DB.FetchAndSeedFromExternalAPI(ctx)
+	}
+
+	return nil
 }
 
 // Handler functions
 
 func (s *Server) healthCheck(c echo.Context) error {
+	// Check database connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := s.DB.client.Ping(ctx, nil)
+	status := "healthy"
+	if err != nil {
+		status = "unhealthy"
+	}
+
 	return c.JSON(http.StatusOK, map[string]string{
-		"status": "healthy",
+		"status":   status,
+		"database": "mongodb",
 	})
 }
 
 func (s *Server) getAchievements(c echo.Context) error {
-	s.Store.mu.RLock()
-	defer s.Store.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	achievements := make([]*Achievement, 0, len(s.Store.achievements))
-	for _, a := range s.Store.achievements {
-		achievements = append(achievements, a)
+	achievements, err := s.DB.GetAchievements(ctx)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
 	}
 
 	return c.JSON(http.StatusOK, achievements)
@@ -115,11 +110,17 @@ func (s *Server) getAchievement(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid ID"})
 	}
 
-	s.Store.mu.RLock()
-	defer s.Store.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	achievement, exists := s.Store.achievements[id]
-	if !exists {
+	achievement, err := s.DB.GetAchievement(ctx, id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	if achievement == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "achievement not found"})
 	}
 
@@ -132,12 +133,23 @@ func (s *Server) createAchievement(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
-	s.Store.mu.Lock()
-	defer s.Store.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	achievement.ID = s.Store.nextID
-	s.Store.nextID++
-	s.Store.achievements[achievement.ID] = &achievement
+	// Get the next ID
+	count, err := s.DB.CountAchievements(ctx)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+	achievement.ID = int(count) + 1
+
+	if err := s.DB.CreateAchievement(ctx, &achievement); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
 
 	return c.JSON(http.StatusCreated, achievement)
 }
@@ -153,15 +165,18 @@ func (s *Server) updateAchievement(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
-	s.Store.mu.Lock()
-	defer s.Store.mu.Unlock()
-
-	if _, exists := s.Store.achievements[id]; !exists {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "achievement not found"})
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	achievement.ID = id
-	s.Store.achievements[id] = &achievement
+	if err := s.DB.UpdateAchievement(ctx, id, &achievement); err != nil {
+		if err.Error() == "achievement not found" {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "achievement not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
 
 	return c.JSON(http.StatusOK, achievement)
 }
@@ -172,19 +187,48 @@ func (s *Server) deleteAchievement(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid ID"})
 	}
 
-	s.Store.mu.Lock()
-	defer s.Store.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if _, exists := s.Store.achievements[id]; !exists {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "achievement not found"})
+	if err := s.DB.DeleteAchievement(ctx, id); err != nil {
+		if err.Error() == "achievement not found" {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "achievement not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
 	}
 
-	delete(s.Store.achievements, id)
-
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (s *Server) seedFromExternalAPI(c echo.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := s.DB.FetchAndSeedFromExternalAPI(ctx); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "Successfully seeded database from external API",
+	})
 }
 
 // Start starts the server on the specified address
 func (s *Server) Start(address string) error {
 	return s.Echo.Start(address)
+}
+
+// Shutdown gracefully shuts down the server and closes database connection
+func (s *Server) Shutdown(ctx context.Context) error {
+	// Close database connection
+	if err := s.DB.Close(ctx); err != nil {
+		return err
+	}
+	
+	// Shutdown Echo server
+	return s.Echo.Shutdown(ctx)
 }
