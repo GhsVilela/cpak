@@ -1,0 +1,28 @@
+services:
+  # Development container
+  devcontainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../..:/workspaces:cached
+    command: sleep infinity
+    network_mode: service:mongodb
+    environment:
+      MONGODB_URI: mongodb://localhost:27017
+    depends_on:
+      - mongodb
+
+  # MongoDB for development
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongodb-data:/data/db
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: cpak
+
+volumes:
+  mongodb-data:
