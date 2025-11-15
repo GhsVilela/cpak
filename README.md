@@ -2,6 +2,9 @@
 
 A full-stack Go application demonstrating backend API with Echo framework and frontend with go-app.dev.
 
+> **🚀 Quick Start**: Want to get running in 5 minutes? See [QUICKSTART.md](QUICKSTART.md)  
+> **🐳 Docker/NAS**: Deploying on TrueNAS Scale or NAS? See [TRUENAS-INSTALL.md](TRUENAS-INSTALL.md)
+
 ## Features
 
 - **Backend**: RESTful API built with [Echo](https://echo.labstack.com/)
@@ -38,9 +41,32 @@ A full-stack Go application demonstrating backend API with Echo framework and fr
 
 ## Getting Started
 
-### Prerequisites
+Choose your deployment method:
+
+### 🐳 Docker Deployment (Recommended for Production/NAS)
+
+**For NAS users (TrueNAS Scale, etc.) and production deployment**, use Docker:
+
+```bash
+docker-compose up -d
+```
+
+Then open http://your-server-ip:8081 in your browser.
+
+📘 **Full Docker Guide**: See [DOCKER.md](DOCKER.md) for complete instructions including:
+- TrueNAS Scale deployment
+- Data backup/restore
+- Configuration options
+- Troubleshooting
+
+### 💻 Local Development
+
+**For development or testing without Docker**:
+
+#### Prerequisites
 
 - Go 1.21 or higher
+- MongoDB (optional, in-memory mode available)
 
 ### Installation
 
