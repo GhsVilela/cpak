@@ -48,7 +48,8 @@ func main() {
 	// Give backend a moment to start
 	time.Sleep(500 * time.Millisecond)
 
-	// Configure the go-app handler to serve everything
+	// Configure the go-app handler with proper resource configuration
+	// The handler will serve the PWA and look for resources in the "web" directory
 	handler := &app.Handler{
 		Name:        "Achievement Keeper",
 		Description: "Cross Platform Achievement Keeper",
@@ -61,7 +62,8 @@ func main() {
 		Icon: app.Icon{
 			Default: "/web/static/icon.png",
 		},
-		Resources: app.LocalDir(""),
+		// LocalDir points to where app.wasm is located
+		Resources: app.LocalDir("web"),
 	}
 
 	frontendServer := &http.Server{
