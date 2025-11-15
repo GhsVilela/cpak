@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for cpak application
 
 # Stage 1: Build frontend WASM
-FROM golang:1.21-alpine AS wasm-builder
+FROM golang:1.24.10-alpine AS wasm-builder
 
 WORKDIR /build
 
@@ -16,7 +16,7 @@ COPY frontend/ ./frontend/
 RUN GOARCH=wasm GOOS=js go build -o web/app.wasm ./frontend
 
 # Stage 2: Build backend binary
-FROM golang:1.21-alpine AS backend-builder
+FROM golang:1.24.10-alpine AS backend-builder
 
 WORKDIR /build
 
@@ -31,7 +31,7 @@ COPY . .
 COPY --from=wasm-builder /build/web/app.wasm ./web/app.wasm
 
 # Build the application (MongoDB version)
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o cpak main_v2.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o cpak main.go
 
 # Stage 3: Final runtime image
 FROM alpine:latest

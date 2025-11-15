@@ -31,8 +31,8 @@ docker-compose.yml
 .dockerignore
 
 # Scripts (not needed in container)
-build.sh
-run-with-mongo.sh
+/scripts/build.sh
+/scripts/run.sh
 
 # Test files
 *_test.go

@@ -97,8 +97,8 @@ go mod download
 3. Build the application:
 
 ```bash
-chmod +x build.sh
-./build.sh
+chmod +x ./scripts/build.sh
+./scripts/build.sh
 ```
 
 **Or manual build:**
@@ -121,7 +121,7 @@ docker-compose up -d mongodb
 
 2. Run the application:
 ```bash
-./run-with-mongo.sh
+./run.sh
 ```
 
 OR set the MongoDB URI manually:
@@ -155,7 +155,7 @@ The application consists of two main parts:
 When making changes:
 - Modify backend code in `/backend/server.go`
 - Modify frontend code in `/frontend/app/`
-- Rebuild using `./build.sh` or the manual build steps
+- Rebuild using `./scripts/build.sh` or the manual build steps
 - Restart the application
 
 ### Testing the API
