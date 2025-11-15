@@ -33,7 +33,6 @@ go.work.sum
 
 # Binary
 cpak
-cpak-mongo
 
 # WASM build output
 web/app.wasm

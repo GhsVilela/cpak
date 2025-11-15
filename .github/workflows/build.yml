@@ -46,30 +46,19 @@ jobs:
         fi
         echo "WASM file size: $(du -h web/app.wasm | cut -f1)"
 
-    - name: Build main application (in-memory version)
+    - name: Build main application
       run: go build -v -o cpak main.go
       env:
         CGO_ENABLED: 0
 
-    - name: Build main application (MongoDB version)
-      run: go build -v -o cpak-mongo main_v2.go
-      env:
-        CGO_ENABLED: 0
-
-    - name: Verify builds
+    - name: Verify build
       run: |
         if [ ! -f cpak ]; then
-          echo "Error: In-memory binary was not created"
+          echo "Error: Binary was not created"
           exit 1
         fi
-        if [ ! -f cpak-mongo ]; then
-          echo "Error: MongoDB binary was not created"
-          exit 1
-        fi
-        echo "In-memory binary size: $(du -h cpak | cut -f1)"
-        echo "MongoDB binary size: $(du -h cpak-mongo | cut -f1)"
+        echo "Binary size: $(du -h cpak | cut -f1)"
         file cpak
-        file cpak-mongo
 
     - name: Validate Docker configuration
       run: |
@@ -86,7 +75,6 @@ jobs:
         name: cpak-build
         path: |
           cpak
-          cpak-mongo
           web/app.wasm
           web/static/
           docker-compose.yml

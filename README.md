@@ -9,11 +9,10 @@ A full-stack Go application demonstrating backend API with Echo framework and fr
 
 - **Backend**: RESTful API built with [Echo](https://echo.labstack.com/)
   - CRUD operations for achievements
-  - **MongoDB integration** with automatic seeding from external API
+  - **MongoDB database** (required) with automatic seeding from external API
   - **Data persistence** - fetches from JSONPlaceholder API on first run, then uses database
-  - In-memory fallback option for quick testing
   - CORS support for frontend communication
-  - Health check endpoint
+  - Health check endpoint with database status
 
 - **Frontend**: Progressive Web App built with [go-app.dev](https://go-app.dev/)
   - Displays achievements from the backend API
@@ -66,7 +65,7 @@ Then open http://your-server-ip:8081 in your browser.
 #### Prerequisites
 
 - Go 1.21 or higher
-- MongoDB (optional, in-memory mode available)
+- MongoDB (required)
 
 ### Installation
 
@@ -83,32 +82,23 @@ go mod download
 
 3. Build the application:
 
-**Option A: With MongoDB (recommended for production)**
 ```bash
 chmod +x build.sh
-./build.sh --mongo
-```
-
-**Option B: In-memory version (quick testing)**
-```bash
 ./build.sh
 ```
 
-**Option C: Manual build**
+**Or manual build:**
 ```bash
 # Build frontend WASM
 GOARCH=wasm GOOS=js go build -o web/app.wasm ./frontend
 
-# Build main application (MongoDB version)
-go build -o cpak main_v2.go
-
-# OR build in-memory version
+# Build main application
 go build -o cpak main.go
 ```
 
 ### Running the Application
 
-**With MongoDB (Recommended)**
+**MongoDB is required**
 
 1. Start MongoDB using Docker:
 ```bash
@@ -126,20 +116,13 @@ export MONGODB_URI="mongodb://localhost:27017"
 ./cpak
 ```
 
-**Without MongoDB (In-memory)**
-
-Run the application:
-```bash
-./cpak
-```
-
 This will start:
 - Backend API server on `http://localhost:8080`
 - Frontend server on `http://localhost:8081`
 
 Open your browser and navigate to `http://localhost:8081` to see the application.
 
-**First Run with MongoDB:**
+**First Run:**
 - Application automatically fetches data from JSONPlaceholder API
 - Transforms and saves to MongoDB
 - Shows ~10 sample achievements
