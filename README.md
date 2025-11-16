@@ -96,17 +96,23 @@ cd cpak
 go mod download
 ```
 
-3. Build the application:
+3. Install Templ CLI:
 
 ```bash
-chmod +x ./scripts/build.sh
-./scripts/build.sh
+go install github.com/a-h/templ/cmd/templ@latest
+```
+
+4. Build the application:
+
+```bash
+chmod +x ./build.sh
+./build.sh
 ```
 
 **Or manual build:**
 ```bash
-# Build frontend WASM
-GOARCH=wasm GOOS=js go build -o web/app.wasm ./frontend
+# Generate Go code from Templ templates
+templ generate
 
 # Build main application
 go build -o cpak main.go
@@ -149,15 +155,24 @@ Open your browser and navigate to `http://localhost:8081` to see the application
 
 ### Development
 
-The application consists of two main parts:
+The application consists of three main parts:
 
 1. **Backend (Echo)**: RESTful API server located in `/backend`
-2. **Frontend (go-app.dev)**: Progressive Web App located in `/frontend`
+   - `backend/server.go` - API routes and handlers
+   - `backend/database.go` - MongoDB operations and external API integration
+2. **Frontend (Templ + HTMX)**: Server-side rendered UI located in `/frontend`
+   - `frontend/server.go` - Frontend server with route handlers
+   - `templates/*.templ` - Type-safe HTML templates
+3. **Main Application**: Entry point in `main.go`
+   - Starts both backend and frontend servers
+   - Handles graceful shutdown
 
 When making changes:
-- Modify backend code in `/backend/server.go`
-- Modify frontend code in `/frontend/app/`
-- Rebuild using `./scripts/build.sh` or the manual build steps
+- Modify backend code in `/backend/`
+- Modify frontend logic in `/frontend/server.go`
+- Modify templates in `/templates/*.templ`
+- Run `templ generate` to update template Go code
+- Rebuild using `./build.sh` or `go build`
 - Restart the application
 
 ### Testing the API
@@ -196,15 +211,19 @@ curl http://localhost:8080/api/health
 ```
 cpak/
 ├── backend/
-│   └── server.go           # Echo backend server with API endpoints
+│   ├── server.go           # Echo backend server with API routes
+│   └── database.go         # MongoDB operations and external API client
 ├── frontend/
-│   └── app/
-│       └── app.go          # go-app.dev frontend components
+│   └── server.go           # Frontend server with Templ rendering
+├── templates/
+│   ├── layout.templ        # Base HTML layout
+│   ├── index.templ         # Main page with achievements
+│   └── *_templ.go          # Generated Go code (git-ignored)
 ├── web/
 │   └── static/
 │       ├── styles.css      # CSS styling
 │       └── icon.png        # App icon
-├── main.go                 # Application entry point
+├── main.go                 # Application entry point (starts servers)
 ├── go.mod                  # Go module dependencies
 └── README.md              # This file
 ```
@@ -214,9 +233,10 @@ cpak/
 - **Backend**: [Echo v4](https://echo.labstack.com/) - High performance, extensible, minimalist Go web framework
 - **Database**: [MongoDB](https://www.mongodb.com/) - Document database for data persistence
 - **External API**: [JSONPlaceholder](https://jsonplaceholder.typicode.com/) - Fake REST API for testing and prototyping
-- **Frontend**: [go-app.dev v9](https://go-app.dev/) - A package to build progressive web apps (PWA) with Go programming language and WebAssembly
+- **Frontend**: [Templ](https://templ.guide/) - Type-safe Go HTML templating
+- **Interactivity**: [HTMX](https://htmx.org/) - Modern interactivity without heavy JavaScript
 - **Language**: Go 1.21+
-- **Containerization**: Docker & Docker Compose for MongoDB
+- **Containerization**: Docker & Docker Compose for MongoDB and application
 
 ## CI/CD
 
