@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for cpak application with Templ + HTMX
 
 # Stage 1: Build application binary
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24.10-alpine AS builder
 
 WORKDIR /build
 
@@ -16,7 +16,7 @@ RUN go mod download
 COPY . .
 
 # Generate Go code from Templ templates
-RUN /root/go/bin/templ generate
+RUN /go/bin/templ generate
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o cpak main.go
