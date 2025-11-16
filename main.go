@@ -10,9 +10,7 @@ import (
 	"time"
 
 	"github.com/GhsVilela/cpak/backend"
-	"github.com/GhsVilela/cpak/templates"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/GhsVilela/cpak/frontend"
 )
 
 func main() {
@@ -48,56 +46,9 @@ func main() {
 	// Give backend a moment to start
 	time.Sleep(500 * time.Millisecond)
 
-	// Create frontend server with Templ + HTMX
-	frontendServer := echo.New()
-	frontendServer.Use(middleware.Logger())
-	frontendServer.Use(middleware.Recover())
-
-	// Serve static files
-	frontendServer.Static("/static", "web/static")
-
-	// Frontend routes
-	frontendServer.GET("/", func(c echo.Context) error {
-		// Fetch achievements from backend
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		achievements, err := backendServer.DB.GetAchievements(ctx)
-		if err != nil {
-			log.Printf("Error fetching achievements: %v", err)
-			achievements = []*backend.Achievement{}
-		}
-
-		// Render the index page
-		return templates.Index(achievements).Render(c.Request().Context(), c.Response().Writer)
-	})
-
-	// HTMX endpoint for seeding (returns HTML fragment)
-	frontendServer.POST("/api/seed", func(c echo.Context) error {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := backendServer.DB.FetchAndSeedFromExternalAPI(ctx); err != nil {
-			return templates.ErrorMessage("Failed to seed database: " + err.Error()).Render(c.Request().Context(), c.Response().Writer)
-		}
-
-		// Fetch and return updated achievements list
-		achievements, err := backendServer.DB.GetAchievements(ctx)
-		if err != nil {
-			return templates.ErrorMessage("Failed to fetch achievements: " + err.Error()).Render(c.Request().Context(), c.Response().Writer)
-		}
-
-		return templates.AchievementsList(achievements).Render(c.Request().Context(), c.Response().Writer)
-	})
-
-	// HTMX endpoint for toggling completion (returns updated card)
-	frontendServer.PUT("/api/achievements/:id", func(c echo.Context) error {
-		// This endpoint is handled by the backend server on port 8080
-		// But we'll add a proxy for HTMX to work seamlessly
-		return c.JSON(http.StatusOK, map[string]string{"status": "use backend API at :8080"})
-	})
-
-	// Start frontend server in a goroutine
+	// Create and start frontend server
+	frontendServer := frontend.NewServer(backendServer)
+	
 	go func() {
 		log.Println("Starting frontend server on :8081")
 		log.Println("Open http://localhost:8081 in your browser")
