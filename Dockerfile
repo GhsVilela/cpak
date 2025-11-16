@@ -1,24 +1,12 @@
-# Multi-stage Dockerfile for cpak application
+# Multi-stage Dockerfile for cpak application with Templ + HTMX
 
-# Stage 1: Build frontend WASM
-FROM golang:1.21-alpine AS wasm-builder
-
-WORKDIR /build
-
-# Copy go mod files
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy frontend source
-COPY frontend/ ./frontend/
-
-# Build WASM
-RUN GOARCH=wasm GOOS=js go build -o web/app.wasm ./frontend
-
-# Stage 2: Build backend binary
-FROM golang:1.21-alpine AS backend-builder
+# Stage 1: Build application binary
+FROM golang:1.21-alpine AS builder
 
 WORKDIR /build
+
+# Install templ CLI
+RUN go install github.com/a-h/templ/cmd/templ@latest
 
 # Copy go mod files
 COPY go.mod go.sum ./
@@ -27,10 +15,10 @@ RUN go mod download
 # Copy all source files
 COPY . .
 
-# Copy WASM from previous stage
-COPY --from=wasm-builder /build/web/app.wasm ./web/app.wasm
+# Generate Go code from Templ templates
+RUN /root/go/bin/templ generate
 
-# Build the application (MongoDB version)
+# Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o cpak main.go
 
 # Stage 3: Final runtime image
@@ -42,10 +30,10 @@ RUN apk --no-cache add ca-certificates tzdata wget
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=backend-builder /build/cpak .
+COPY --from=builder /build/cpak .
 
-# Copy web assets
-COPY --from=backend-builder /build/web ./web
+# Copy web assets (static files only, no WASM needed)
+COPY --from=builder /build/web/static ./web/static
 
 # Create non-root user
 RUN addgroup -g 1000 cpak && \

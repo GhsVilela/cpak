@@ -21,7 +21,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24.10'
+        go-version: '1.21'
         cache: true
 
     - name: Verify Go installation
@@ -33,18 +33,19 @@ jobs:
     - name: Verify dependencies
       run: go mod verify
 
-    - name: Build frontend WASM
-      run: GOARCH=wasm GOOS=js go build -o web/app.wasm ./frontend
-      env:
-        CGO_ENABLED: 0
+    - name: Install Templ CLI
+      run: go install github.com/a-h/templ/cmd/templ@latest
 
-    - name: Verify WASM build
+    - name: Generate Templ code
+      run: ~/go/bin/templ generate
+
+    - name: Verify Templ generation
       run: |
-        if [ ! -f web/app.wasm ]; then
-          echo "Error: WASM file was not created"
+        if [ ! -f templates/index_templ.go ]; then
+          echo "Error: Templ files were not generated"
           exit 1
         fi
-        echo "WASM file size: $(du -h web/app.wasm | cut -f1)"
+        echo "✅ Templ files generated successfully"
 
     - name: Build main application
       run: go build -v -o cpak main.go
@@ -75,8 +76,8 @@ jobs:
         name: cpak-build
         path: |
           cpak
-          web/app.wasm
           web/static/
+          templates/*.templ
           docker-compose.yml
           Dockerfile
         retention-days: 7
@@ -87,12 +88,18 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "✅ Build completed successfully!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Technology Stack" >> $GITHUB_STEP_SUMMARY
+        echo "- Backend: Echo framework (Go)" >> $GITHUB_STEP_SUMMARY
+        echo "- Frontend: Templ + HTMX (server-side rendering)" >> $GITHUB_STEP_SUMMARY
+        echo "- Database: MongoDB" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-        echo "- Backend binary: \`cpak\` ($(du -h cpak | cut -f1))" >> $GITHUB_STEP_SUMMARY
-        echo "- Frontend WASM: \`web/app.wasm\` ($(du -h web/app.wasm | cut -f1))" >> $GITHUB_STEP_SUMMARY
+        echo "- Application binary: \`cpak\` ($(du -h cpak | cut -f1))" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Run Instructions" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "docker compose up -d" >> $GITHUB_STEP_SUMMARY
+        echo "# or locally:" >> $GITHUB_STEP_SUMMARY
         echo "./cpak" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
