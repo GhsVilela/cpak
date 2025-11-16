@@ -33,10 +33,10 @@ go.work.sum
 
 # Binary
 cpak
+cpak-test
 
-# WASM build output
-web/app.wasm
+# Templ generated files
+*_templ.go
 
 # Docker volumes
 .docker/
-cpak-test

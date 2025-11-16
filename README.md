@@ -1,6 +1,6 @@
 # cpak - Cross Platform Achievement Keeper
 
-A full-stack Go application demonstrating backend API with Echo framework and frontend with go-app.dev.
+A full-stack Go application demonstrating backend API with Echo framework and modern frontend with Templ + HTMX.
 
 > **🚀 Quick Start**: Want to get running in 5 minutes? See [QUICKSTART.md](QUICKSTART.md)  
 > **🐳 Docker/NAS**: Deploying on TrueNAS Scale or NAS? See [TRUENAS-INSTALL.md](TRUENAS-INSTALL.md)
@@ -14,11 +14,13 @@ A full-stack Go application demonstrating backend API with Echo framework and fr
   - CORS support for frontend communication
   - Health check endpoint with database status
 
-- **Frontend**: Progressive Web App built with [go-app.dev](https://go-app.dev/)
+- **Frontend**: Server-side rendered with [Templ](https://templ.guide/) + [HTMX](https://htmx.org/)
+  - **No WebAssembly** - simple and fast server-side rendering
   - Displays achievements from the backend API
-  - Interactive UI with checkbox to mark achievements as completed
+  - Interactive UI with HTMX for dynamic updates
   - Responsive design
   - Beautiful gradient styling
+  - Minimal JavaScript - HTMX handles all interactivity
 
 ### Data Flow
 
