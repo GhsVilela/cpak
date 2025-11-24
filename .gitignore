@@ -30,3 +30,13 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Binary
+cpak
+cpak-test
+
+# Templ generated files
+*_templ.go
+
+# Docker volumes
+.docker/

@@ -1,0 +1,79 @@
+package templates
+
+import (
+	"github.com/GhsVilela/cpak/backend"
+	"strconv"
+)
+
+templ Index(achievements []*backend.Achievement) {
+	@Layout("Achievement Keeper") {
+		<div class="header">
+			<h1>🏆 Achievement Keeper</h1>
+			<p class="subtitle">Track your gaming achievements</p>
+		</div>
+		
+		<div id="achievements-list" class="achievements-container">
+			@AchievementsList(achievements)
+		</div>
+	}
+}
+
+templ AchievementsList(achievements []*backend.Achievement) {
+	if len(achievements) == 0 {
+		<div class="no-achievements">
+			<p>No achievements found</p>
+			<button 
+				class="btn-primary"
+				hx-post="/api/seed"
+				hx-target="#achievements-list"
+				hx-swap="innerHTML"
+			>
+				Load Achievements
+			</button>
+		</div>
+	} else {
+		<div class="achievements-grid">
+			for _, achievement := range achievements {
+				@AchievementCard(achievement)
+			}
+		</div>
+	}
+}
+
+templ AchievementCard(achievement *backend.Achievement) {
+	<div class="achievement-card" data-id={ strconv.Itoa(achievement.ID) }>
+		<div class="card-header">
+			<h3>{ achievement.Title }</h3>
+			<span class="points">{ strconv.Itoa(achievement.Points) } pts</span>
+		</div>
+		<p class="description">{ achievement.Description }</p>
+		<div class="card-footer">
+			<label class="checkbox-label">
+				<input 
+					type="checkbox"
+					if achievement.Completed {
+						checked
+					}
+					hx-put={ "/api/achievements/" + strconv.Itoa(achievement.ID) }
+					hx-vals='{"completed": "toggle"}'
+					hx-target={ "#achievement-" + strconv.Itoa(achievement.ID) }
+					hx-swap="outerHTML"
+				/>
+				<span>Completed</span>
+			</label>
+		</div>
+	</div>
+}
+
+templ ErrorMessage(message string) {
+	<div class="error-message">
+		<p>{ message }</p>
+	</div>
+}
+
+templ LoadingSpinner() {
+	<div class="loading">
+		<div class="spinner"></div>
+		<p>Loading achievements...</p>
+	</div>
+}
