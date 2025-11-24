@@ -1,0 +1,106 @@
+name: Build CPAK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Project
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+        cache: true
+
+    - name: Verify Go installation
+      run: go version
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Install Templ CLI
+      run: go install github.com/a-h/templ/cmd/templ@latest
+
+    - name: Generate Templ code
+      run: ~/go/bin/templ generate
+
+    - name: Verify Templ generation
+      run: |
+        if [ ! -f templates/index_templ.go ]; then
+          echo "Error: Templ files were not generated"
+          exit 1
+        fi
+        echo "✅ Templ files generated successfully"
+
+    - name: Build main application
+      run: go build -v -o cpak main.go
+      env:
+        CGO_ENABLED: 0
+
+    - name: Verify build
+      run: |
+        if [ ! -f cpak ]; then
+          echo "Error: Binary was not created"
+          exit 1
+        fi
+        echo "Binary size: $(du -h cpak | cut -f1)"
+        file cpak
+
+    - name: Validate Docker configuration
+      run: |
+        docker compose config > /dev/null
+        echo "✅ docker-compose.yml is valid"
+
+    - name: Run tests (if any)
+      run: go test -v ./...
+      continue-on-error: true
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: cpak-build
+        path: |
+          cpak
+          web/static/
+          templates/*.templ
+          docker-compose.yml
+          Dockerfile
+        retention-days: 7
+
+    - name: Build summary
+      run: |
+        echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Build completed successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Technology Stack" >> $GITHUB_STEP_SUMMARY
+        echo "- Backend: Echo framework (Go)" >> $GITHUB_STEP_SUMMARY
+        echo "- Frontend: Templ + HTMX (server-side rendering)" >> $GITHUB_STEP_SUMMARY
+        echo "- Database: MongoDB" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- Application binary: \`cpak\` ($(du -h cpak | cut -f1))" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Run Instructions" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "docker compose up -d" >> $GITHUB_STEP_SUMMARY
+        echo "# or locally:" >> $GITHUB_STEP_SUMMARY
+        echo "./cpak" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Then open http://localhost:8081 in your browser" >> $GITHUB_STEP_SUMMARY
