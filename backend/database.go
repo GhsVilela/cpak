@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -29,13 +30,13 @@ type ExternalAchievement struct {
 }
 
 // NewDatabase creates a new database connection
-func NewDatabase(mongoURI string) (*Database, error) {
+func NewDatabase(mongoURI string, collectionName string) (*Database, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Set client options
 	clientOptions := options.Client().ApplyURI(mongoURI)
-	
+
 	// Connect to MongoDB
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
@@ -51,7 +52,7 @@ func NewDatabase(mongoURI string) (*Database, error) {
 
 	db := &Database{
 		client:     client,
-		collection: client.Database("cpak").Collection("achievements"),
+		collection: client.Database("cpak").Collection(collectionName),
 	}
 
 	return db, nil
@@ -93,9 +94,13 @@ func (db *Database) GetAchievement(ctx context.Context, id int) (*Achievement, e
 
 // CreateAchievement inserts a new achievement
 func (db *Database) CreateAchievement(ctx context.Context, achievement *Achievement) error {
-	_, err := db.collection.InsertOne(ctx, achievement)
-	if err != nil {
-		return fmt.Errorf("failed to insert achievement: %w", err)
+	_, errDelete := db.collection.DeleteOne(ctx, achievement)
+	if errDelete != nil {
+		return fmt.Errorf("failed to delete achievement: %w", errDelete)
+	}
+	_, errInsert := db.collection.InsertOne(ctx, achievement)
+	if errInsert != nil {
+		return fmt.Errorf("failed to insert achievement: %w", errInsert)
 	}
 	return nil
 }
@@ -104,16 +109,16 @@ func (db *Database) CreateAchievement(ctx context.Context, achievement *Achievem
 func (db *Database) UpdateAchievement(ctx context.Context, id int, achievement *Achievement) error {
 	filter := bson.M{"id": id}
 	update := bson.M{"$set": achievement}
-	
+
 	result, err := db.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return fmt.Errorf("failed to update achievement: %w", err)
 	}
-	
+
 	if result.MatchedCount == 0 {
 		return fmt.Errorf("achievement not found")
 	}
-	
+
 	return nil
 }
 
@@ -123,11 +128,11 @@ func (db *Database) DeleteAchievement(ctx context.Context, id int) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete achievement: %w", err)
 	}
-	
+
 	if result.DeletedCount == 0 {
 		return fmt.Errorf("achievement not found")
 	}
-	
+
 	return nil
 }
 
@@ -143,7 +148,7 @@ func (db *Database) CountAchievements(ctx context.Context) (int64, error) {
 // FetchAndSeedFromExternalAPI fetches data from JSONPlaceholder API and seeds the database
 func (db *Database) FetchAndSeedFromExternalAPI(ctx context.Context) error {
 	log.Println("Fetching data from external API (JSONPlaceholder)...")
-	
+
 	// Fetch todos from JSONPlaceholder (simulating achievements)
 	resp, err := http.Get("https://jsonplaceholder.typicode.com/todos?_limit=10")
 	if err != nil {
@@ -175,7 +180,7 @@ func (db *Database) FetchAndSeedFromExternalAPI(ctx context.Context) error {
 		if ext.Completed {
 			points = 20
 		}
-		
+
 		achievements[i] = &Achievement{
 			ID:          ext.ID,
 			Title:       fmt.Sprintf("Task #%d", ext.ID),
@@ -195,5 +200,34 @@ func (db *Database) FetchAndSeedFromExternalAPI(ctx context.Context) error {
 	}
 
 	log.Printf("Successfully seeded %d achievements from external API", len(achievements))
+	return nil
+}
+
+func (db *Database) SearchSavedOwnedSteamGamesBySteamId(ctx context.Context, steamId string) (*OwnedGames, error) {
+
+	id, parseErr := strconv.ParseUint(steamId, 10, 64)
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse steamId to uint: %w", parseErr)
+	}
+
+	log.Println("Fetching data on mongoDB for steamId: ", uint32(id))
+
+	var gameDatabase GameDatabase
+	err := db.collection.FindOne(ctx, bson.M{"steamId": uint32(id)}).Decode(&gameDatabase)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query owned games: %w", err)
+	}
+	return &gameDatabase.OwnedGames, nil
+}
+
+func (db *Database) SaveOwnedSteamGames(ctx context.Context, games *GameDatabase) error {
+	_, errInsert := db.collection.InsertOne(ctx, games)
+	if errInsert != nil {
+		return fmt.Errorf("failed to insert data: %w", errInsert)
+	}
 	return nil
 }

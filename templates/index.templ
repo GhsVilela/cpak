@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-templ Index(achievements []*backend.Achievement) {
+templ Index() {
 	@Layout("Achievement Keeper") {
 		<div class="header">
 			<h1>🏆 Achievement Keeper</h1>
@@ -13,7 +13,13 @@ templ Index(achievements []*backend.Achievement) {
 		</div>
 		
 		<div id="achievements-list" class="achievements-container">
-			@AchievementsList(achievements)
+			<button 
+				class="btn-primary"
+				hx-post="/api/seed"
+				hx-target="#achievements-list"
+				hx-swap="innerHTML">
+				Load Achievements
+			</button>
 		</div>
 	}
 }

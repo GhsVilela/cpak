@@ -28,9 +28,9 @@ type Server struct {
 // NewServer creates a new backend server with database
 func NewServer(mongoURI string) (*Server, error) {
 	e := echo.New()
-	
+
 	// Connect to database
-	db, err := NewDatabase(mongoURI)
+	db, err := NewDatabase(mongoURI, "steam-owned-games")
 	if err != nil {
 		return nil, err
 	}
@@ -46,13 +46,14 @@ func NewServer(mongoURI string) (*Server, error) {
 	}
 
 	// Routes
-	e.GET("/api/achievements", s.getAchievements)
-	e.GET("/api/achievements/:id", s.getAchievement)
-	e.POST("/api/achievements", s.createAchievement)
-	e.PUT("/api/achievements/:id", s.updateAchievement)
-	e.DELETE("/api/achievements/:id", s.deleteAchievement)
-	e.GET("/api/health", s.healthCheck)
-	e.POST("/api/seed", s.seedFromExternalAPI)
+	e.GET("/api/owned-steam-games", s.GetOwnedSteamGames)
+	// e.GET("/api/achievements", s.getAchievements)
+	// e.GET("/api/achievements/:id", s.getAchievement)
+	// e.POST("/api/achievements", s.createAchievement)
+	// e.PUT("/api/achievements/:id", s.updateAchievement)
+	// e.DELETE("/api/achievements/:id", s.deleteAchievement)
+	e.HEAD("/api/health", s.healthCheck)
+	// e.POST("/api/seed", s.seedFromExternalAPI)
 
 	return s, nil
 }
@@ -228,7 +229,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if err := s.DB.Close(ctx); err != nil {
 		return err
 	}
-	
+
 	// Shutdown Echo server
 	return s.Echo.Shutdown(ctx)
 }
