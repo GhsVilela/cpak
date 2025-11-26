@@ -26,13 +26,18 @@ type GameDatabase struct {
 }
 
 type Game struct {
-	AppID uint32 `json:"appid"`
-	Name  string `json:"name"`
+	AppID               uint32 `json:"appid"`
+	Name                string `json:"name"`
+	Playtime            uint32 `json:"playtime_forever"`
+	PlaytimeOnSteamDeck uint32 `json:"playtime_deck_forever"`
+	LastPlayed          uint64 `json:"rtime_last_played"`
+	IconUrl             string `json:"img_icon_url"`
 }
 
 type OwnedGames struct {
 	Response struct {
-		Games []Game `json:"games"`
+		GameCount uint32 `json:"game_count"`
+		Games     []Game `json:"games"`
 	} `json:"response"`
 }
 
@@ -117,9 +122,9 @@ func (s *Server) GetOwnedSteamGames(c echo.Context) error {
 			})
 		}
 
-		return c.JSON(http.StatusOK, parsed.Response.Games)
+		return c.JSON(http.StatusOK, parsed)
 	}
-	return c.JSON(http.StatusOK, ownedGamesFromDb.Response.Games)
+	return c.JSON(http.StatusOK, ownedGamesFromDb)
 }
 
 func (s *Server) GetPlayerAchievements(c echo.Context) error {
