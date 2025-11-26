@@ -21,7 +21,7 @@ const (
 
 type GameDatabase struct {
 	ID         primitive.ObjectID `bson:"_id"`
-	SteamId    uint32             `bson:"steamId"`
+	SteamId    uint64             `bson:"steamId"`
 	OwnedGames OwnedGames         `bson:"ownedGames"`
 }
 
@@ -34,6 +34,32 @@ type OwnedGames struct {
 	Response struct {
 		Games []Game `json:"games"`
 	} `json:"response"`
+}
+
+type StatusResult struct {
+	PlayerStats struct {
+		Success      bool   `json:"success"`
+		GameName     string `json:"gameName"`
+		Achievements []struct {
+			APIName    string `json:"apiname"`
+			Achieved   int    `json:"achieved"`
+			UnlockTime int64  `json:"unlocktime"`
+		} `json:"achievements"`
+	} `json:"playerstats"`
+}
+
+type SchemaResult struct {
+	Game struct {
+		Stats struct {
+			Achievements []struct {
+				Name        string `json:"name"`
+				DisplayName string `json:"displayName"`
+				Description string `json:"description"`
+				Icon        string `json:"icon"`
+				IconGray    string `json:"icongray"`
+			} `json:"achievements"`
+		} `json:"availableGameStats"`
+	} `json:"game"`
 }
 
 func (s *Server) GetOwnedSteamGames(c echo.Context) error {
@@ -83,7 +109,7 @@ func (s *Server) GetOwnedSteamGames(c echo.Context) error {
 
 		if err := s.DB.SaveOwnedSteamGames(ctx, &GameDatabase{
 			ID:         mongoDbId,
-			SteamId:    uint32(steamId),
+			SteamId:    steamId,
 			OwnedGames: parsed,
 		}); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -94,4 +120,91 @@ func (s *Server) GetOwnedSteamGames(c echo.Context) error {
 		return c.JSON(http.StatusOK, parsed.Response.Games)
 	}
 	return c.JSON(http.StatusOK, ownedGamesFromDb.Response.Games)
+}
+
+func (s *Server) GetPlayerAchievements(c echo.Context) error {
+	appid, err := strconv.Atoi(c.Param("appid"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid appid"})
+	}
+
+	statusURL := fmt.Sprintf(
+		"https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/?key=%s&steamid=%s&appid=%d",
+		STEAM_KEY, STEAM_ID, appid,
+	)
+
+	statusResp, err := http.Get(statusURL)
+	if err != nil {
+		return fmt.Errorf("failed to fetch from steam API: %w", err)
+	}
+	defer statusResp.Body.Close()
+
+	data, _ := io.ReadAll(statusResp.Body)
+	var statusResult StatusResult
+	json.Unmarshal(data, &statusResult)
+
+	if !statusResult.PlayerStats.Success {
+		return fmt.Errorf("no achievments for appid: %d ", appid)
+	}
+
+	schemaResult, schemaErr := getSchemaForGame(uint32(appid))
+
+	if schemaErr != nil {
+		return fmt.Errorf("%w", err)
+	}
+
+	enriched := mergedAchievementWithMetadata(statusResult, *schemaResult)
+
+	steamId, parseErr := strconv.ParseUint(STEAM_ID, 10, 64)
+
+	if parseErr != nil {
+		return fmt.Errorf("failed to parse steamId to uint: %w", parseErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"appid":        appid,
+		"steamId":      steamId,
+		"gameName":     statusResult.PlayerStats.GameName,
+		"achievements": enriched,
+	})
+}
+
+func getSchemaForGame(appid uint32) (*SchemaResult, error) {
+	schemaURL := fmt.Sprintf(
+		"https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=%s&appid=%d",
+		STEAM_KEY, appid,
+	)
+
+	schemaResp, err := http.Get(schemaURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch from steam API: %w", err)
+	}
+	defer schemaResp.Body.Close()
+
+	data, _ := io.ReadAll(schemaResp.Body)
+	var parsed SchemaResult
+	json.Unmarshal(data, &parsed)
+
+	return &parsed, nil
+}
+
+func mergedAchievementWithMetadata(statusResult StatusResult, schemaResult SchemaResult) any {
+	schemaMap := map[string]any{}
+	for _, s := range schemaResult.Game.Stats.Achievements {
+		schemaMap[s.Name] = s
+	}
+
+	enriched := []any{}
+	for _, a := range statusResult.PlayerStats.Achievements {
+		if info, ok := schemaMap[a.APIName]; ok {
+			enriched = append(enriched, map[string]any{
+				"apiname":    a.APIName,
+				"achieved":   a.Achieved,
+				"unlocktime": a.UnlockTime,
+				"meta":       info,
+			})
+		}
+	}
+
+	return enriched
 }

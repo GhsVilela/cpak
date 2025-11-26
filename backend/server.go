@@ -46,8 +46,8 @@ func NewServer(mongoURI string) (*Server, error) {
 	}
 
 	// Routes
-	e.GET("/api/owned-steam-games", s.GetOwnedSteamGames)
-	// e.GET("/api/achievements", s.getAchievements)
+	e.GET("/api/steam/owned-games", s.GetOwnedSteamGames)
+	e.GET("/api/steam/achievements/:appid", s.GetPlayerAchievements)
 	// e.GET("/api/achievements/:id", s.getAchievement)
 	// e.POST("/api/achievements", s.createAchievement)
 	// e.PUT("/api/achievements/:id", s.updateAchievement)

@@ -211,10 +211,10 @@ func (db *Database) SearchSavedOwnedSteamGamesBySteamId(ctx context.Context, ste
 		return nil, fmt.Errorf("failed to parse steamId to uint: %w", parseErr)
 	}
 
-	log.Println("Fetching data on mongoDB for steamId: ", uint32(id))
+	log.Println("Fetching data on mongoDB for steamId: ", id)
 
 	var gameDatabase GameDatabase
-	err := db.collection.FindOne(ctx, bson.M{"steamId": uint32(id)}).Decode(&gameDatabase)
+	err := db.collection.FindOne(ctx, bson.M{"steamId": id}).Decode(&gameDatabase)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
