@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 )
 
 const (
-	STEAM_KEY string = "STEAM_API_KEY"
+	STEAM_KEY string = "STEAM_KEY"
 	STEAM_ID  string = "STEAM_ID"
 )
 
@@ -35,6 +36,13 @@ type Game struct {
 }
 
 type OwnedGames struct {
+	Response struct {
+		GameCount uint32 `json:"game_count"`
+		Games     []Game `json:"games"`
+	} `json:"response"`
+}
+
+type PlayedGames struct {
 	Response struct {
 		GameCount uint32 `json:"game_count"`
 		Games     []Game `json:"games"`
@@ -70,7 +78,8 @@ type SchemaResult struct {
 func (s *Server) GetOwnedSteamGames(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	ownedGamesFromDb, searchErr := s.DB.SearchSavedOwnedSteamGamesBySteamId(ctx, STEAM_ID)
+	s.DB.collection = s.DB.database.Collection("steam-owned-games")
+	ownedGamesFromDb, searchErr := s.DB.SearchSavedOwnedSteamGamesBySteamId(ctx, os.Getenv(STEAM_ID))
 
 	if ownedGamesFromDb == nil || searchErr != nil {
 		log.Println("Fetching data from steam API...")
@@ -80,7 +89,7 @@ func (s *Server) GetOwnedSteamGames(c echo.Context) error {
 
 		url := fmt.Sprintf(
 			"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=%s&steamid=%s&include_appinfo=1&format=json",
-			STEAM_KEY, STEAM_ID,
+			os.Getenv(STEAM_KEY), os.Getenv(STEAM_ID),
 		)
 
 		resp, err := http.Get(url)
@@ -106,7 +115,9 @@ func (s *Server) GetOwnedSteamGames(c echo.Context) error {
 
 		log.Println("MongoDB Id: ", mongoDbId)
 
-		steamId, parseErr := strconv.ParseUint(STEAM_ID, 10, 64)
+		steamId, parseErr := strconv.ParseUint(os.Getenv(STEAM_ID), 10, 64)
+
+		parsed = appendSteamLinkToImgIconUrl(parsed)
 
 		if parseErr != nil {
 			return fmt.Errorf("failed to parse steamId to uint: %w", parseErr)
@@ -135,7 +146,7 @@ func (s *Server) GetPlayerAchievements(c echo.Context) error {
 
 	statusURL := fmt.Sprintf(
 		"https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/?key=%s&steamid=%s&appid=%d",
-		STEAM_KEY, STEAM_ID, appid,
+		os.Getenv(STEAM_KEY), os.Getenv(STEAM_ID), appid,
 	)
 
 	statusResp, err := http.Get(statusURL)
@@ -160,7 +171,7 @@ func (s *Server) GetPlayerAchievements(c echo.Context) error {
 
 	enriched := mergedAchievementWithMetadata(statusResult, *schemaResult)
 
-	steamId, parseErr := strconv.ParseUint(STEAM_ID, 10, 64)
+	steamId, parseErr := strconv.ParseUint(os.Getenv(STEAM_ID), 10, 64)
 
 	if parseErr != nil {
 		return fmt.Errorf("failed to parse steamId to uint: %w", parseErr)
@@ -177,7 +188,7 @@ func (s *Server) GetPlayerAchievements(c echo.Context) error {
 func getSchemaForGame(appid uint32) (*SchemaResult, error) {
 	schemaURL := fmt.Sprintf(
 		"https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=%s&appid=%d",
-		STEAM_KEY, appid,
+		os.Getenv(STEAM_KEY), appid,
 	)
 
 	schemaResp, err := http.Get(schemaURL)
@@ -212,4 +223,17 @@ func mergedAchievementWithMetadata(statusResult StatusResult, schemaResult Schem
 	}
 
 	return enriched
+}
+
+func appendSteamLinkToImgIconUrl(ownedGames OwnedGames) OwnedGames {
+
+	prefix := "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/"
+	suffix := ".jpg"
+
+	for i := range ownedGames.Response.Games {
+		ownedGames.Response.Games[i].IconUrl =
+			prefix + fmt.Sprintf("%d", ownedGames.Response.Games[i].AppID) + "/" + ownedGames.Response.Games[i].IconUrl + suffix
+	}
+
+	return ownedGames
 }

@@ -18,6 +18,7 @@ import (
 // Database handles MongoDB operations
 type Database struct {
 	client     *mongo.Client
+	database   *mongo.Database
 	collection *mongo.Collection
 }
 
@@ -30,7 +31,7 @@ type ExternalAchievement struct {
 }
 
 // NewDatabase creates a new database connection
-func NewDatabase(mongoURI string, collectionName string) (*Database, error) {
+func NewDatabase(mongoURI string) (*Database, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -50,9 +51,12 @@ func NewDatabase(mongoURI string, collectionName string) (*Database, error) {
 
 	log.Println("Successfully connected to MongoDB")
 
+	database := client.Database("cpak")
+
 	db := &Database{
 		client:     client,
-		collection: client.Database("cpak").Collection(collectionName),
+		database:   database,
+		collection: database.Collection("default"),
 	}
 
 	return db, nil

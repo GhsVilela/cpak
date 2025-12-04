@@ -30,7 +30,7 @@ func NewServer(mongoURI string) (*Server, error) {
 	e := echo.New()
 
 	// Connect to database
-	db, err := NewDatabase(mongoURI, "steam-owned-games")
+	db, err := NewDatabase(mongoURI)
 	if err != nil {
 		return nil, err
 	}

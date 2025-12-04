@@ -10,11 +10,18 @@ import (
 	"time"
 
 	"github.com/GhsVilela/cpak/backend"
+	"github.com/joho/godotenv"
 )
 
 func main() {
 	// Get MongoDB URI from environment variable or use default
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
 	mongoURI := os.Getenv("MONGODB_URI")
+
 	if mongoURI == "" {
 		mongoURI = "mongodb://localhost:27017"
 		log.Printf("MONGODB_URI not set, using default: %s", mongoURI)
