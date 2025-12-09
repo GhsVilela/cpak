@@ -2,11 +2,8 @@ package backend
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -150,62 +147,62 @@ func (db *Database) CountAchievements(ctx context.Context) (int64, error) {
 }
 
 // FetchAndSeedFromExternalAPI fetches data from JSONPlaceholder API and seeds the database
-func (db *Database) FetchAndSeedFromExternalAPI(ctx context.Context) error {
-	log.Println("Fetching data from external API (JSONPlaceholder)...")
+// func (db *Database) FetchAndSeedFromExternalAPI(ctx context.Context) error {
+// 	log.Println("Fetching data from external API (JSONPlaceholder)...")
 
-	// Fetch todos from JSONPlaceholder (simulating achievements)
-	resp, err := http.Get("https://jsonplaceholder.typicode.com/todos?_limit=10")
-	if err != nil {
-		return fmt.Errorf("failed to fetch from external API: %w", err)
-	}
-	defer resp.Body.Close()
+// 	// Fetch todos from JSONPlaceholder (simulating achievements)
+// 	resp, err := http.Get("https://jsonplaceholder.typicode.com/todos?_limit=10")
+// 	if err != nil {
+// 		return fmt.Errorf("failed to fetch from external API: %w", err)
+// 	}
+// 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("external API returned status: %d", resp.StatusCode)
-	}
+// 	if resp.StatusCode != http.StatusOK {
+// 		return fmt.Errorf("external API returned status: %d", resp.StatusCode)
+// 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
-	}
+// 	body, err := io.ReadAll(resp.Body)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to read response body: %w", err)
+// 	}
 
-	var externalData []ExternalAchievement
-	if err := json.Unmarshal(body, &externalData); err != nil {
-		return fmt.Errorf("failed to unmarshal external data: %w", err)
-	}
+// 	var externalData []ExternalAchievement
+// 	if err := json.Unmarshal(body, &externalData); err != nil {
+// 		return fmt.Errorf("failed to unmarshal external data: %w", err)
+// 	}
 
-	log.Printf("Fetched %d items from external API", len(externalData))
+// 	log.Printf("Fetched %d items from external API", len(externalData))
 
-	// Transform external data to our Achievement model
-	achievements := make([]*Achievement, len(externalData))
-	for i, ext := range externalData {
-		// Calculate points based on completion status
-		points := 10
-		if ext.Completed {
-			points = 20
-		}
+// 	// Transform external data to our Achievement model
+// 	achievements := make([]*Achievement, len(externalData))
+// 	for i, ext := range externalData {
+// 		// Calculate points based on completion status
+// 		points := 10
+// 		if ext.Completed {
+// 			points = 20
+// 		}
 
-		achievements[i] = &Achievement{
-			ID:          ext.ID,
-			Title:       fmt.Sprintf("Task #%d", ext.ID),
-			Description: ext.Title,
-			Points:      points,
-			Completed:   ext.Completed,
-		}
-	}
+// 		achievements[i] = &Achievement{
+// 			ID:          ext.ID,
+// 			Title:       fmt.Sprintf("Task #%d", ext.ID),
+// 			Description: ext.Title,
+// 			Points:      points,
+// 			Completed:   ext.Completed,
+// 		}
+// 	}
 
-	// Insert achievements into database
-	log.Println("Saving achievements to MongoDB...")
-	for _, achievement := range achievements {
-		if err := db.CreateAchievement(ctx, achievement); err != nil {
-			log.Printf("Warning: failed to insert achievement %d: %v", achievement.ID, err)
-			// Continue with other achievements
-		}
-	}
+// 	// Insert achievements into database
+// 	log.Println("Saving achievements to MongoDB...")
+// 	for _, achievement := range achievements {
+// 		if err := db.CreateAchievement(ctx, achievement); err != nil {
+// 			log.Printf("Warning: failed to insert achievement %d: %v", achievement.ID, err)
+// 			// Continue with other achievements
+// 		}
+// 	}
 
-	log.Printf("Successfully seeded %d achievements from external API", len(achievements))
-	return nil
-}
+// 	log.Printf("Successfully seeded %d achievements from external API", len(achievements))
+// 	return nil
+// }
 
 func (db *Database) SearchSavedOwnedSteamGamesBySteamId(ctx context.Context, steamId string) (*OwnedGames, error) {
 
@@ -225,7 +222,7 @@ func (db *Database) SearchSavedOwnedSteamGamesBySteamId(ctx context.Context, ste
 		}
 		return nil, fmt.Errorf("failed to query owned games: %w", err)
 	}
-	return &gameDatabase.OwnedGames, nil
+	return gameDatabase.OwnedGames, nil
 }
 
 func (db *Database) SaveOwnedSteamGames(ctx context.Context, games *GameDatabase) error {
