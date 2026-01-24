@@ -1,255 +1,204 @@
-# cpak - Cross Platform Achievement Keeper
+# cpak — Cross Platform Achievement Keeper
 
-A full-stack Go application demonstrating backend API with Echo framework and modern frontend with Templ + HTMX.
-
-> **🚀 Quick Start**: Want to get running in 5 minutes? See [QUICKSTART.md](QUICKSTART.md)  
-> **🐳 Docker/NAS**: Deploying on TrueNAS Scale or NAS? See [TRUENAS-INSTALL.md](TRUENAS-INSTALL.md)
+Self-hosted trophy hunter for Steam, Xbox, and PlayStation achievements.
 
 ## Features
 
-- **Backend**: RESTful API built with [Echo](https://echo.labstack.com/)
-  - CRUD operations for achievements
-  - **MongoDB database** (required) with automatic seeding from external API
-  - **Data persistence** - fetches from JSONPlaceholder API on first run, then uses database
-  - CORS support for frontend communication
-  - Health check endpoint with database status
+- **Multi-Platform Support**: Track achievements from Steam, Xbox, and PlayStation (Steam MVP ready)
+- **Self-Hosted**: Run on your own infrastructure with Docker Compose
+- **100% Filter**: Default view shows only completed games
+- **Responsive Design**: Mobile-ready UI with Tailwind CSS
+- **Automatic Sync**: Daily scheduler updates your achievements
+- **Image Integration**: SteamGridDB support for game artwork
 
-- **Frontend**: Server-side rendered with [Templ](https://templ.guide/) + [HTMX](https://htmx.org/)
-  - **No WebAssembly** - simple and fast server-side rendering
-  - Displays achievements from the backend API
-  - Interactive UI with HTMX for dynamic updates
-  - Responsive design
-  - Beautiful gradient styling
-  - Minimal JavaScript - HTMX handles all interactivity
+## Prerequisites
 
-### Data Flow
+- Docker and Docker Compose
+- Steam API key (get from https://steamcommunity.com/dev/apikey)
+- (Optional) SteamGridDB API key for game images
 
-1. **First run**: Application checks if MongoDB is empty
-2. **External API**: Fetches sample data from JSONPlaceholder API (real external API)
-3. **Transformation**: Converts external data to achievement format
-4. **Persistence**: Saves to MongoDB database
-5. **Subsequent runs**: Retrieves data directly from MongoDB (no external API calls)
+## Quick Start
 
-## API Endpoints
+### Docker Deployment (Recommended)
 
-- `GET /api/achievements` - Get all achievements (from MongoDB)
-- `GET /api/achievements/:id` - Get a specific achievement
-- `POST /api/achievements` - Create a new achievement
-- `PUT /api/achievements/:id` - Update an achievement
-- `DELETE /api/achievements/:id` - Delete an achievement
-- `POST /api/seed` - Manually trigger external API fetch and database seeding
-- `GET /api/health` - Health check (includes database status)
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd cpak
+   ```
 
-## Getting Started
+2. **Start the services**:
+   ```bash
+   docker-compose up -d
+   ```
 
-Choose your deployment method:
+   This will:
+   - Build the Next.js frontend with Node 20 (static export to dist/)
+   - Build and start the Fastify backend API
+   - Start MongoDB database
+   - Start Caddy web server on port 8000
 
-### 🐳 Docker Deployment (Recommended for Production/NAS)
+3. **Access the application**:
+   ```
+   Frontend: http://localhost:8000
+   Setup Wizard: http://localhost:8000/setup
+   API Health: http://localhost:8000/api/health
+   API Version: http://localhost:8000/api/version
+   ```
 
-**For NAS users (TrueNAS Scale, etc.) and production deployment**, use Docker:
+4. **Complete setup wizard**:
+   - Navigate to http://localhost:8000/setup
+   - Enter your Steam API key and Steam ID
+   - (Optional) Add SteamGridDB API key for game images
+   - Click "Create Profile & Sync" to start syncing your achievements
 
-```bash
-docker-compose up -d
+### Configuration
+
+Environment variables can be set in `docker-compose.yml`:
+
+```yaml
+environment:
+  - API_PORT=8080
+  - API_BASE_PATH=/api
+  - MONGO_URI=mongodb://mongo:27017
+  - MONGO_DB=cpak
+  - ALLOWED_ORIGINS=http://localhost:8000
+  - STEAM_API_KEY=${STEAM_API_KEY:-}
+  - STEAMGRID_API_KEY=${STEAMGRID_API_KEY:-}
+  - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-false}
+  - SCHEDULER_CRON=${SCHEDULER_CRON:-0 3 * * *}
 ```
 
-Then open http://your-server-ip:8081 in your browser.
+### Development Setup
 
-📘 **Full Docker Guide**: See [DOCKER.md](DOCKER.md) for complete instructions including:
-- TrueNAS Scale deployment
-- Data backup/restore
-- Configuration options
-- Troubleshooting
+If you want to develop locally without Docker:
+   ```bash
+   cd frontend
+   npm run build
+   ```
 
-### 💻 Local Development
+5. **Start with Docker Compose**:
+   ```bash
+   docker-compose up -d
+   ```
 
-**Option 1: Dev Container (Recommended for Development)**
+6. **Access the app**:
+   - Web UI: http://localhost:8000
+   - API: http://localhost:8000/api
 
-Develop without installing Go locally using VS Code Dev Containers:
+7. **Setup wizard**:
+   - Navigate to http://localhost:8000/setup
+   - Enter your Steam API key (get from https://steamcommunity.com/dev/apikey)
+   - Enter your Steam ID (find at https://steamid.io/)
+   - Click "Continue" to start initial sync
 
-1. Install [VS Code](https://code.visualstudio.com/) and [Docker](https://www.docker.com/products/docker-desktop)
-2. Install the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
-3. Open the project in VS Code
-4. Press `F1` → "Dev Containers: Reopen in Container"
-5. Everything is pre-configured! Start coding immediately.
+## Development
 
-See [.devcontainer/README.md](.devcontainer/README.md) for details.
-
-**Option 2: Local Installation**
-
-For development or testing without Docker:
-
-#### Prerequisites
-
-- Go 1.21 or higher
-- MongoDB (required)
-
-### Installation
-
-1. Clone the repository:
+### Backend (Fastify)
 ```bash
-git clone https://github.com/GhsVilela/cpak.git
-cd cpak
+cd backend
+npm run dev  # Starts on port 8080
 ```
 
-2. Install dependencies:
+### Frontend (Next.js)
 ```bash
-go mod download
+cd frontend
+npm run dev  # Development server on port 3000
+npm run build  # Static export to dist/
 ```
 
-3. Install Templ CLI:
+## Architecture
 
-```bash
-go install github.com/a-h/templ/cmd/templ@latest
-```
-
-4. Build the application:
-
-```bash
-chmod +x ./build.sh
-./build.sh
-```
-
-**Or manual build:**
-```bash
-# Generate Go code from Templ templates
-templ generate
-
-# Build main application
-go build -o cpak main.go
-```
-
-### Running the Application
-
-**MongoDB is required**
-
-1. Start MongoDB using Docker:
-```bash
-docker-compose up -d mongodb
-```
-
-2. Run the application:
-```bash
-./run.sh
-```
-
-OR set the MongoDB URI manually:
-```bash
-export MONGODB_URI="mongodb://localhost:27017"
-./cpak
-```
-
-This will start:
-- Backend API server on `http://localhost:8080`
-- Frontend server on `http://localhost:8081`
-
-Open your browser and navigate to `http://localhost:8081` to see the application.
-
-**First Run:**
-- Application automatically fetches data from JSONPlaceholder API
-- Transforms and saves to MongoDB
-- Shows ~10 sample achievements
-
-**Subsequent Runs:**
-- Data is retrieved from MongoDB (no external API calls)
-- Fast and efficient
-
-### Development
-
-The application consists of three main parts:
-
-1. **Backend (Echo)**: RESTful API server located in `/backend`
-   - `backend/server.go` - API routes and handlers
-   - `backend/database.go` - MongoDB operations and external API integration
-2. **Frontend (Templ + HTMX)**: Server-side rendered UI located in `/frontend`
-   - `frontend/server.go` - Frontend server with route handlers
-   - `templates/*.templ` - Type-safe HTML templates
-3. **Main Application**: Entry point in `main.go`
-   - Starts both backend and frontend servers
-   - Handles graceful shutdown
-
-When making changes:
-- Modify backend code in `/backend/`
-- Modify frontend logic in `/frontend/server.go`
-- Modify templates in `/templates/*.templ`
-- Run `templ generate` to update template Go code
-- Rebuild using `./build.sh` or `go build`
-- Restart the application
-
-### Testing the API
-
-You can test the API endpoints using curl:
-
-```bash
-# Get all achievements (from MongoDB)
-curl http://localhost:8080/api/achievements
-
-# Get a specific achievement
-curl http://localhost:8080/api/achievements/1
-
-# Create a new achievement
-curl -X POST http://localhost:8080/api/achievements \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Master","description":"Complete all tasks","points":100,"completed":false}'
-
-# Update an achievement
-curl -X PUT http://localhost:8080/api/achievements/1 \
-  -H "Content-Type: application/json" \
-  -d '{"title":"First Steps","description":"Complete your first task","points":10,"completed":true}'
-
-# Delete an achievement
-curl -X DELETE http://localhost:8080/api/achievements/3
-
-# Manually trigger external API seeding
-curl -X POST http://localhost:8080/api/seed
-
-# Check health (includes database status)
-curl http://localhost:8080/api/health
-```
+- **Frontend**: Next.js 14 (static export), TypeScript, Tailwind CSS
+- **Backend**: Fastify 5, Mongoose, Zod validation
+- **Database**: MongoDB 6 (Docker container)
+- **Proxy**: Caddy 2 (routes `/` → frontend, `/api` → backend)
 
 ## Project Structure
 
 ```
 cpak/
-├── backend/
-│   ├── server.go           # Echo backend server with API routes
-│   └── database.go         # MongoDB operations and external API client
-├── frontend/
-│   └── server.go           # Frontend server with Templ rendering
-├── templates/
-│   ├── layout.templ        # Base HTML layout
-│   ├── index.templ         # Main page with achievements
-│   └── *_templ.go          # Generated Go code (git-ignored)
-├── web/
-│   └── static/
-│       ├── styles.css      # CSS styling
-│       └── icon.png        # App icon
-├── main.go                 # Application entry point (starts servers)
-├── go.mod                  # Go module dependencies
-└── README.md              # This file
+├── backend/          # Fastify REST API
+│   ├── src/
+│   │   ├── api/      # Routes, middleware
+│   │   ├── models/   # Mongoose schemas
+│   │   ├── services/ # Business logic, adapters
+│   │   └── utils/    # Config, logging, DB
+│   ├── Dockerfile
+│   └── package.json
+├── frontend/         # Next.js static frontend
+│   ├── app/          # Pages (setup, steam, xbox, playstation)
+│   ├── components/   # Reusable components
+│   ├── services/     # API client, config loader
+│   ├── public/       # Static assets, runtime config
+│   └── package.json
+├── ops/              # Infrastructure
+│   └── Caddyfile     # Reverse proxy config
+└── docker-compose.yml
 ```
 
-## Technologies Used
+## API Endpoints
 
-- **Backend**: [Echo v4](https://echo.labstack.com/) - High performance, extensible, minimalist Go web framework
-- **Database**: [MongoDB](https://www.mongodb.com/) - Document database for data persistence
-- **External API**: [JSONPlaceholder](https://jsonplaceholder.typicode.com/) - Fake REST API for testing and prototyping
-- **Frontend**: [Templ](https://templ.guide/) - Type-safe Go HTML templating
-- **Interactivity**: [HTMX](https://htmx.org/) - Modern interactivity without heavy JavaScript
-- **Language**: Go 1.21+
-- **Containerization**: Docker & Docker Compose for MongoDB and application
+- `GET /health` - Health check
+- `GET /version` - API version
+- `GET /api/profiles` - List profiles
+- `POST /api/profiles` - Create profile
+- `PATCH /api/profiles/:id` - Update profile
+- `DELETE /api/profiles/:id` - Delete profile
+- `POST /api/sync/:platform` - Trigger sync
+- `GET /api/games` - List games (supports `?platform=steam&onlyCompleted=true`)
+- `GET /api/achievements` - List achievements (supports `?gameId=&profileId=`)
 
-## CI/CD
+## User Stories
 
-The project includes a GitHub Actions workflow that automatically builds the project on every push and pull request. The workflow:
+### ✅ US1: First-Time Setup & Initial Sync (MVP - P1)
+- Setup wizard for Steam/Xbox/PlayStation credentials
+- Initial sync of games and achievements
+- Platform pages with 100% completion filter default
 
-- Sets up Go 1.21
-- Downloads and verifies dependencies
-- Builds both the frontend WASM and backend binary
-- Runs tests (if available)
-- Uploads build artifacts
+### ⏳ US2: Multi-Profile Management & Scheduling (P2)
+- Multiple profiles per platform
+- Daily automatic sync scheduler
+- Manual sync per profile
 
-You can view the build status and download artifacts from the Actions tab in the GitHub repository.
+### ⏳ US3: Game Images & Themed Views (P3)
+- SteamGridDB integration for game artwork
+- Platform-themed UI colors
+- Responsive grid layouts
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `API_PORT` | Backend port | `8080` |
+| `API_BASE_PATH` | API prefix | `/api` |
+| `MONGO_URI` | MongoDB connection | `mongodb://localhost:27017` |
+| `MONGO_DB` | Database name | `cpak` |
+| `ALLOWED_ORIGINS` | CORS origins | `http://localhost:8000` |
+| `STEAM_API_KEY` | Steam Web API key | Required |
+| `SCHEDULER_CRON` | Sync schedule | `0 2 * * *` (2 AM daily) |
+
+### Runtime Config (frontend/public/config.json)
+
+```json
+{
+  "API_BASE_URL": "http://localhost:8000/api"
+}
+```
+
+## Contributing
+
+1. Follow the speckit workflow (see `.specify/scripts/`)
+2. Update tasks in `specs/001-cpak/tasks.md` as you go
+3. Ensure all tests pass before submitting
+4. Follow constitution principles (see `.specify/memory/constitution.md`)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT
+
+## Support
+
+For issues or questions, see the specification in `specs/001-cpak/spec.md`.
