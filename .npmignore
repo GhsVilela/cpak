@@ -1,0 +1,34 @@
+# Source control
+.git/
+.gitignore
+
+# Tests
+test/
+tests/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+
+# Build tooling
+tsconfig.json
+.eslintrc*
+.prettierrc*
+
+# Documentation
+docs/
+*.md
+
+# IDE
+.vscode/
+.idea/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Environment
+.env*
+
+# Logs
+*.log

@@ -1,66 +1,58 @@
 services:
-  # MongoDB Database
-  mongodb:
-    image: mongo:7
-    container_name: cpak-mongodb
-    restart: unless-stopped
-    environment:
-      MONGO_INITDB_DATABASE: cpak
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - cpak-network
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/cpak --quiet
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    # Only expose internally - not accessible from outside
-    expose:
-      - "27017"
-
-  mongoku:
-    image: huggingface/mongoku
-    container_name: cpak-mongoku
-    depends_on:
-      - mongodb
-    ports:
-      - "3100:3100"
-    environment:
-      MONGOKU_DEFAULT_HOST: "mongodb://mongodb:27017"
-    networks:
-      - cpak-network
-
-  # Backend + Frontend Application
-  cpak:
+  frontend:
     build:
-      context: .
+      context: ./frontend
       dockerfile: Dockerfile
-    container_name: cpak-app
-    restart: unless-stopped
     ports:
-      - "8080:8080"  # Backend API
-      - "8081:8081"  # Frontend UI (Main access point)
+      - "3000:3000"
     environment:
-      MONGODB_URI: mongodb://mongodb:27017
-      TZ: UTC
+      - NODE_ENV=production
     depends_on:
-      mongodb:
-        condition: service_healthy
-    networks:
-      - cpak-network
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      - api
 
-networks:
-  cpak-network:
-    driver: bridge
+  web:
+    image: caddy:2
+    volumes:
+      - ./ops/Caddyfile:/etc/caddy/Caddyfile
+    ports:
+      - "8000:80"
+      - "443:443"
+    environment:
+      - API_BASE_URL=http://api:8080/api
+    depends_on:
+      - frontend
+      - api
 
-volumes:
-  mongodb_data:
-    driver: local
+  mongo:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./data/mongo:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=cpak
+
+  api:
+    build: ./backend
+    environment:
+      - API_PORT=8080
+      - API_BASE_PATH=/api
+      - MONGO_URI=mongodb://mongo:27017
+      - MONGO_DB=cpak
+      - ALLOWED_ORIGINS=http://localhost:8000
+      - JWT_SECRET=${JWT_SECRET:-change-me}
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-false}
+      - SCHEDULER_CRON=${SCHEDULER_CRON:-0 3 * * *}
+      - STEAM_API_KEY=${STEAM_API_KEY:-}
+      - XBOX_CLIENT_ID=${XBOX_CLIENT_ID:-}
+      - XBOX_CLIENT_SECRET=${XBOX_CLIENT_SECRET:-}
+      - PLAYSTATION_CLIENT_ID=${PLAYSTATION_CLIENT_ID:-}
+      - PLAYSTATION_CLIENT_SECRET=${PLAYSTATION_CLIENT_SECRET:-}
+      - STEAMGRID_API_KEY=${STEAMGRID_API_KEY:-}
+      - ICONS_DIR=/app/data/icons
+    depends_on:
+      - mongo
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/icons:/app/data/icons
