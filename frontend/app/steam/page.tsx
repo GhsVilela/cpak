@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
+import ProfileSelector from '../../components/ProfileSelector';
 
 interface Game {
   _id: string;
@@ -20,18 +21,31 @@ export default function SteamPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [onlyCompleted, setOnlyCompleted] = useState(true);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>();
 
   useEffect(() => {
-    loadGames();
-  }, [onlyCompleted]);
+    if (selectedProfileId) {
+      loadGames();
+    }
+  }, [onlyCompleted, selectedProfileId]);
 
   const loadGames = async () => {
+    if (!selectedProfileId) return;
+
     setLoading(true);
     setError('');
 
     try {
-      const query = onlyCompleted ? '?platform=steam&onlyCompleted=true' : '?platform=steam';
-      const data = await apiClient.get<Game[]>(`/games${query}`);
+      const params = new URLSearchParams({
+        platform: 'steam',
+        profileId: selectedProfileId,
+      });
+      
+      if (onlyCompleted) {
+        params.append('onlyCompleted', 'true');
+      }
+
+      const data = await apiClient.get<Game[]>(`/games?${params.toString()}`);
       setGames(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load games');
@@ -44,15 +58,22 @@ export default function SteamPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-[var(--steam-accent)]">Steam Games</h1>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={onlyCompleted}
-            onChange={(e) => setOnlyCompleted(e.target.checked)}
-            className="w-4 h-4"
+        <div className="flex items-center gap-4">
+          <ProfileSelector
+            platform="steam"
+            selectedProfileId={selectedProfileId}
+            onSelectProfile={setSelectedProfileId}
           />
-          <span>100% Complete Only</span>
-        </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={onlyCompleted}
+              onChange={(e) => setOnlyCompleted(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <span>100% Complete Only</span>
+          </label>
+        </div>
       </div>
 
       {loading && <p>Loading games...</p>}

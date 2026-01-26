@@ -20,19 +20,24 @@ export async function triggerSync(
       return reply.status(400).send({ error: 'Invalid platform' });
     }
 
-    // If profileId specified, sync only that profile
+    // If profileId specified, sync only that profile (profileId is the MongoDB _id)
     if (profileId) {
-      const profile = await Profile.findOne({ profileId, platform });
+      const profile = await Profile.findById(profileId);
       if (!profile) {
         return reply.status(404).send({ error: 'Profile not found' });
       }
 
-      logger.info({ platform, profileId }, 'Starting sync for profile');
+      // Verify platform matches
+      if (profile.platform !== platform) {
+        return reply.status(400).send({ error: 'Platform mismatch' });
+      }
+
+      logger.info({ platform, profileId: profile.profileId, _id: profileId }, 'Starting sync for profile');
       syncService.syncProfile(profile).catch((error) => {
-        logger.error({ error, platform, profileId }, 'Sync failed');
+        logger.error({ error, platform, profileId: profile.profileId }, 'Sync failed');
       });
 
-      return reply.send({ message: 'Sync started', platform, profileId });
+      return reply.send({ message: 'Sync started', platform, profileId: profile.profileId });
     }
 
     // Otherwise, sync all profiles for the platform
