@@ -1,5 +1,6 @@
 import { config } from '../../utils/config.js';
 import { logger } from '../../utils/logger.js';
+import { rateLimiter } from '../rateLimiter.js';
 
 interface SteamGame {
   appid: number;
@@ -45,53 +46,81 @@ export class SteamAdapter {
 
   async getPlayerSummary(steamId: string): Promise<SteamPlayerSummary | null> {
     const url = `${this.baseUrl}/ISteamUser/GetPlayerSummaries/v2/?key=${this.apiKey}&steamids=${steamId}`;
-    try {
-      const response = await fetch(url);
-      const data = await response.json() as any;
-      return data.response?.players?.[0] || null;
-    } catch (error) {
-      logger.error({ error, steamId }, 'Failed to fetch player summary');
-      return null;
-    }
+    
+    return rateLimiter.executeWithRetry(
+      'steam',
+      async () => {
+        try {
+          const response = await fetch(url);
+          const data = await response.json() as any;
+          return data.response?.players?.[0] || null;
+        } catch (error) {
+          logger.error({ error, steamId }, 'Failed to fetch player summary');
+          return null;
+        }
+      },
+      steamId
+    );
   }
 
   async getOwnedGames(steamId: string): Promise<SteamGame[]> {
     const url = `${this.baseUrl}/IPlayerService/GetOwnedGames/v1/?key=${this.apiKey}&steamid=${steamId}&include_appinfo=1&include_played_free_games=1`;
-    try {
-      const response = await fetch(url);
-      const data = await response.json() as any;
-      return data.response?.games || [];
-    } catch (error) {
-      logger.error({ error, steamId }, 'Failed to fetch owned games');
-      return [];
-    }
+    
+    return rateLimiter.executeWithRetry(
+      'steam',
+      async () => {
+        try {
+          const response = await fetch(url);
+          const data = await response.json() as any;
+          return data.response?.games || [];
+        } catch (error) {
+          logger.error({ error, steamId }, 'Failed to fetch owned games');
+          return [];
+        }
+      },
+      steamId
+    );
   }
 
   async getPlayerAchievements(steamId: string, appId: number): Promise<SteamAchievement[]> {
     const url = `${this.baseUrl}/ISteamUserStats/GetPlayerAchievements/v1/?key=${this.apiKey}&steamid=${steamId}&appid=${appId}`;
-    try {
-      const response = await fetch(url);
-      const data = await response.json() as any;
-      if (!data.playerstats?.success) {
-        return [];
-      }
-      return data.playerstats?.achievements || [];
-    } catch (error) {
-      logger.warn({ error, steamId, appId }, 'Failed to fetch achievements for game');
-      return [];
-    }
+    
+    return rateLimiter.executeWithRetry(
+      'steam',
+      async () => {
+        try {
+          const response = await fetch(url);
+          const data = await response.json() as any;
+          if (!data.playerstats?.success) {
+            return [];
+          }
+          return data.playerstats?.achievements || [];
+        } catch (error) {
+          logger.warn({ error, steamId, appId }, 'Failed to fetch achievements for game');
+          return [];
+        }
+      },
+      `${steamId}:${appId}`
+    );
   }
 
   async getGameSchema(appId: number): Promise<SteamGameSchema | null> {
     const url = `${this.baseUrl}/ISteamUserStats/GetSchemaForGame/v2/?key=${this.apiKey}&appid=${appId}`;
-    try {
-      const response = await fetch(url);
-      const data = await response.json() as any;
-      return data.game || null;
-    } catch (error) {
-      logger.warn({ error, appId }, 'Failed to fetch game schema');
-      return null;
-    }
+    
+    return rateLimiter.executeWithRetry(
+      'steam',
+      async () => {
+        try {
+          const response = await fetch(url);
+          const data = await response.json() as any;
+          return data.game || null;
+        } catch (error) {
+          logger.warn({ error, appId }, 'Failed to fetch game schema');
+          return null;
+        }
+      },
+      `schema:${appId}`
+    );
   }
 
   async syncGamesAndAchievements(steamId: string): Promise<{

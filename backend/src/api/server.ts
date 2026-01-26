@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { config, getApiPort, getAllowedOrigins } from '../utils/config.js';
 import { connectDB } from '../utils/db.js';
 import { registerRoutes } from './routes/index.js';
+import { schedulerService } from '../services/scheduler.js';
 
 const fastify = Fastify({
   logger: {
@@ -28,6 +29,10 @@ await connectDB();
 // Register routes
 await fastify.register(registerRoutes, { prefix: config.API_BASE_PATH });
 
+// Start scheduler for automatic syncs
+schedulerService.start();
+fastify.log.info('Scheduler started for automatic profile syncs');
+
 // Start server
 const port = getApiPort();
 const host = '0.0.0.0';
@@ -43,12 +48,14 @@ try {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   fastify.log.info('SIGINT received, closing server...');
+  schedulerService.stop();
   await fastify.close();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   fastify.log.info('SIGTERM received, closing server...');
+  schedulerService.stop();
   await fastify.close();
   process.exit(0);
 });

@@ -84,13 +84,13 @@ description: "Task list for cpak (Cross Platform Achievement Keeper)"
 
 ### Implementation
 
-- [ ] T030 [P] [US2] Extend `Profile` schema for multiple accounts in `backend/src/models/profile.ts` (indexes)
-- [ ] T031 [US2] Add profile selection and management UI in `frontend/src/app/settings/page.tsx` (add/edit/remove profiles)
-- [ ] T032 [US2] Implement scheduler service in `backend/src/services/scheduler.ts` (cron from `SCHEDULER_CRON`)
-- [ ] T033 [P] [US2] Record sync runs in `backend/src/models/syncRun.ts` and expose `GET /api/sync/runs` in `backend/src/api/routes/syncRuns.ts`
-- [ ] T034 [US2] Implement manual sync per profile from settings page in `frontend/src/components/ProfileSyncControls.tsx`
-- [ ] T035 [P] [US2] Implement rate-limiting/backoff in `backend/src/services/rateLimiter.ts`
-- [ ] T036 [US2] Update frontend pages to filter by selected `profileId` in `frontend/src/services/apiClient.ts`
+- [X] T030 [P] [US2] Extend `Profile` schema for multiple accounts in `backend/src/models/profile.ts` (indexes)
+- [X] T031 [US2] Add profile selection and management UI in `frontend/src/app/settings/page.tsx` (add/edit/remove profiles)
+- [X] T032 [US2] Implement scheduler service in `backend/src/services/scheduler.ts` (cron from `SCHEDULER_CRON`)
+- [X] T033 [P] [US2] Record sync runs in `backend/src/models/syncRun.ts` and expose `GET /api/sync/runs` in `backend/src/api/routes/syncRuns.ts`
+- [X] T034 [US2] Implement manual sync per profile from settings page in `frontend/src/components/ProfileSyncControls.tsx`
+- [X] T035 [P] [US2] Implement rate-limiting/backoff in `backend/src/services/rateLimiter.ts`
+- [X] T036 [US2] Update frontend pages to filter by selected `profileId` in `frontend/src/services/apiClient.ts`
 
 **Checkpoint**: US1 and US2 independently functional; profiles manageable; scheduler runs.
 

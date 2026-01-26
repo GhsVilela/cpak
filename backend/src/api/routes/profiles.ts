@@ -33,6 +33,22 @@ export async function getProfiles(req: FastifyRequest, reply: FastifyReply) {
   }
 }
 
+export async function getProfileById(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+  try {
+    const { id } = req.params;
+    const profile = await Profile.findById(id);
+    if (!profile) {
+      return reply.status(404).send({ error: 'Profile not found' });
+    }
+
+    const response = profile.toObject() as any;
+    reply.send(response);
+  } catch (error) {
+    logger.error({ error }, 'Failed to fetch profile');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
 export async function createProfile(req: FastifyRequest, reply: FastifyReply) {
   try {
     const body = profileSchema.parse(req.body);
