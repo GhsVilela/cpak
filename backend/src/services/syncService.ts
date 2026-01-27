@@ -62,46 +62,151 @@ class SyncService {
     const steamAdapter = createSteamAdapter(apiKey);
     const result = await steamAdapter.syncGamesAndAchievements(profile.profileId);
 
-    // Upsert games
+    // Download game icons in parallel batches
+    const iconConcurrency = parseInt(process.env.ICON_DOWNLOAD_CONCURRENCY || '5', 10);
+    const gameIconPromises: Promise<{ appId: number; iconPath?: string }>[] = [];
+
     for (const game of result.games) {
-      // Download and store game icon if available
-      let iconPath: string | undefined;
       if (game.iconHash) {
-        try {
-          const iconUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${game.appId}/${game.iconHash}.jpg`;
-          iconPath = await iconStorage.downloadAndStore(
-            iconUrl,
-            'steam',
-            game.appId.toString(),
-            'game',
-            'icon'
-          );
-        } catch (error) {
-          logger.warn({ error, appId: game.appId }, 'Failed to download game icon');
+        const promise = (async () => {
+          try {
+            const iconUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${game.appId}/${game.iconHash}.jpg`;
+            const iconPath = await iconStorage.downloadAndStore(
+              iconUrl,
+              'steam',
+              game.appId.toString(),
+              'game',
+              'icon'
+            );
+            return { appId: game.appId, iconPath };
+          } catch (error) {
+            logger.warn({ error, appId: game.appId }, 'Failed to download game icon');
+            return { appId: game.appId, iconPath: undefined };
+          }
+        })();
+        gameIconPromises.push(promise);
+
+        // Process in batches
+        if (gameIconPromises.length >= iconConcurrency) {
+          await Promise.all(gameIconPromises.splice(0, iconConcurrency));
         }
       }
-
-      await Game.findOneAndUpdate(
-        { profileId: profile._id, gameId: game.appId.toString() },
-        {
-          $set: {
-            platform: 'steam',
-            title: game.name,
-            achievementsTotal: game.totalAchievements,
-            achievementsUnlocked: game.earnedAchievements,
-            completionPercent:
-              game.totalAchievements > 0
-                ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
-                : 0,
-            iconPath,
-            lastSyncedAt: new Date(),
-          },
-        },
-        { upsert: true, new: true }
-      );
     }
 
-    // Upsert achievements
+    // Wait for remaining icon downloads
+    const gameIconResults = await Promise.all(gameIconPromises);
+    const gameIconMap = new Map(gameIconResults.map((r) => [r.appId, r.iconPath]));
+
+    // Upsert games with downloaded icons
+    await Promise.all(
+      result.games.map((game) =>
+        Game.findOneAndUpdate(
+          { profileId: profile._id, gameId: game.appId.toString() },
+          {
+            $set: {
+              platform: 'steam',
+              title: game.name,
+              achievementsTotal: game.totalAchievements,
+              achievementsUnlocked: game.earnedAchievements,
+              completionPercent:
+                game.totalAchievements > 0
+                  ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
+                  : 0,
+              iconPath: gameIconMap.get(game.appId),
+              lastSyncedAt: new Date(),
+            },
+          },
+          { upsert: true, new: true }
+        )
+      )
+    );
+
+    // Group achievements by game and download icons in parallel
+    const achievementsByGame = new Map<string, typeof result.achievements>();
+    for (const achievement of result.achievements) {
+      const gameId = achievement.appId.toString();
+      if (!achievementsByGame.has(gameId)) {
+        achievementsByGame.set(gameId, []);
+      }
+      achievementsByGame.get(gameId)!.push(achievement);
+    }
+
+    // Download achievement icons in parallel batches
+    const achievementIconPromises: Promise<{
+      appId: number;
+      achievementId: string;
+      iconPath?: string;
+      iconGrayPath?: string;
+    }>[] = [];
+
+    for (const achievement of result.achievements) {
+      const promise = (async () => {
+        const downloads: Promise<string | undefined>[] = [];
+
+        if (achievement.icon) {
+          downloads.push(
+            iconStorage
+              .downloadAndStore(
+                achievement.icon,
+                'steam',
+                achievement.appId.toString(),
+                achievement.achievementId,
+                'icon'
+              )
+              .catch((error) => {
+                logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download icon');
+                return undefined;
+              })
+          );
+        } else {
+          downloads.push(Promise.resolve(undefined));
+        }
+
+        if (achievement.iconGray) {
+          downloads.push(
+            iconStorage
+              .downloadAndStore(
+                achievement.iconGray,
+                'steam',
+                achievement.appId.toString(),
+                achievement.achievementId,
+                'iconGray'
+              )
+              .catch((error) => {
+                logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download iconGray');
+                return undefined;
+              })
+          );
+        } else {
+          downloads.push(Promise.resolve(undefined));
+        }
+
+        const [iconPath, iconGrayPath] = await Promise.all(downloads);
+        return {
+          appId: achievement.appId,
+          achievementId: achievement.achievementId,
+          iconPath,
+          iconGrayPath,
+        };
+      })();
+
+      achievementIconPromises.push(promise);
+
+      // Process in batches
+      if (achievementIconPromises.length >= iconConcurrency) {
+        await Promise.all(achievementIconPromises.splice(0, iconConcurrency));
+      }
+    }
+
+    // Wait for remaining icon downloads
+    const achievementIconResults = await Promise.all(achievementIconPromises);
+    const achievementIconMap = new Map(
+      achievementIconResults.map((r) => [`${r.appId}:${r.achievementId}`, { iconPath: r.iconPath, iconGrayPath: r.iconGrayPath }])
+    );
+
+    // Upsert achievements with downloaded icons
+    const achievementUpserts: Promise<any>[] = [];
+
     for (const achievement of result.achievements) {
       const game = await Game.findOne({
         profileId: profile._id,
@@ -109,54 +214,28 @@ class SyncService {
       });
       if (!game) continue;
 
-      // Download and store icons if available
-      let iconPath: string | undefined;
-      let iconGrayPath: string | undefined;
+      const icons = achievementIconMap.get(`${achievement.appId}:${achievement.achievementId}`);
 
-      if (achievement.icon) {
-        try {
-          iconPath = await iconStorage.downloadAndStore(
-            achievement.icon,
-            'steam',
-            achievement.appId.toString(),
-            achievement.achievementId,
-            'icon'
-          );
-        } catch (error) {
-          logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download icon');
-        }
-      }
-
-      if (achievement.iconGray) {
-        try {
-          iconGrayPath = await iconStorage.downloadAndStore(
-            achievement.iconGray,
-            'steam',
-            achievement.appId.toString(),
-            achievement.achievementId,
-            'iconGray'
-          );
-        } catch (error) {
-          logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download iconGray');
-        }
-      }
-
-      await Achievement.findOneAndUpdate(
-        { gameId: game._id, achievementId: achievement.achievementId },
-        {
-          $set: {
-            platform: 'steam',
-            profileId: profile._id,
-            name: achievement.name,
-            description: achievement.description,
-            unlockedAt: achievement.unlocked ? achievement.unlockTime : undefined,
-            iconPath,
-            iconGrayPath,
+      achievementUpserts.push(
+        Achievement.findOneAndUpdate(
+          { gameId: game._id, achievementId: achievement.achievementId },
+          {
+            $set: {
+              platform: 'steam',
+              profileId: profile._id,
+              name: achievement.name,
+              description: achievement.description,
+              unlockedAt: achievement.unlocked ? achievement.unlockTime : undefined,
+              iconPath: icons?.iconPath,
+              iconGrayPath: icons?.iconGrayPath,
+            },
           },
-        },
-        { upsert: true, new: true }
+          { upsert: true, new: true }
+        )
       );
     }
+
+    await Promise.all(achievementUpserts);
   }
 }
 
