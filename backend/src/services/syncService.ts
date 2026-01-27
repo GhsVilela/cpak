@@ -3,6 +3,7 @@ import { Game } from '../models/game.js';
 import { Achievement } from '../models/achievement.js';
 import { SyncRun } from '../models/syncRun.js';
 import { createSteamAdapter } from './adapters/steam.js';
+import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
 import { logger } from '../utils/logger.js';
 import { iconStorage } from '../utils/iconStorage.js';
 
@@ -62,42 +63,58 @@ class SyncService {
     const steamAdapter = createSteamAdapter(apiKey);
     const result = await steamAdapter.syncGamesAndAchievements(profile.profileId);
 
-    // Download game icons in parallel batches
+    // Try to use SteamGridDB for game images, fallback to Steam icons
+    const steamGridDBAdapter = await createSteamGridDBAdapter();
     const iconConcurrency = parseInt(process.env.ICON_DOWNLOAD_CONCURRENCY || '5', 10);
-    const gameIconPromises: Promise<{ appId: number; iconPath?: string }>[] = [];
+
+    // Download game images in parallel batches
+    const gameImagePromises: Promise<{ appId: number; imagePath?: string }>[] = [];
 
     for (const game of result.games) {
-      if (game.iconHash) {
-        const promise = (async () => {
+      const promise = (async () => {
+        let imagePath: string | undefined;
+
+        // Try SteamGridDB first if available
+        if (steamGridDBAdapter) {
+          try {
+            imagePath = await steamGridDBAdapter.downloadGameImage(game.appId) || undefined;
+          } catch (error) {
+            logger.warn({ error, appId: game.appId }, 'SteamGridDB download failed, will try Steam icon');
+          }
+        }
+
+        // Fallback to Steam icon if SteamGridDB failed or unavailable
+        if (!imagePath && game.iconHash) {
           try {
             const iconUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${game.appId}/${game.iconHash}.jpg`;
-            const iconPath = await iconStorage.downloadAndStore(
+            imagePath = await iconStorage.downloadAndStore(
               iconUrl,
               'steam',
               game.appId.toString(),
               'game',
               'icon'
             );
-            return { appId: game.appId, iconPath };
           } catch (error) {
             logger.warn({ error, appId: game.appId }, 'Failed to download game icon');
-            return { appId: game.appId, iconPath: undefined };
           }
-        })();
-        gameIconPromises.push(promise);
-
-        // Process in batches
-        if (gameIconPromises.length >= iconConcurrency) {
-          await Promise.all(gameIconPromises.splice(0, iconConcurrency));
         }
+
+        return { appId: game.appId, imagePath };
+      })();
+
+      gameImagePromises.push(promise);
+
+      // Process in batches
+      if (gameImagePromises.length >= iconConcurrency) {
+        await Promise.all(gameImagePromises.splice(0, iconConcurrency));
       }
     }
 
-    // Wait for remaining icon downloads
-    const gameIconResults = await Promise.all(gameIconPromises);
-    const gameIconMap = new Map(gameIconResults.map((r) => [r.appId, r.iconPath]));
+    // Wait for remaining image downloads
+    const gameImageResults = await Promise.all(gameImagePromises);
+    const gameImageMap = new Map(gameImageResults.map((r) => [r.appId, r.imagePath]));
 
-    // Upsert games with downloaded icons
+    // Upsert games with downloaded images
     await Promise.all(
       result.games.map((game) =>
         Game.findOneAndUpdate(
@@ -112,7 +129,7 @@ class SyncService {
                 game.totalAchievements > 0
                   ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
                   : 0,
-              iconPath: gameIconMap.get(game.appId),
+              iconPath: gameImageMap.get(game.appId),
               lastSyncedAt: new Date(),
             },
           },

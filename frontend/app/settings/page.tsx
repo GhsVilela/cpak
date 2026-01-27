@@ -21,6 +21,11 @@ interface SyncRun {
   status: 'success' | 'failed';
 }
 
+interface GlobalSettings {
+  _id: string;
+  steamGridApiKey?: string;
+}
+
 const platformColors = {
   steam: 'var(--steam-accent)',
   xbox: '#107c10',
@@ -37,13 +42,16 @@ export default function SettingsPage() {
   const router = useRouter();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [syncRuns, setSyncRuns] = useState<Record<string, SyncRun>>({});
+  const [settings, setSettings] = useState<GlobalSettings>({ _id: 'global' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState('');
 
   useEffect(() => {
     loadProfiles();
     loadSyncRuns();
+    loadSettings();
   }, []);
 
   const loadProfiles = async () => {
@@ -65,7 +73,6 @@ export default function SettingsPage() {
       const runs = await apiClient.get<SyncRun[]>('/sync/runs?limit=100');
       const runsByProfile: Record<string, SyncRun> = {};
       runs.forEach((run) => {
-        // Group by the profile's MongoDB _id (run.profileId._id if populated, or run.profileId if string)
         const profileId = typeof run.profileId === 'string' ? run.profileId : (run.profileId as any)._id;
         if (!runsByProfile[profileId]) {
           runsByProfile[profileId] = run;
@@ -74,6 +81,28 @@ export default function SettingsPage() {
       setSyncRuns(runsByProfile);
     } catch (err) {
       console.error('Failed to load sync runs:', err);
+    }
+  };
+
+  const loadSettings = async () => {
+    try {
+      const data = await apiClient.get<GlobalSettings>('/settings');
+      setSettings(data);
+    } catch (err) {
+      console.error('Failed to load settings:', err);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    setSaveMessage('');
+    setError('');
+    
+    try {
+      await apiClient.put('/settings', settings);
+      setSaveMessage('Settings saved successfully!');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save settings');
     }
   };
 
@@ -111,88 +140,139 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {!loading && profiles.length === 0 && (
-        <div className="text-gray-400 text-center py-12">
-          <p>No profiles configured.</p>
-          <button
-            onClick={handleAddProfile}
-            className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
-          >
-            Add Your First Profile
-          </button>
+      {saveMessage && (
+        <div className="bg-green-900/20 border border-green-500 text-green-400 px-4 py-2 rounded mb-4">
+          {saveMessage}
         </div>
       )}
 
-      <div className="space-y-4">
-        {profiles.map((profile) => (
-          <div
-            key={profile._id}
-            className="bg-gray-800 border border-gray-700 rounded-lg p-6"
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <span
-                    className="px-3 py-1 rounded-full text-sm font-semibold"
-                    style={{
-                      backgroundColor: `${platformColors[profile.platform]}20`,
-                      color: platformColors[profile.platform],
-                      border: `1px solid ${platformColors[profile.platform]}`,
-                    }}
-                  >
-                    {platformNames[profile.platform]}
-                  </span>
-                  <h3 className="text-xl font-semibold">{profile.displayName}</h3>
-                </div>
-                <p className="text-sm text-gray-400">Profile ID: {profile.profileId}</p>
-                <p className="text-xs text-gray-500 mt-2">
-                  Added: {new Date(profile.createdAt).toLocaleDateString()}
-                </p>
-              </div>
-              
-              <div className="flex gap-2">
-                <button
-                  onClick={() => router.push(`/settings/edit/${profile._id}`)}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
-                >
-                  Edit
-                </button>
-                {deleteConfirm === profile._id ? (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleDelete(profile._id)}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium transition"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      onClick={() => setDeleteConfirm(null)}
-                      className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setDeleteConfirm(profile._id)}
-                    className="px-4 py-2 bg-red-900/50 hover:bg-red-900/70 border border-red-500/50 rounded font-medium transition"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Sync Controls */}
-            <ProfileSyncControls
-              profileId={profile._id}
-              platform={profile.platform}
-              displayName={profile.displayName}
-              lastSync={syncRuns[profile._id]}
-              onSyncComplete={loadSyncRuns}
+      {/* Global Configuration */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+        <h2 className="text-xl font-semibold mb-4">Global Configuration</h2>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              SteamGridDB API Key
+              <span className="text-gray-400 font-normal ml-2">(Optional)</span>
+            </label>
+            <p className="text-sm text-gray-400 mb-2">
+              Enter your SteamGridDB API key to display high-quality game cover images instead of Steam icons.
+              Get your free API key from{' '}
+              <a 
+                href="https://www.steamgriddb.com/profile/preferences/api" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:underline"
+              >
+                steamgriddb.com
+              </a>
+            </p>
+            <input
+              type="text"
+              value={settings.steamGridApiKey || ''}
+              onChange={(e) => setSettings({ ...settings, steamGridApiKey: e.target.value })}
+              placeholder="Enter your SteamGridDB API key"
+              className="w-full px-4 py-2 bg-gray-900 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
             />
           </div>
-        ))}
+
+          <button
+            onClick={handleSaveSettings}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
+          >
+            Save Settings
+          </button>
+        </div>
+      </div>
+
+      {/* Profiles Section */}
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold mb-4">Profiles</h2>
+
+        {!loading && profiles.length === 0 && (
+          <div className="text-gray-400 text-center py-12">
+            <p>No profiles configured.</p>
+            <button
+              onClick={handleAddProfile}
+              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
+            >
+              Add Your First Profile
+            </button>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {profiles.map((profile) => (
+            <div
+              key={profile._id}
+              className="bg-gray-800 border border-gray-700 rounded-lg p-6"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span
+                      className="px-3 py-1 rounded-full text-sm font-semibold"
+                      style={{
+                        backgroundColor: `${platformColors[profile.platform]}20`,
+                        color: platformColors[profile.platform],
+                        border: `1px solid ${platformColors[profile.platform]}`,
+                      }}
+                    >
+                      {platformNames[profile.platform]}
+                    </span>
+                    <h3 className="text-xl font-semibold">{profile.displayName}</h3>
+                  </div>
+                  <p className="text-sm text-gray-400">Profile ID: {profile.profileId}</p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Added: {new Date(profile.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => router.push(`/settings/edit/${profile._id}`)}
+                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
+                  >
+                    Edit
+                  </button>
+                  {deleteConfirm === profile._id ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleDelete(profile._id)}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium transition"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirm(null)}
+                        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirm(profile._id)}
+                      className="px-4 py-2 bg-red-900/50 hover:bg-red-900/70 border border-red-500/50 rounded font-medium transition"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Sync Controls */}
+              <ProfileSyncControls
+                profileId={profile._id}
+                platform={profile.platform}
+                displayName={profile.displayName}
+                lastSync={syncRuns[profile._id]}
+                onSyncComplete={loadSyncRuns}
+              />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
