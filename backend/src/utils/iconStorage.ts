@@ -11,8 +11,8 @@ export class IconStorage {
    * @param url - The URL of the icon to download
    * @param platform - The platform (steam, xbox, playstation)
    * @param gameId - The game identifier
-   * @param achievementId - The achievement identifier
-   * @param iconType - Either 'icon' or 'iconGray'
+   * @param achievementId - The achievement identifier (or 'game' for game images)
+   * @param iconType - Either 'icon', 'iconGray', or 'grid' for game grid images
    * @returns The relative path to the stored icon
    */
   async downloadAndStore(
@@ -20,7 +20,7 @@ export class IconStorage {
     platform: string,
     gameId: string,
     achievementId: string,
-    iconType: 'icon' | 'iconGray'
+    iconType: 'icon' | 'iconGray' | 'grid'
   ): Promise<string> {
     try {
       // Create directory structure: icons/{platform}/{gameId}/

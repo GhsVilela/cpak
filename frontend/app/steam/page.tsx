@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
+import GameGrid from '../../components/GameGrid';
 
 interface Game {
   _id: string;
   gameId: string;
   title: string;
+  platform: 'steam' | 'xbox' | 'playstation';
   achievementsTotal: number;
   achievementsUnlocked: number;
   completionPercent: number;
@@ -84,49 +86,11 @@ export default function SteamPage() {
         </div>
       )}
 
-      {!loading && games.length === 0 && (
-        <div className="text-gray-400 text-center py-12">
-          <p>No games found.</p>
-          {onlyCompleted && <p className="text-sm mt-2">Try disabling the 100% filter.</p>}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {games.map((game) => (
-          <div 
-            key={game._id} 
-            onClick={() => router.push(`/steam/game/${game._id}`)}
-            className="bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-[var(--steam-accent)] hover:bg-gray-750 cursor-pointer transition"
-          >
-            <div className="flex items-start gap-4 mb-3">
-              {game.iconPath && (
-                <img 
-                  src={`/api/icons/${game.iconPath}`}
-                  alt={game.title}
-                  className="w-16 h-16 rounded flex-shrink-0 object-cover"
-                />
-              )}
-              <h3 className="font-semibold text-lg line-clamp-2 flex-1">{game.title}</h3>
-            </div>
-            <div className="text-sm space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Achievements</span>
-                <span className="font-medium">{game.achievementsUnlocked} / {game.achievementsTotal}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Completion</span>
-                <span className="font-medium text-[var(--steam-accent)]">{game.completionPercent}%</span>
-              </div>
-            </div>
-            <div className="mt-4 bg-gray-700 rounded-full h-2.5 overflow-hidden">
-              <div
-                className="bg-[var(--steam-accent)] h-full transition-all"
-                style={{ width: `${game.completionPercent}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
+      <GameGrid 
+        games={games} 
+        loading={loading}
+        emptyMessage={onlyCompleted ? 'No 100% completed games. Try disabling the filter.' : 'No games found.'}
+      />
     </div>
   );
 }

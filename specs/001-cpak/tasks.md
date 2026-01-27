@@ -104,12 +104,12 @@ description: "Task list for cpak (Cross Platform Achievement Keeper)"
 
 ### Implementation
 
-- [ ] T037 [P] [US3] Implement SteamGridDB adapter in `backend/src/services/adapters/steamgriddb.ts` (cache metadata)
-- [ ] T038 [P] [US3] Implement Images API: `GET /api/images?gameId=` in `backend/src/api/routes/images.ts`
-- [ ] T039 [US3] Add image rendering tile component in `frontend/src/components/GameTile.tsx` (uses Images API)
-- [ ] T040 [P] [US3] Add platform themes (Steam/Xbox/PlayStation) via CSS variables in `frontend/src/styles/themes.css`
-- [ ] T041 [US3] Ensure responsive grid layout in `frontend/src/components/GameGrid.tsx` (mobile-first)
-- [ ] T042 [US3] Fallback to native images when provider missing in `backend/src/services/adapters/nativeImages.ts`
+- [X] T037 [P] [US3] Implement SteamGridDB adapter in `backend/src/services/adapters/steamgriddb.ts` (cache metadata)
+- [X] T038 [P] [US3] Implement Images API: `GET /api/images?gameId=` in `backend/src/api/routes/images.ts`
+- [X] T039 [US3] Add image rendering tile component in `frontend/src/components/GameTile.tsx` (uses Images API)
+- [X] T040 [P] [US3] Add platform themes (Steam/Xbox/PlayStation) via CSS variables in `frontend/src/styles/themes.css`
+- [X] T041 [US3] Ensure responsive grid layout in `frontend/src/components/GameGrid.tsx` (mobile-first)
+- [X] T042 [US3] Fallback to native images when provider missing in `backend/src/services/adapters/nativeImages.ts`
 
 **Checkpoint**: All stories functional; enhanced UI with images and themes.
 

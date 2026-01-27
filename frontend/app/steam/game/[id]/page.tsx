@@ -44,12 +44,12 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
     setError('');
 
     try {
-      // Fetch game details
-      const gameData = await apiClient.get<Game>(`/games/${id}`);
+      // Fetch game details (id is the Steam gameId from URL)
+      const gameData = await apiClient.get<Game>(`/games/${id}?platform=steam`);
       setGame(gameData);
 
-      // Fetch achievements for this game
-      const achievementsData = await apiClient.get<Achievement[]>(`/achievements?gameId=${id}`);
+      // Fetch achievements for this game using the MongoDB _id
+      const achievementsData = await apiClient.get<Achievement[]>(`/achievements?gameId=${gameData._id}`);
       setAchievements(achievementsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load game details');
