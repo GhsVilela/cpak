@@ -50,9 +50,14 @@ services:
       - PLAYSTATION_CLIENT_SECRET=${PLAYSTATION_CLIENT_SECRET:-}
       - STEAMGRID_API_KEY=${STEAMGRID_API_KEY:-}
       - ICONS_DIR=/app/data/icons
+      - SYNC_BATCH_SIZE=${SYNC_BATCH_SIZE:-10}
+      - ICON_DOWNLOAD_CONCURRENCY=${ICON_DOWNLOAD_CONCURRENCY:-5}
     depends_on:
       - mongo
     ports:
       - "8080:8080"
     volumes:
-      - ./data/icons:/app/data/icons
+      - cpak-icons:/app/data/icons
+
+volumes:
+  cpak-icons:

@@ -167,59 +167,89 @@ export class SteamAdapter {
       }>;
     } = { games: [], achievements: [] };
 
-    for (const game of games) {
-      // Fetch achievements for this game
-      const playerAchievements = await this.getPlayerAchievements(steamId, game.appid);
-      const gameSchema = await this.getGameSchema(game.appid);
+    // Process games in batches for better performance
+    const batchSize = parseInt(process.env.SYNC_BATCH_SIZE || '10', 10);
+    let processedCount = 0;
 
-      const totalAchievements = gameSchema?.availableGameStats?.achievements?.length || 0;
-      const earnedAchievements = playerAchievements.filter((a) => a.achieved === 1).length;
+    for (let i = 0; i < games.length; i += batchSize) {
+      const batch = games.slice(i, i + batchSize);
+      
+      // Process batch in parallel
+      const batchResults = await Promise.all(
+        batch.map(async (game) => {
+          try {
+            // Fetch achievements and schema in parallel
+            const [playerAchievements, gameSchema] = await Promise.all([
+              this.getPlayerAchievements(steamId, game.appid),
+              this.getGameSchema(game.appid),
+            ]);
 
-      // Log progress for debugging
-      if (earnedAchievements > 0) {
-        logger.info({ 
-          appId: game.appid, 
-          name: game.name, 
-          totalAchievements, 
-          earnedAchievements 
-        }, 'Found game with unlocked achievements');
-      }
+            const totalAchievements = gameSchema?.availableGameStats?.achievements?.length || 0;
+            const earnedAchievements = playerAchievements.filter((a) => a.achieved === 1).length;
 
-      // Only include games that have achievements AND user has unlocked at least one
-      if (totalAchievements === 0 || earnedAchievements === 0) {
-        continue;
-      }
+            // Only include games that have achievements AND user has unlocked at least one
+            if (totalAchievements === 0 || earnedAchievements === 0) {
+              return null;
+            }
 
-      result.games.push({
-        appId: game.appid,
-        name: game.name,
-        playtimeMinutes: game.playtime_forever,
-        totalAchievements,
-        earnedAchievements,
-        iconHash: game.img_icon_url,
-      });
+            logger.info({ 
+              appId: game.appid, 
+              name: game.name, 
+              totalAchievements, 
+              earnedAchievements 
+            }, 'Found game with unlocked achievements');
 
-      // Map achievements with metadata from schema
-      const schemaMap = new Map(
-        gameSchema?.availableGameStats?.achievements?.map((a) => [a.name, a]) || []
+            const gameData = {
+              appId: game.appid,
+              name: game.name,
+              playtimeMinutes: game.playtime_forever,
+              totalAchievements,
+              earnedAchievements,
+              iconHash: game.img_icon_url,
+            };
+
+            // Map achievements with metadata from schema
+            const schemaMap = new Map(
+              gameSchema?.availableGameStats?.achievements?.map((a) => [a.name, a]) || []
+            );
+
+            const achievementsData = playerAchievements.map((achievement) => {
+              const metadata = schemaMap.get(achievement.apiname);
+              return {
+                appId: game.appid,
+                achievementId: achievement.apiname,
+                name: metadata?.displayName || achievement.name || achievement.apiname,
+                description: metadata?.description || achievement.description || '',
+                unlocked: achievement.achieved === 1,
+                unlockTime: achievement.unlocktime ? new Date(achievement.unlocktime * 1000) : undefined,
+                icon: metadata?.icon,
+                iconGray: metadata?.icongray,
+              };
+            });
+
+            return { game: gameData, achievements: achievementsData };
+          } catch (error) {
+            logger.warn({ error, appId: game.appid, name: game.name }, 'Failed to process game');
+            return null;
+          }
+        })
       );
 
-      for (const achievement of playerAchievements) {
-        const metadata = schemaMap.get(achievement.apiname);
-        result.achievements.push({
-          appId: game.appid,
-          achievementId: achievement.apiname,
-          name: metadata?.displayName || achievement.name || achievement.apiname,
-          description: metadata?.description || achievement.description || '',
-          unlocked: achievement.achieved === 1,
-          unlockTime: achievement.unlocktime ? new Date(achievement.unlocktime * 1000) : undefined,
-          icon: metadata?.icon,
-          iconGray: metadata?.icongray,
-        });
+      // Collect results
+      for (const batchResult of batchResults) {
+        if (batchResult) {
+          result.games.push(batchResult.game);
+          result.achievements.push(...batchResult.achievements);
+        }
       }
 
-      // Rate limiting: Steam allows ~200 requests per 5 minutes
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      processedCount += batch.length;
+      logger.info({ processed: processedCount, total: games.length }, 'Batch processing progress');
+
+      // Rate limiting: Small delay between batches
+      if (i + batchSize < games.length) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
     }
 
     return result;
