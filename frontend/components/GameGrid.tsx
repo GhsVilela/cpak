@@ -22,13 +22,13 @@ interface GameGridProps {
 export default function GameGrid({ games, loading = false, emptyMessage = 'No games found' }: GameGridProps) {
   if (loading) {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
         {[...Array(12)].map((_, i) => (
           <div
             key={i}
             className="bg-gray-800 rounded-lg overflow-hidden animate-pulse"
           >
-            <div className="aspect-[3/4] sm:aspect-[4/3] bg-gray-700" />
+            <div className="aspect-[2/3] bg-gray-700" />
             <div className="p-4 space-y-2">
               <div className="h-4 bg-gray-700 rounded w-3/4" />
               <div className="h-3 bg-gray-700 rounded w-1/2" />
@@ -62,7 +62,7 @@ export default function GameGrid({ games, loading = false, emptyMessage = 'No ga
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
       {games.map((game) => (
         <GameTile key={game._id} game={game} />
       ))}

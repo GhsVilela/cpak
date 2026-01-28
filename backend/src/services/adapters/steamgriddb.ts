@@ -128,8 +128,8 @@ export class SteamGridDBAdapter {
         return null;
       }
 
-      // Get grid images (prefer 512x512 for consistency)
-      const images = await this.getGridImages(game.id, ['512x512', '460x215']);
+      // Get grid images (prefer 600x900 portrait for game covers)
+      const images = await this.getGridImages(game.id, ['600x900', '342x482', '660x930']);
       if (images.length === 0) {
         logger.warn({ steamAppId, sgdbId: game.id }, 'No grid images found');
         return null;
