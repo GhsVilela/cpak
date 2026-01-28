@@ -52,7 +52,7 @@ export default function GameTile({ game }: GameTileProps) {
       }}
     >
       {/* Game Image */}
-      <div className="relative aspect-[3/4] sm:aspect-[4/3] bg-gray-900">
+      <div className="relative aspect-[2/3] bg-gray-900">
         {game.iconPath ? (
           <img
             src={`/api/icons/${game.iconPath}`}
