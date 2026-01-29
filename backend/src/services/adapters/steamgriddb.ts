@@ -64,14 +64,17 @@ export class SteamGridDBAdapter {
   }
 
   /**
-   * Get grid images for a game (512x512, 460x215, etc.)
+   * Get grid images for a game (all dimensions)
    */
-  async getGridImages(gameId: number, dimensions: string[] = ['512x512', '460x215']): Promise<SteamGridDBImage[]> {
+  async getGridImages(gameId: number, styles?: string): Promise<SteamGridDBImage[]> {
     const url = `${this.baseUrl}/grids/game/${gameId}`;
     
     try {
       const params = new URLSearchParams();
-      dimensions.forEach((dim) => params.append('dimensions', dim));
+      params.append('types', 'static');
+      if (styles) {
+        params.append('styles', styles);
+      }
 
       const response = await fetch(`${url}?${params.toString()}`, {
         headers: {
@@ -128,15 +131,88 @@ export class SteamGridDBAdapter {
         return null;
       }
 
-      // Get grid images (prefer 600x900 portrait for game covers)
-      const images = await this.getGridImages(game.id, ['600x900', '342x482', '660x930']);
+      // Try to get alternate style images first (cleaner, game-focused covers)
+      let images = await this.getGridImages(game.id, 'alternate');
+      let source = 'alternate style';
+      
+      // If no alternate images, get all styles
+      if (images.length === 0) {
+        logger.info({ steamAppId, sgdbId: game.id }, 'No alternate style images, trying all styles');
+        images = await this.getGridImages(game.id);
+        source = 'all styles';
+      }
+      
       if (images.length === 0) {
         logger.warn({ steamAppId, sgdbId: game.id }, 'No grid images found');
         return null;
       }
 
-      // Sort by score (highest first) and take the best one
-      const bestImage = images.sort((a, b) => b.score - a.score)[0];
+      // Filter to portrait images only (height > width)
+      const portraitImages = images.filter(img => img.height > img.width);
+      
+      logger.info({
+        steamAppId,
+        sgdbId: game.id,
+        source,
+        totalImages: images.length,
+        portraitImages: portraitImages.length,
+        topImages: portraitImages.slice(0, 5).map(img => ({
+          id: img.id,
+          score: img.score,
+          dimensions: `${img.width}x${img.height}`,
+          style: img.style
+        }))
+      }, 'Available images');
+
+      if (portraitImages.length === 0) {
+        logger.warn({ steamAppId, sgdbId: game.id }, 'No portrait images found, using best landscape image');
+        // Fall back to any image
+        const sortedImages = images.sort((a, b) => b.score - a.score);
+        const bestImage = sortedImages[0];
+        
+        const imagePath = await iconStorage.downloadAndStore(
+          bestImage.url,
+          'steam',
+          steamAppId.toString(),
+          'game',
+          'grid'
+        );
+
+        logger.info({ 
+          steamAppId, 
+          sgdbId: game.id,
+          source,
+          imageId: bestImage.id,
+          score: bestImage.score,
+          dimensions: `${bestImage.width}x${bestImage.height}`,
+          style: bestImage.style,
+          imagePath 
+        }, 'Downloaded SteamGridDB image (landscape fallback)');
+
+        return imagePath;
+      }
+
+      // Sort portrait images by quality preferences
+      const sortedImages = portraitImages.sort((a, b) => {
+        // 1. Prefer higher score
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+        
+        // 2. Prefer 600x900 dimensions (ideal portrait size)
+        const aIs600x900 = a.width === 600 && a.height === 900;
+        const bIs600x900 = b.width === 600 && b.height === 900;
+        if (aIs600x900 !== bIs600x900) {
+          return aIs600x900 ? -1 : 1;
+        }
+        
+        // 3. Prefer larger dimensions
+        const aSize = a.width * a.height;
+        const bSize = b.width * b.height;
+        return bSize - aSize;
+      });
+      
+      const bestImage = sortedImages[0];
 
       // Download and store the image
       const imagePath = await iconStorage.downloadAndStore(
@@ -149,9 +225,12 @@ export class SteamGridDBAdapter {
 
       logger.info({ 
         steamAppId, 
-        sgdbId: game.id, 
+        sgdbId: game.id,
+        source,
         imageId: bestImage.id,
         score: bestImage.score,
+        dimensions: `${bestImage.width}x${bestImage.height}`,
+        style: bestImage.style,
         imagePath 
       }, 'Downloaded SteamGridDB image');
 
