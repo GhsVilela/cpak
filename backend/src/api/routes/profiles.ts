@@ -1,5 +1,8 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { Profile } from '../../models/profile.js';
+import { Game } from '../../models/game.js';
+import { Achievement } from '../../models/achievement.js';
+import { SyncRun } from '../../models/syncRun.js';
 import { logger } from '../../utils/logger.js';
 import { z } from 'zod';
 
@@ -110,10 +113,30 @@ export async function updateProfile(req: FastifyRequest<{ Params: { id: string }
 export async function deleteProfile(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
   try {
     const { id } = req.params;
-    const profile = await Profile.findByIdAndDelete(id);
+    const profile = await Profile.findById(id);
     if (!profile) {
       return reply.status(404).send({ error: 'Profile not found' });
     }
+
+    // Cascade delete: Remove all related data
+    const [gamesDeleted, achievementsDeleted, syncRunsDeleted] = await Promise.all([
+      Game.deleteMany({ profileId: id }),
+      Achievement.deleteMany({ profileId: id }),
+      SyncRun.deleteMany({ profileId: id }),
+    ]);
+
+    // Delete the profile itself
+    await Profile.findByIdAndDelete(id);
+
+    logger.info(
+      { 
+        profileId: id, 
+        gamesDeleted: gamesDeleted.deletedCount,
+        achievementsDeleted: achievementsDeleted.deletedCount,
+        syncRunsDeleted: syncRunsDeleted.deletedCount 
+      }, 
+      'Profile and related data deleted'
+    );
 
     reply.status(204).send();
   } catch (error) {
