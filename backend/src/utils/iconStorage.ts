@@ -35,7 +35,7 @@ export class IconStorage {
 
       // Check if file already exists
       if (fs.existsSync(filePath)) {
-        logger.debug({ filePath }, 'Image already exists, skipping download');
+        logger.debug({ filePath, platform, gameId, iconType }, 'Image already exists, skipping download');
         return this.getRelativePath(filePath);
       }
 

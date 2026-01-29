@@ -124,6 +124,24 @@ export class SteamGridDBAdapter {
    */
   async downloadGameImage(steamAppId: number): Promise<string | null> {
     try {
+      // Check if grid image already exists (avoid unnecessary API calls)
+      // The iconStorage creates files as: icons/{platform}/{gameId}/{achievementId}_{iconType}.{ext}
+      // For grid images: icons/steam/{steamAppId}/game_grid.png (or .jpg)
+      const gridDir = iconStorage.getAbsolutePath(`steam/${steamAppId}`);
+      const fs = await import('fs');
+      const path = await import('path');
+      
+      // Check for existing grid image with common extensions
+      if (fs.existsSync(gridDir)) {
+        const files = fs.readdirSync(gridDir);
+        const existingGrid = files.find(f => f.startsWith('game_grid.'));
+        if (existingGrid) {
+          const cachedPath = path.join(`steam/${steamAppId}`, existingGrid);
+          logger.debug({ steamAppId, cachedPath }, 'Grid image already cached, skipping API call');
+          return cachedPath;
+        }
+      }
+
       // Search for game in SteamGridDB
       const game = await this.searchGameBySteamId(steamAppId);
       if (!game) {
