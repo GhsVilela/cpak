@@ -22,7 +22,7 @@ export default function SteamPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [onlyCompleted, setOnlyCompleted] = useState(true);
+  const [onlyCompleted, setOnlyCompleted] = useState(false);
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>();
 
   useEffect(() => {
@@ -78,7 +78,7 @@ export default function SteamPage() {
         </div>
       </div>
 
-      {loading && <p>Loading games...</p>}
+      {loading && selectedProfileId && <p>Loading games...</p>}
 
       {error && (
         <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-2 rounded mb-4">
@@ -86,11 +86,31 @@ export default function SteamPage() {
         </div>
       )}
 
-      <GameGrid 
-        games={games} 
-        loading={loading}
-        emptyMessage={onlyCompleted ? 'No 100% completed games. Try disabling the filter.' : 'No games found.'}
-      />
+      {!selectedProfileId && (
+        <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-400 px-4 py-3 rounded mb-4">
+          <p className="font-semibold">No Steam Profile Configured</p>
+          <p className="text-sm mt-1">No Steam profiles configured. Add one in the Settings page to start syncing your games.</p>
+        </div>
+      )}
+
+      {!loading && games.length === 0 && !error && selectedProfileId && (
+        <div className="bg-blue-900/20 border border-blue-500 text-blue-400 px-4 py-3 rounded mb-4">
+          <p className="font-semibold">Sync in Progress or No Games Found</p>
+          <p className="text-sm mt-1">
+            Your Steam profile may be syncing. This can take a few minutes. 
+            {onlyCompleted && ' If you have games with achievements unlocked but no 100% completions, try disabling the "100% Complete Only" filter.'}
+            {' '}Refresh the page to see updates.
+          </p>
+        </div>
+      )}
+
+      {selectedProfileId && (
+        <GameGrid 
+          games={games} 
+          loading={loading}
+          emptyMessage={onlyCompleted ? 'No 100% completed games. Try disabling the filter.' : 'No games found.'}
+        />
+      )}
     </div>
   );
 }
