@@ -17,6 +17,11 @@ class RateLimiterService {
       windowMs: 60000, // 1 minute
       retryAfterMs: parseInt(process.env.STEAM_RETRY_DELAY || '200', 10),
     },
+    'steam-store': {
+      maxRequests: parseInt(process.env.STEAM_STORE_RATE_LIMIT || '200', 10),
+      windowMs: 60000, // 1 minute (Steam Store API is more permissive)
+      retryAfterMs: 100,
+    },
     xbox: {
       maxRequests: parseInt(process.env.XBOX_RATE_LIMIT || '60', 10),
       windowMs: 60000,

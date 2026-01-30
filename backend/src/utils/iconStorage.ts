@@ -12,7 +12,7 @@ export class IconStorage {
    * @param platform - The platform (steam, xbox, playstation)
    * @param gameId - The game identifier
    * @param achievementId - The achievement identifier (or 'game' for game images)
-   * @param iconType - Either 'icon', 'iconGray', or 'grid' for game grid images
+   * @param iconType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule'
    * @returns The relative path to the stored icon
    */
   async downloadAndStore(
@@ -20,7 +20,7 @@ export class IconStorage {
     platform: string,
     gameId: string,
     achievementId: string,
-    iconType: 'icon' | 'iconGray' | 'grid'
+    iconType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
   ): Promise<string> {
     try {
       // Create directory structure: icons/{platform}/{gameId}/
@@ -88,6 +88,36 @@ export class IconStorage {
   exists(relativePath: string): boolean {
     const absolutePath = this.getAbsolutePath(relativePath);
     return fs.existsSync(absolutePath);
+  }
+
+  /**
+   * Check if a local file exists and return its relative path
+   * @param platform - The platform (steam, xbox, playstation)
+   * @param gameId - The game identifier
+   * @param achievementId - The achievement identifier (or 'game' for game images)
+   * @param iconType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule'
+   * @returns The relative path if file exists, undefined otherwise
+   */
+  checkLocalFile(
+    platform: string,
+    gameId: string,
+    achievementId: string,
+    iconType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
+  ): string | undefined {
+    // Generate the expected filename and path
+    const gameDir = path.join(ICONS_BASE_DIR, platform, gameId);
+    const baseFilename = `${this.sanitizeFilename(achievementId)}_${iconType}`;
+    
+    // Check for multiple possible extensions
+    const extensions = ['.jpg', '.png', '.jpeg'];
+    for (const ext of extensions) {
+      const filePath = path.join(gameDir, baseFilename + ext);
+      if (fs.existsSync(filePath)) {
+        return this.getRelativePath(filePath);
+      }
+    }
+
+    return undefined;
   }
 }
 
