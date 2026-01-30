@@ -43,6 +43,10 @@ export class ImageStorage {
       // Download the image
       const response = await fetch(url);
       if (!response.ok) {
+        if (response.status === 404) {
+          logger.debug({ url, platform, gameId, imageType }, 'Image not found (404)');
+          throw new Error('Image not found');
+        }
         throw new Error(`Failed to download image: ${response.statusText}`);
       }
 
@@ -55,7 +59,13 @@ export class ImageStorage {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
-      logger.error({ error: errorMessage, stack: errorStack, url, platform, gameId, imageType }, 'Failed to download image');
+      
+      // Don't log full error for common 404s, just debug
+      if (errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
+        logger.debug({ url, platform, gameId, imageType }, 'Image not available');
+      } else {
+        logger.error({ error: errorMessage, stack: errorStack, url, platform, gameId, imageType }, 'Failed to download image');
+      }
       throw error;
     }
   }

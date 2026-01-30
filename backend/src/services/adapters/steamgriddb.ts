@@ -306,7 +306,7 @@ export async function createSteamGridDBAdapter(apiKey?: string): Promise<SteamGr
   }
   
   if (!key) {
-    logger.warn('STEAMGRID_API_KEY not configured, image from this source is disabled');
+    logger.warn('STEAMGRID_API_KEY not configured, images from this source are disabled');
     return null;
   }
   
