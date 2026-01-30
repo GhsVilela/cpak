@@ -255,7 +255,8 @@ class SyncService {
                 'icon'
               )
               .catch((error) => {
-                logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download icon');
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download icon');
                 // Check if file exists locally even if download failed
                 const localPath = imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'icon');
                 if (localPath) {
@@ -279,7 +280,8 @@ class SyncService {
                 'iconGray'
               )
               .catch((error) => {
-                logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download iconGray');
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download iconGray');
                 // Check if file exists locally even if download failed
                 const localPath = imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'iconGray');
                 if (localPath) {

@@ -23,13 +23,21 @@ export class ImageStorage {
     imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
   ): Promise<string> {
     try {
+      // Validate URL - must have a file extension (not just a directory path)
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      const ext = path.extname(pathname);
+      
+      if (!ext || pathname.endsWith('/')) {
+        logger.debug({ url, platform, gameId, imageType }, 'Invalid image URL - no file extension or ends with /');
+        throw new Error('Invalid image URL');
+      }
+
       // Create directory structure: images/{platform}/{gameId}/
       const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
       await fs.promises.mkdir(gameDir, { recursive: true });
 
       // Generate filename: {achievementId}_{imageType}.{ext}
-      const urlObj = new URL(url);
-      const ext = path.extname(urlObj.pathname) || '.jpg';
       const filename = `${this.sanitizeFilename(achievementId)}_${imageType}${ext}`;
       const filePath = path.join(gameDir, filename);
 
@@ -60,8 +68,8 @@ export class ImageStorage {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       
-      // Don't log full error for common 404s, just debug
-      if (errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
+      // Don't log full error for common issues (404s, invalid URLs), just debug
+      if (errorMessage.includes('not found') || errorMessage.includes('Not Found') || errorMessage.includes('Invalid image URL')) {
         logger.debug({ url, platform, gameId, imageType }, 'Image not available');
       } else {
         logger.error({ error: errorMessage, stack: errorStack, url, platform, gameId, imageType }, 'Failed to download image');
