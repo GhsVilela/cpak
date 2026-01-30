@@ -8,7 +8,6 @@ const configSchema = z.object({
   MONGO_USERNAME: z.string().optional(),
   MONGO_PASSWORD: z.string().optional(),
   ALLOWED_ORIGINS: z.string().default('http://localhost:3000'),
-  JWT_SECRET: z.string().optional(),
   SCHEDULER_ENABLED: z.string().default('false'),
   SCHEDULER_CRON: z.string().default('0 3 * * *'),
   SYNC_RATE_LIMIT_PER_MIN: z.string().default('60'),

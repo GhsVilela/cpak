@@ -40,7 +40,6 @@ services:
       - MONGO_URI=mongodb://mongo:27017
       - MONGO_DB=cpak
       - ALLOWED_ORIGINS=http://localhost:8000
-      - JWT_SECRET=${JWT_SECRET:-change-me}
       - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-false}
       - SCHEDULER_CRON=${SCHEDULER_CRON:-0 3 * * *}
       - STEAM_API_KEY=${STEAM_API_KEY:-}
