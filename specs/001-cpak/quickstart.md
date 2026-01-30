@@ -15,7 +15,6 @@ API_BASE_PATH=/api
 MONGO_URI=mongodb://mongo:27017
 MONGO_DB=cpak
 ALLOWED_ORIGINS=http://localhost:3000
-JWT_SECRET=change-me
 SCHEDULER_ENABLED=false
 SCHEDULER_CRON=0 3 * * *
 STEAM_API_KEY=
@@ -68,7 +67,6 @@ services:
       - MONGO_URI=mongodb://mongo:27017
       - MONGO_DB=cpak
       - ALLOWED_ORIGINS=http://localhost:80
-      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       - mongo
     ports:

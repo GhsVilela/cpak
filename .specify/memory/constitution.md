@@ -49,7 +49,6 @@ The backend MUST log structured events to stdout/stderr (JSON or key-value). Hea
 - `MONGO_DB`: MongoDB database name (default `cpak`).
 - `MONGO_USERNAME` / `MONGO_PASSWORD`: Optional MongoDB credentials if auth is enabled.
 - `ALLOWED_ORIGINS`: Comma-separated list for CORS.
-- `JWT_SECRET`: Required if auth is enabled; otherwise omit.
 - `API_BASE_URL` (frontend): Full base URL to the backend, injected at runtime.
 
 #### Trophy Hunter (Domain) Variables
@@ -95,7 +94,6 @@ services:
 			- MONGO_URI=mongodb://mongo:27017
 			- MONGO_DB=cpak
 			- ALLOWED_ORIGINS=https://example.com
-			- JWT_SECRET=${JWT_SECRET}
 		ports:
 			- "8080:8080"
 ```
