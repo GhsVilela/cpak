@@ -30,7 +30,7 @@ export class ImageStorage {
       
       if (!ext || pathname.endsWith('/')) {
         logger.debug({ url, platform, gameId, imageType }, 'Invalid image URL - no file extension or ends with /');
-        throw new Error('Invalid image URL');
+        throw new Error('Image not available (invalid URL - missing file)');
       }
 
       // Create directory structure: images/{platform}/{gameId}/
@@ -69,7 +69,7 @@ export class ImageStorage {
       const errorStack = error instanceof Error ? error.stack : undefined;
       
       // Don't log full error for common issues (404s, invalid URLs), just debug
-      if (errorMessage.includes('not found') || errorMessage.includes('Not Found') || errorMessage.includes('Invalid image URL')) {
+      if (errorMessage.includes('not found') || errorMessage.includes('Not Found') || errorMessage.includes('not available')) {
         logger.debug({ url, platform, gameId, imageType }, 'Image not available');
       } else {
         logger.error({ error: errorMessage, stack: errorStack, url, platform, gameId, imageType }, 'Failed to download image');
