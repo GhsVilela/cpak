@@ -254,6 +254,46 @@ export class SteamAdapter {
 
     return result;
   }
+
+  /**
+   * Get game details from Steam Store API including all available images
+   * This is a public API and doesn't require authentication
+   */
+  async getGameDetails(appId: number): Promise<{
+    headerImage?: string;
+    libraryAsset?: string;
+    capsuleImage?: string;
+    screenshots?: string[];
+  } | null> {
+    const url = `https://store.steampowered.com/api/appdetails?appids=${appId}`;
+    
+    return rateLimiter.executeWithRetry(
+      'steam-store',
+      async () => {
+        try {
+          const response = await fetch(url);
+          const data = await response.json() as any;
+          
+          if (!data[appId]?.success || !data[appId]?.data) {
+            return null;
+          }
+
+          const gameData = data[appId].data;
+          
+          return {
+            headerImage: gameData.header_image, // 460x215
+            libraryAsset: gameData.library_assets?.library_hero, // Large library image
+            capsuleImage: gameData.capsule_image, // Store capsule
+            screenshots: gameData.screenshots?.map((s: any) => s.path_full) || [],
+          };
+        } catch (error) {
+          logger.warn({ error, appId }, 'Failed to fetch game details from Steam Store API');
+          return null;
+        }
+      },
+      appId.toString()
+    );
+  }
 }
 
 export function createSteamAdapter(apiKey?: string): SteamAdapter {

@@ -61,10 +61,24 @@ class SyncService {
     // Use profile-specific Steam API key if available, otherwise fall back to config
     const apiKey = (profile.credentials as any)?.steamApiKey || undefined;
     const steamAdapter = createSteamAdapter(apiKey);
+    
+    // Fetch and update display name from Steam API (source of truth)
+    try {
+      const playerSummary = await steamAdapter.getPlayerSummary(profile.profileId);
+      if (playerSummary?.personaname && playerSummary.personaname !== profile.displayName) {
+        profile.displayName = playerSummary.personaname;
+        await Profile.findByIdAndUpdate(profile._id, { displayName: playerSummary.personaname });
+        logger.info({ profileId: profile.profileId, displayName: playerSummary.personaname }, 'Updated profile display name from Steam');
+      }
+    } catch (error) {
+      logger.warn({ error, profileId: profile.profileId }, 'Failed to fetch Steam display name');
+    }
+
     const result = await steamAdapter.syncGamesAndAchievements(profile.profileId);
 
-    // Try to use SteamGridDB for game images, fallback to Steam icons
+    // Check if SteamGridDB API key is configured
     const steamGridDBAdapter = await createSteamGridDBAdapter();
+    const hasSteamGridDB = steamGridDBAdapter !== null;
     const iconConcurrency = parseInt(process.env.ICON_DOWNLOAD_CONCURRENCY || '5', 10);
 
     // Download game images in parallel batches
@@ -74,28 +88,79 @@ class SyncService {
       const promise = (async () => {
         let imagePath: string | undefined;
 
-        // Try SteamGridDB first if available
-        if (steamGridDBAdapter) {
-          try {
-            imagePath = await steamGridDBAdapter.downloadGameImage(game.appId) || undefined;
-          } catch (error) {
-            logger.warn({ error, appId: game.appId }, 'SteamGridDB download failed, will try Steam icon');
-          }
+        // Priority 1: Check for existing local files first (avoid unnecessary downloads)
+        imagePath = iconStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
+        if (imagePath) {
+          logger.info({ appId: game.appId, imagePath }, 'Using existing local grid file');
+          return { appId: game.appId, imagePath };
         }
 
-        // Fallback to Steam icon if SteamGridDB failed or unavailable
-        if (!imagePath && game.iconHash) {
-          try {
-            const iconUrl = `https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/${game.appId}/${game.iconHash}.jpg`;
+        // Priority 2: Try Steam Store API to get official image URLs (more reliable)
+        try {
+          const gameDetails = await steamAdapter.getGameDetails(game.appId);
+          if (gameDetails?.headerImage) {
             imagePath = await iconStorage.downloadAndStore(
-              iconUrl,
+              gameDetails.headerImage,
               'steam',
               game.appId.toString(),
               'game',
-              'icon'
+              'header'
             );
+            logger.info({ appId: game.appId, url: gameDetails.headerImage }, 'Downloaded image from Steam Store API (header)');
+          } else {
+            logger.warn({ appId: game.appId }, 'Steam Store API returned no header image');
+          }
+        } catch (error) {
+          logger.warn({ error, appId: game.appId }, 'Steam Store API failed');
+        }
+
+        // Fallback 1: Try direct Steam CDN library grid URL
+        if (!imagePath) {
+          try {
+            const steamCdnUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg`;
+            imagePath = await iconStorage.downloadAndStore(
+              steamCdnUrl,
+              'steam',
+              game.appId.toString(),
+              'game',
+              'grid'
+            );
+            logger.debug({ appId: game.appId }, 'Downloaded image from Steam CDN (library grid)');
           } catch (error) {
-            logger.warn({ error, appId: game.appId }, 'Failed to download game icon');
+            logger.debug({ error, appId: game.appId }, 'Steam CDN library grid not available');
+            // Check if file exists locally with different extension
+            imagePath = iconStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
+            if (imagePath) {
+              logger.debug({ appId: game.appId }, 'Using existing local file (grid)');
+            }
+          }
+        }
+
+        // Fallback 2: SteamGridDB (if API key configured)
+        if (!imagePath && hasSteamGridDB) {
+          try {
+            imagePath = await steamGridDBAdapter.downloadGameImage(game.appId) || undefined;
+            if (imagePath) {
+              logger.debug({ appId: game.appId }, 'Downloaded image from SteamGridDB');
+            }
+          } catch (error) {
+            logger.warn({ error, appId: game.appId }, 'SteamGridDB download failed');
+          }
+        }
+
+        // Fallback 3: Check for any other existing local files (header)
+        if (!imagePath) {
+          imagePath = iconStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'header');
+          if (imagePath) {
+            logger.debug({ appId: game.appId }, 'Using existing local file (header)');
+          }
+        }
+
+        // Fallback 4: Check for any other existing local files (capsule)
+        if (!imagePath) {
+          imagePath = iconStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'capsule');
+          if (imagePath) {
+            logger.debug({ appId: game.appId }, 'Using existing local file (capsule)');
           }
         }
 
@@ -103,39 +168,39 @@ class SyncService {
       })();
 
       gameImagePromises.push(promise);
-
-      // Process in batches
-      if (gameImagePromises.length >= iconConcurrency) {
-        await Promise.all(gameImagePromises.splice(0, iconConcurrency));
-      }
     }
 
-    // Wait for remaining image downloads
+    // Wait for ALL game image downloads to complete
     const gameImageResults = await Promise.all(gameImagePromises);
     const gameImageMap = new Map(gameImageResults.map((r) => [r.appId, r.imagePath]));
 
     // Upsert games with downloaded images
     await Promise.all(
-      result.games.map((game) =>
-        Game.findOneAndUpdate(
+      result.games.map((game) => {
+        const updateData: any = {
+          platform: 'steam',
+          title: game.name,
+          achievementsTotal: game.totalAchievements,
+          achievementsUnlocked: game.earnedAchievements,
+          completionPercent:
+            game.totalAchievements > 0
+              ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
+              : 0,
+          lastSyncedAt: new Date(),
+        };
+
+        // Only update iconPath if we successfully downloaded an image
+        const imagePath = gameImageMap.get(game.appId);
+        if (imagePath) {
+          updateData.iconPath = imagePath;
+        }
+
+        return Game.findOneAndUpdate(
           { profileId: profile._id, gameId: game.appId.toString() },
-          {
-            $set: {
-              platform: 'steam',
-              title: game.name,
-              achievementsTotal: game.totalAchievements,
-              achievementsUnlocked: game.earnedAchievements,
-              completionPercent:
-                game.totalAchievements > 0
-                  ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
-                  : 0,
-              iconPath: gameImageMap.get(game.appId),
-              lastSyncedAt: new Date(),
-            },
-          },
+          { $set: updateData },
           { upsert: true, new: true }
-        )
-      )
+        );
+      })
     );
 
     // Group achievements by game and download icons in parallel
@@ -172,7 +237,12 @@ class SyncService {
               )
               .catch((error) => {
                 logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download icon');
-                return undefined;
+                // Check if file exists locally even if download failed
+                const localPath = iconStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'icon');
+                if (localPath) {
+                  logger.debug({ achievementId: achievement.achievementId }, 'Using existing local file (icon)');
+                }
+                return localPath;
               })
           );
         } else {
@@ -191,7 +261,12 @@ class SyncService {
               )
               .catch((error) => {
                 logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download iconGray');
-                return undefined;
+                // Check if file exists locally even if download failed
+                const localPath = iconStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'iconGray');
+                if (localPath) {
+                  logger.debug({ achievementId: achievement.achievementId }, 'Using existing local file (iconGray)');
+                }
+                return localPath;
               })
           );
         } else {
