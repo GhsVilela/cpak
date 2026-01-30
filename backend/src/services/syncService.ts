@@ -5,7 +5,7 @@ import { SyncRun } from '../models/syncRun.js';
 import { createSteamAdapter } from './adapters/steam.js';
 import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
 import { logger } from '../utils/logger.js';
-import { iconStorage } from '../utils/iconStorage.js';
+import { imageStorage } from '../utils/imageStorage.js';
 
 class SyncService {
   async syncProfile(profile: IProfile): Promise<void> {
@@ -89,7 +89,7 @@ class SyncService {
         let imagePath: string | undefined;
 
         // Priority 1: Check for existing local files first (avoid unnecessary downloads)
-        imagePath = iconStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
+        imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
         if (imagePath) {
           logger.info({ appId: game.appId, imagePath }, 'Using existing local grid file');
           return { appId: game.appId, imagePath };
@@ -99,7 +99,7 @@ class SyncService {
         try {
           const gameDetails = await steamAdapter.getGameDetails(game.appId);
           if (gameDetails?.headerImage) {
-            imagePath = await iconStorage.downloadAndStore(
+            imagePath = await imageStorage.downloadAndStore(
               gameDetails.headerImage,
               'steam',
               game.appId.toString(),
@@ -118,7 +118,7 @@ class SyncService {
         if (!imagePath) {
           try {
             const steamCdnUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg`;
-            imagePath = await iconStorage.downloadAndStore(
+            imagePath = await imageStorage.downloadAndStore(
               steamCdnUrl,
               'steam',
               game.appId.toString(),
@@ -129,7 +129,7 @@ class SyncService {
           } catch (error) {
             logger.debug({ error, appId: game.appId }, 'Steam CDN library grid not available');
             // Check if file exists locally with different extension
-            imagePath = iconStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
+            imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
             if (imagePath) {
               logger.debug({ appId: game.appId }, 'Using existing local file (grid)');
             }
@@ -150,7 +150,7 @@ class SyncService {
 
         // Fallback 3: Check for any other existing local files (header)
         if (!imagePath) {
-          imagePath = iconStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'header');
+          imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'header');
           if (imagePath) {
             logger.debug({ appId: game.appId }, 'Using existing local file (header)');
           }
@@ -158,7 +158,7 @@ class SyncService {
 
         // Fallback 4: Check for any other existing local files (capsule)
         if (!imagePath) {
-          imagePath = iconStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'capsule');
+          imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'capsule');
           if (imagePath) {
             logger.debug({ appId: game.appId }, 'Using existing local file (capsule)');
           }
@@ -227,7 +227,7 @@ class SyncService {
 
         if (achievement.icon) {
           downloads.push(
-            iconStorage
+            imageStorage
               .downloadAndStore(
                 achievement.icon,
                 'steam',
@@ -238,7 +238,7 @@ class SyncService {
               .catch((error) => {
                 logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download icon');
                 // Check if file exists locally even if download failed
-                const localPath = iconStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'icon');
+                const localPath = imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'icon');
                 if (localPath) {
                   logger.debug({ achievementId: achievement.achievementId }, 'Using existing local file (icon)');
                 }
@@ -251,7 +251,7 @@ class SyncService {
 
         if (achievement.iconGray) {
           downloads.push(
-            iconStorage
+            imageStorage
               .downloadAndStore(
                 achievement.iconGray,
                 'steam',
@@ -262,7 +262,7 @@ class SyncService {
               .catch((error) => {
                 logger.warn({ error, achievementId: achievement.achievementId }, 'Failed to download iconGray');
                 // Check if file exists locally even if download failed
-                const localPath = iconStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'iconGray');
+                const localPath = imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'iconGray');
                 if (localPath) {
                   logger.debug({ achievementId: achievement.achievementId }, 'Using existing local file (iconGray)');
                 }

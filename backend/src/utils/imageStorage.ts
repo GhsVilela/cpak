@@ -3,69 +3,69 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { logger } from './logger.js';
 
-const ICONS_BASE_DIR = process.env.ICONS_DIR || './data/icons';
+const IMAGES_BASE_DIR = process.env.IMAGES_DIR || './data/images';
 
-export class IconStorage {
+export class ImageStorage {
   /**
-   * Download an icon from a URL and store it locally
-   * @param url - The URL of the icon to download
+   * Download an image from a URL and store it locally
+   * @param url - The URL of the image to download
    * @param platform - The platform (steam, xbox, playstation)
    * @param gameId - The game identifier
    * @param achievementId - The achievement identifier (or 'game' for game images)
-   * @param iconType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule'
-   * @returns The relative path to the stored icon
+   * @param imageType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule'
+   * @returns The relative path to the stored image
    */
   async downloadAndStore(
     url: string,
     platform: string,
     gameId: string,
     achievementId: string,
-    iconType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
+    imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
   ): Promise<string> {
     try {
-      // Create directory structure: icons/{platform}/{gameId}/
-      const gameDir = path.join(ICONS_BASE_DIR, platform, gameId);
+      // Create directory structure: images/{platform}/{gameId}/
+      const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
       await fs.promises.mkdir(gameDir, { recursive: true });
 
-      // Generate filename: {achievementId}_{iconType}.{ext}
+      // Generate filename: {achievementId}_{imageType}.{ext}
       const urlObj = new URL(url);
       const ext = path.extname(urlObj.pathname) || '.jpg';
-      const filename = `${this.sanitizeFilename(achievementId)}_${iconType}${ext}`;
+      const filename = `${this.sanitizeFilename(achievementId)}_${imageType}${ext}`;
       const filePath = path.join(gameDir, filename);
 
       // Check if file already exists
       if (fs.existsSync(filePath)) {
         const relativePath = this.getRelativePath(filePath);
-        logger.debug({ filePath, relativePath, platform, gameId, iconType }, 'Image already exists, returning cached path');
+        logger.debug({ filePath, relativePath, platform, gameId, imageType }, 'Image already exists, returning cached path');
         return relativePath;
       }
 
-      // Download the icon
+      // Download the image
       const response = await fetch(url);
       if (!response.ok) {
-        throw new Error(`Failed to download icon: ${response.statusText}`);
+        throw new Error(`Failed to download image: ${response.statusText}`);
       }
 
       const buffer = await response.arrayBuffer();
       await fs.promises.writeFile(filePath, Buffer.from(buffer));
 
       const relativePath = this.getRelativePath(filePath);
-      logger.debug({ url, filePath, relativePath }, 'Icon downloaded and stored');
+      logger.debug({ url, filePath, relativePath }, 'Image downloaded and stored');
       return relativePath;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
-      logger.error({ error: errorMessage, stack: errorStack, url, platform, gameId, iconType }, 'Failed to download icon');
+      logger.error({ error: errorMessage, stack: errorStack, url, platform, gameId, imageType }, 'Failed to download image');
       throw error;
     }
   }
 
   /**
-   * Get the relative path from the base icons directory
+   * Get the relative path from the base images directory
    */
   private getRelativePath(absolutePath: string): string {
     // Ensure forward slashes for cross-platform compatibility
-    return path.relative(ICONS_BASE_DIR, absolutePath).replace(/\\/g, '/');
+    return path.relative(IMAGES_BASE_DIR, absolutePath).replace(/\\/g, '/');
   }
 
   /**
@@ -76,14 +76,14 @@ export class IconStorage {
   }
 
   /**
-   * Get the absolute path for serving an icon
+   * Get the absolute path for serving an image
    */
   getAbsolutePath(relativePath: string): string {
-    return path.join(ICONS_BASE_DIR, relativePath);
+    return path.join(IMAGES_BASE_DIR, relativePath);
   }
 
   /**
-   * Check if an icon file exists
+   * Check if an image file exists
    */
   exists(relativePath: string): boolean {
     const absolutePath = this.getAbsolutePath(relativePath);
@@ -95,18 +95,18 @@ export class IconStorage {
    * @param platform - The platform (steam, xbox, playstation)
    * @param gameId - The game identifier
    * @param achievementId - The achievement identifier (or 'game' for game images)
-   * @param iconType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule'
+   * @param imageType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule'
    * @returns The relative path if file exists, undefined otherwise
    */
   checkLocalFile(
     platform: string,
     gameId: string,
     achievementId: string,
-    iconType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
+    imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
   ): string | undefined {
     // Generate the expected filename and path
-    const gameDir = path.join(ICONS_BASE_DIR, platform, gameId);
-    const baseFilename = `${this.sanitizeFilename(achievementId)}_${iconType}`;
+    const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
+    const baseFilename = `${this.sanitizeFilename(achievementId)}_${imageType}`;
     
     // Check for multiple possible extensions
     const extensions = ['.jpg', '.png', '.jpeg'];
@@ -121,4 +121,4 @@ export class IconStorage {
   }
 }
 
-export const iconStorage = new IconStorage();
+export const imageStorage = new ImageStorage();
