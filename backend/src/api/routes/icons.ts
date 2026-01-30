@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { iconStorage } from '../../utils/iconStorage.js';
+import { imageStorage } from '../../utils/imageStorage.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -17,10 +17,10 @@ export async function getIcon(
 
   // Construct the relative path
   const relativePath = path.join(platform, gameId, filename);
-  const absolutePath = iconStorage.getAbsolutePath(relativePath);
+  const absolutePath = imageStorage.getAbsolutePath(relativePath);
 
   // Check if file exists
-  if (!iconStorage.exists(relativePath)) {
+  if (!imageStorage.exists(relativePath)) {
     return reply.code(404).send({ error: 'Icon not found' });
   }
 

@@ -1,6 +1,6 @@
 import { config } from '../../utils/config.js';
 import { logger } from '../../utils/logger.js';
-import { iconStorage } from '../../utils/iconStorage.js';
+import { imageStorage } from '../../utils/imageStorage.js';
 import { Settings } from '../../models/settings.js';
 
 interface SteamGridDBGame {
@@ -125,9 +125,9 @@ export class SteamGridDBAdapter {
   async downloadGameImage(steamAppId: number): Promise<string | null> {
     try {
       // Check if grid image already exists (avoid unnecessary API calls)
-      // The iconStorage creates files as: icons/{platform}/{gameId}/{achievementId}_{iconType}.{ext}
-      // For grid images: icons/steam/{steamAppId}/game_grid.png (or .jpg)
-      const gridDir = iconStorage.getAbsolutePath(`steam/${steamAppId}`);
+      // The imageStorage creates files as: images/{platform}/{gameId}/{achievementId}_{imageType}.{ext}
+      // For grid images: images/steam/{steamAppId}/game_grid.png (or .jpg)
+      const gridDir = imageStorage.getAbsolutePath(`steam/${steamAppId}`);
       const fs = await import('fs');
       const path = await import('path');
       
@@ -188,7 +188,7 @@ export class SteamGridDBAdapter {
         const sortedImages = images.sort((a, b) => b.score - a.score);
         const bestImage = sortedImages[0];
         
-        const imagePath = await iconStorage.downloadAndStore(
+        const imagePath = await imageStorage.downloadAndStore(
           bestImage.url,
           'steam',
           steamAppId.toString(),
@@ -233,7 +233,7 @@ export class SteamGridDBAdapter {
       const bestImage = sortedImages[0];
 
       // Download and store the image
-      const imagePath = await iconStorage.downloadAndStore(
+      const imagePath = await imageStorage.downloadAndStore(
         bestImage.url,
         'steam',
         steamAppId.toString(),
@@ -306,7 +306,7 @@ export async function createSteamGridDBAdapter(apiKey?: string): Promise<SteamGr
   }
   
   if (!key) {
-    logger.warn('STEAMGRID_API_KEY not configured, image downloads disabled');
+    logger.warn('STEAMGRID_API_KEY not configured, image from this source is disabled');
     return null;
   }
   
