@@ -11,6 +11,7 @@ interface Game {
   achievementsUnlocked: number;
   completionPercent: number;
   iconPath?: string;
+  profileId: string;
 }
 
 interface GameGridProps {

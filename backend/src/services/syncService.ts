@@ -208,17 +208,21 @@ class SyncService {
       })();
 
       achievementIconPromises.push(promise);
-
-      // Process in batches
-      if (achievementIconPromises.length >= iconConcurrency) {
-        await Promise.all(achievementIconPromises.splice(0, iconConcurrency));
-      }
     }
 
-    // Wait for remaining icon downloads
+    // Process all achievement icon downloads
     const achievementIconResults = await Promise.all(achievementIconPromises);
     const achievementIconMap = new Map(
       achievementIconResults.map((r) => [`${r.appId}:${r.achievementId}`, { iconPath: r.iconPath, iconGrayPath: r.iconGrayPath }])
+    );
+
+    logger.info(
+      { 
+        totalAchievements: result.achievements.length,
+        iconMapSize: achievementIconMap.size,
+        sampleIcons: Array.from(achievementIconMap.entries()).slice(0, 3)
+      }, 
+      'Achievement icon download completed'
     );
 
     // Upsert achievements with downloaded icons
@@ -233,19 +237,28 @@ class SyncService {
 
       const icons = achievementIconMap.get(`${achievement.appId}:${achievement.achievementId}`);
 
+      // Build update object, only including iconPath fields if they have values
+      const updateFields: any = {
+        platform: 'steam',
+        profileId: profile._id,
+        name: achievement.name,
+        description: achievement.description,
+        unlockedAt: achievement.unlocked ? achievement.unlockTime : undefined,
+      };
+
+      if (icons?.iconPath) {
+        updateFields.iconPath = icons.iconPath;
+      }
+
+      if (icons?.iconGrayPath) {
+        updateFields.iconGrayPath = icons.iconGrayPath;
+      }
+
       achievementUpserts.push(
         Achievement.findOneAndUpdate(
           { gameId: game._id, achievementId: achievement.achievementId },
           {
-            $set: {
-              platform: 'steam',
-              profileId: profile._id,
-              name: achievement.name,
-              description: achievement.description,
-              unlockedAt: achievement.unlocked ? achievement.unlockTime : undefined,
-              iconPath: icons?.iconPath,
-              iconGrayPath: icons?.iconGrayPath,
-            },
+            $set: updateFields,
           },
           { upsert: true, new: true }
         )

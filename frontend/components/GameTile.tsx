@@ -12,6 +12,7 @@ interface GameTileProps {
     achievementsUnlocked: number;
     completionPercent: number;
     iconPath?: string;
+    profileId: string;
   };
 }
 
@@ -19,7 +20,7 @@ export default function GameTile({ game }: GameTileProps) {
   const router = useRouter();
 
   const handleClick = () => {
-    router.push(`/${game.platform}/game/${game.gameId}`);
+    router.push(`/${game.platform}/game/${game.gameId}?profileId=${game.profileId}`);
   };
 
   const getCompletionColor = (percent: number) => {
