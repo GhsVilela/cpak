@@ -48,7 +48,7 @@ services:
       - PLAYSTATION_CLIENT_ID=${PLAYSTATION_CLIENT_ID:-}
       - PLAYSTATION_CLIENT_SECRET=${PLAYSTATION_CLIENT_SECRET:-}
       - STEAMGRID_API_KEY=${STEAMGRID_API_KEY:-}
-      - IMAGES_DIR=/app/data/images
+      - IMAGES_DIR=${IMAGES_DIR:-/app/data/images}
       - SYNC_BATCH_SIZE=${SYNC_BATCH_SIZE:-10}
       - ICON_DOWNLOAD_CONCURRENCY=${ICON_DOWNLOAD_CONCURRENCY:-5}
     depends_on:
@@ -56,7 +56,4 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - cpak-images:/app/data/images
-
-volumes:
-  cpak-images:
+      - ./data/images:${IMAGES_DIR:-/app/data/images}

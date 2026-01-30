@@ -168,6 +168,7 @@ export default function SettingsPage() {
               >
                 steamgriddb.com
               </a>
+              . After saving your API key, manually trigger a sync for each profile to download missing game images.
             </p>
             <div className="relative">
               <input
