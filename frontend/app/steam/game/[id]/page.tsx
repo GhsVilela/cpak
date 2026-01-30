@@ -1,7 +1,7 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
 
 interface Game {
@@ -30,6 +30,8 @@ export const dynamic = 'force-dynamic';
 export default function GameDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const profileId = searchParams.get('profileId');
   const [game, setGame] = useState<Game | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,15 +39,24 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
 
   useEffect(() => {
     loadGameDetails();
-  }, [id]);
+  }, [id, profileId]);
 
   const loadGameDetails = async () => {
     setLoading(true);
     setError('');
 
     try {
-      // Fetch game details (id is the Steam gameId from URL)
-      const gameData = await apiClient.get<Game>(`/games/${id}?platform=steam`);
+      // Build query parameters
+      const params = new URLSearchParams({
+        platform: 'steam',
+      });
+      
+      if (profileId) {
+        params.append('profileId', profileId);
+      }
+
+      // Fetch game details with profileId filter
+      const gameData = await apiClient.get<Game>(`/games/${id}?${params.toString()}`);
       setGame(gameData);
 
       // Fetch achievements for this game using the MongoDB _id
@@ -73,7 +84,7 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
           {error || 'Game not found'}
         </div>
         <button
-          onClick={() => router.push('/steam')}
+          onClick={() => router.push(profileId ? `/steam?profileId=${profileId}` : '/steam')}
           className="text-[var(--steam-accent)] hover:underline"
         >
           ← Back to games
@@ -89,7 +100,7 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
     <div className="max-w-4xl mx-auto">
       {/* Back button */}
       <button
-        onClick={() => router.push('/steam')}
+        onClick={() => router.push(profileId ? `/steam?profileId=${profileId}` : '/steam')}
         className="text-[var(--steam-accent)] hover:underline mb-6 flex items-center gap-2"
       >
         <span>←</span> Back to games

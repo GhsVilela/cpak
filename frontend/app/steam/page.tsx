@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
@@ -15,21 +15,32 @@ interface Game {
   achievementsUnlocked: number;
   completionPercent: number;
   iconPath?: string;
+  profileId: string;
 }
 
-export default function SteamPage() {
+function SteamPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [onlyCompleted, setOnlyCompleted] = useState(false);
-  const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>();
+  // Initialize from URL immediately, not in useEffect
+  const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(
+    searchParams.get('profileId') || undefined
+  );
 
   useEffect(() => {
     if (selectedProfileId) {
       loadGames();
     }
   }, [onlyCompleted, selectedProfileId]);
+
+  const handleProfileChange = (profileId: string) => {
+    setSelectedProfileId(profileId);
+    // Update URL to include profileId
+    router.push(`/steam?profileId=${profileId}`, { scroll: false });
+  };
 
   const loadGames = async () => {
     if (!selectedProfileId) return;
@@ -64,7 +75,7 @@ export default function SteamPage() {
           <ProfileSelector
             platform="steam"
             selectedProfileId={selectedProfileId}
-            onSelectProfile={setSelectedProfileId}
+            onSelectProfile={handleProfileChange}
           />
           <label className="flex items-center gap-2">
             <input
@@ -112,5 +123,13 @@ export default function SteamPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function SteamPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <SteamPageContent />
+    </Suspense>
   );
 }

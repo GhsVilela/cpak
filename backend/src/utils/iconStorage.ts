@@ -35,8 +35,9 @@ export class IconStorage {
 
       // Check if file already exists
       if (fs.existsSync(filePath)) {
-        logger.debug({ filePath, platform, gameId, iconType }, 'Image already exists, skipping download');
-        return this.getRelativePath(filePath);
+        const relativePath = this.getRelativePath(filePath);
+        logger.debug({ filePath, relativePath, platform, gameId, iconType }, 'Image already exists, returning cached path');
+        return relativePath;
       }
 
       // Download the icon
@@ -48,10 +49,13 @@ export class IconStorage {
       const buffer = await response.arrayBuffer();
       await fs.promises.writeFile(filePath, Buffer.from(buffer));
 
-      logger.debug({ url, filePath }, 'Icon downloaded and stored');
-      return this.getRelativePath(filePath);
+      const relativePath = this.getRelativePath(filePath);
+      logger.debug({ url, filePath, relativePath }, 'Icon downloaded and stored');
+      return relativePath;
     } catch (error) {
-      logger.error({ error, url }, 'Failed to download icon');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      logger.error({ error: errorMessage, stack: errorStack, url, platform, gameId, iconType }, 'Failed to download icon');
       throw error;
     }
   }
@@ -60,7 +64,8 @@ export class IconStorage {
    * Get the relative path from the base icons directory
    */
   private getRelativePath(absolutePath: string): string {
-    return path.relative(ICONS_BASE_DIR, absolutePath);
+    // Ensure forward slashes for cross-platform compatibility
+    return path.relative(ICONS_BASE_DIR, absolutePath).replace(/\\/g, '/');
   }
 
   /**

@@ -52,19 +52,30 @@ export async function getGames(
 }
 
 export async function getGameById(
-  req: FastifyRequest<{ Params: { id: string }; Querystring: { platform?: string } }>,
+  req: FastifyRequest<{ Params: { id: string }; Querystring: { platform?: string; profileId?: string } }>,
   reply: FastifyReply
 ) {
   try {
     const { id } = req.params;
-    const { platform } = req.query;
+    const { platform, profileId } = req.query;
 
     let game;
     
     // If platform is provided, search by gameId and platform
     // Otherwise, assume id is MongoDB _id for backward compatibility
     if (platform) {
-      game = await Game.findOne({ gameId: id, platform }).lean();
+      const filter: any = { gameId: id, platform };
+      
+      // If profileId is provided, filter by it to ensure we get the correct profile's game
+      if (profileId) {
+        const profile = await Profile.findById(profileId);
+        if (!profile) {
+          return reply.status(404).send({ error: 'Profile not found' });
+        }
+        filter.profileId = profile._id;
+      }
+      
+      game = await Game.findOne(filter).lean();
     } else {
       game = await Game.findById(id).lean();
     }
