@@ -101,7 +101,11 @@ export default function SetupPage() {
               <div className="bg-yellow-900/20 border border-yellow-700/50 rounded p-4">
                 <h3 className="text-sm font-semibold text-yellow-400 mb-2">⚠️ Important: Profile Privacy</h3>
                 <p className="text-xs text-gray-300 mb-2">
-                  Your Steam profile must be set to <strong>Public</strong> for achievement syncing to work.
+                  Your Steam profile must be set to <strong>Public</strong> for achievement syncing to work properly.
+                </p>
+                <p className="text-xs text-gray-400 mb-2">
+                  If you experience sync issues or some games don't appear after syncing, verify if your profile is set to Public. 
+                  Steam may not return free-to-play games when profiles are set to Private or Friends Only.
                 </p>
                 <p className="text-xs text-gray-400">
                   Go to{' '}
