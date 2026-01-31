@@ -211,7 +211,7 @@ export default function SettingsPage() {
               <span className="text-gray-400 font-normal ml-2">(Optional)</span>
             </label>
             <p className="text-sm text-gray-400 mb-2">
-              SteamGridDB provides high-quality game cover images as a fallback when Steam CDN images are unavailable.
+              SteamGridDB provides game cover images as a fallback when Steam CDN images are unavailable.
             </p>
             <div className="relative">
               <input
