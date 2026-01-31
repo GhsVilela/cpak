@@ -24,6 +24,8 @@ interface SyncRun {
 interface GlobalSettings {
   _id: string;
   steamGridApiKey?: string;
+  schedulerEnabled?: boolean;
+  schedulerCron?: string;
 }
 
 const platformColors = {
@@ -38,11 +40,62 @@ const platformNames = {
   playstation: 'PlayStation',
 };
 
+const getCronDescription = (cron: string): string => {
+  if (!cron) return '';
+  
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return 'Invalid cron expression';
+  
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  
+  // Common patterns
+  if (cron === '0 3 * * *') return 'Runs every day at 3:00 AM';
+  if (cron === '0 0 * * *') return 'Runs every day at midnight';
+  if (cron === '0 */6 * * *') return 'Runs every 6 hours';
+  if (cron === '0 * * * *') return 'Runs every hour';
+  if (cron === '*/30 * * * *') return 'Runs every 30 minutes';
+  if (cron === '0 0 * * 0') return 'Runs every Sunday at midnight';
+  if (cron === '0 0 1 * *') return 'Runs on the 1st day of every month at midnight';
+  
+  // Build description
+  let desc = 'Runs ';
+  
+  // Day of week (0-6, Sunday=0)
+  if (dayOfWeek !== '*') {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayNum = parseInt(dayOfWeek);
+    desc += `every ${days[dayNum]} `;
+  } else if (dayOfMonth !== '*') {
+    desc += `on day ${dayOfMonth} of every month `;
+  } else {
+    desc += 'every day ';
+  }
+  
+  // Hour and minute
+  if (hour !== '*' && minute !== '*') {
+    const h = parseInt(hour);
+    const m = parseInt(minute);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const displayHour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    desc += `at ${displayHour}:${m.toString().padStart(2, '0')} ${period}`;
+  } else if (hour !== '*') {
+    desc += `at hour ${hour}`;
+  } else if (minute !== '*') {
+    desc += `at minute ${minute} of every hour`;
+  }
+  
+  return desc;
+};
+
 export default function SettingsPage() {
   const router = useRouter();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [syncRuns, setSyncRuns] = useState<Record<string, SyncRun>>({});
-  const [settings, setSettings] = useState<GlobalSettings>({ _id: 'global' });
+  const [settings, setSettings] = useState<GlobalSettings>({ 
+    _id: 'global',
+    schedulerEnabled: false,
+    schedulerCron: '0 3 * * *'
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -195,6 +248,58 @@ export default function SettingsPage() {
                   </svg>
                 )}
               </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Automatic Sync Scheduler
+              <span className="text-gray-400 font-normal ml-2">(Optional)</span>
+            </label>
+            <p className="text-sm text-gray-400 mb-3">
+              Automatically sync all profiles on a schedule. Configure when syncs should run using a cron expression.
+            </p>
+            
+            <div className="space-y-3">
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={settings.schedulerEnabled || false}
+                  onChange={(e) => setSettings({ ...settings, schedulerEnabled: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-600 bg-gray-900 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+                />
+                <span className="text-sm">Enable automatic sync scheduler</span>
+              </label>
+              
+              {settings.schedulerEnabled && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Cron Expression
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.schedulerCron || '0 3 * * *'}
+                    onChange={(e) => setSettings({ ...settings, schedulerCron: e.target.value })}
+                    placeholder="0 3 * * *"
+                    className="w-full px-4 py-2 bg-gray-900 border border-gray-600 rounded focus:outline-none focus:border-blue-500 font-mono text-sm"
+                  />
+                  <p className="text-sm text-blue-400 mt-2">
+                    {getCronDescription(settings.schedulerCron || '0 3 * * *')}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Need help with cron expressions? Visit{' '}
+                    <a 
+                      href="https://crontab.guru" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:underline"
+                    >
+                      crontab.guru
+                    </a>
+                    {' '}for examples and explanations.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
