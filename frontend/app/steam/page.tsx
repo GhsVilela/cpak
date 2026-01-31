@@ -110,7 +110,6 @@ function SteamPageContent() {
           <p className="text-sm mt-1">
             Your Steam profile may be syncing. This can take a few minutes. 
             {onlyCompleted && ' If you have games with achievements unlocked but no 100% completions, try disabling the "100% Complete Only" filter.'}
-            {' '}Refresh the page to see updates.
           </p>
         </div>
       )}
@@ -119,7 +118,7 @@ function SteamPageContent() {
         <GameGrid 
           games={games} 
           loading={loading}
-          emptyMessage={onlyCompleted ? 'No 100% completed games. Try disabling the filter.' : 'No games found.'}
+          emptyMessage={onlyCompleted ? 'No 100% completed games. Try disabling the filter.' : 'No games found (Steam profile maybe set to Private).'}
         />
       )}
     </div>

@@ -97,22 +97,24 @@ class SyncService {
         }
 
         // Priority 2: Try direct Steam CDN library grid URL
-        try {
-          const steamCdnUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg`;
-          imagePath = await imageStorage.downloadAndStore(
-            steamCdnUrl,
-            'steam',
-            game.appId.toString(),
-            'game',
-            'grid'
-          );
-          logger.info({ appId: game.appId }, 'Downloaded image from Steam CDN (library grid)');
-        } catch (error) {
-          logger.debug({ error, appId: game.appId }, 'Steam CDN library grid not available');
-          // Check if file exists locally with different extension
-          imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
-          if (imagePath) {
-            logger.debug({ appId: game.appId }, 'Using existing local file (grid)');
+        if (!imagePath) {
+          try {
+            const steamCdnUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg`;
+            imagePath = await imageStorage.downloadAndStore(
+              steamCdnUrl,
+              'steam',
+              game.appId.toString(),
+              'game',
+              'grid'
+            );
+            logger.info({ appId: game.appId }, 'Downloaded image from Steam CDN (library grid)');
+          } catch (error) {
+            logger.debug({ error, appId: game.appId }, 'Steam CDN library grid not available');
+            // Check if file exists locally with different extension
+            imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
+            if (imagePath) {
+              logger.debug({ appId: game.appId }, 'Using existing local file (grid)');
+            }
           }
         }
 
@@ -128,44 +130,51 @@ class SyncService {
           }
         }
 
-        // Fallback 2: Try Steam Store API for header or capsule image
+        // Fallback 2: Try Steam Store API for header or capsule image (only if no grid was found)
         if (!imagePath) {
-          try {
-            const gameDetails = await steamAdapter.getGameDetails(game.appId);
-            
-            // Try header image first
-            if (gameDetails?.headerImage) {
-              try {
-                imagePath = await imageStorage.downloadAndStore(
-                  gameDetails.headerImage,
-                  'steam',
-                  game.appId.toString(),
-                  'game',
-                  'header'
-                );
-                logger.info({ appId: game.appId }, 'Downloaded header image from Steam Store API');
-              } catch (error) {
-                logger.debug({ error, appId: game.appId }, 'Failed to download header image');
+          // Double-check if grid was downloaded before trying header/capsule fallbacks
+          const gridExists = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
+          if (gridExists) {
+            logger.debug({ appId: game.appId }, 'Grid file found locally, skipping header/capsule fallback');
+            imagePath = gridExists;
+          } else {
+            try {
+              const gameDetails = await steamAdapter.getGameDetails(game.appId);
+              
+              // Try header image first
+              if (gameDetails?.headerImage) {
+                try {
+                  imagePath = await imageStorage.downloadAndStore(
+                    gameDetails.headerImage,
+                    'steam',
+                    game.appId.toString(),
+                    'game',
+                    'header'
+                  );
+                  logger.info({ appId: game.appId }, 'Downloaded header image from Steam Store API');
+                } catch (error) {
+                  logger.debug({ error, appId: game.appId }, 'Failed to download header image');
+                }
               }
-            }
-            
-            // Try capsule image if header failed
-            if (!imagePath && gameDetails?.capsuleImage) {
-              try {
-                imagePath = await imageStorage.downloadAndStore(
-                  gameDetails.capsuleImage,
-                  'steam',
-                  game.appId.toString(),
-                  'game',
-                  'capsule'
-                );
-                logger.info({ appId: game.appId }, 'Downloaded capsule image from Steam Store API');
-              } catch (error) {
-                logger.debug({ error, appId: game.appId }, 'Failed to download capsule image');
+              
+              // Try capsule image if header failed
+              if (!imagePath && gameDetails?.capsuleImage) {
+                try {
+                  imagePath = await imageStorage.downloadAndStore(
+                    gameDetails.capsuleImage,
+                    'steam',
+                    game.appId.toString(),
+                    'game',
+                    'capsule'
+                  );
+                  logger.info({ appId: game.appId }, 'Downloaded capsule image from Steam Store API');
+                } catch (error) {
+                  logger.debug({ error, appId: game.appId }, 'Failed to download capsule image');
+                }
               }
+            } catch (error) {
+              logger.warn({ error, appId: game.appId }, 'Steam Store API failed');
             }
-          } catch (error) {
-            logger.warn({ error, appId: game.appId }, 'Steam Store API failed');
           }
         }
 

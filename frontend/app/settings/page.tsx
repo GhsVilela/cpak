@@ -249,7 +249,7 @@ export default function SettingsPage() {
               >
                 steamgriddb.com
               </a>
-              . After saving your API key, manually trigger a sync for each profile to download missing game images.
+              . After saving your API key, manually trigger a sync for each profile to start download missing game images and also fix image proportions with more suitable images.
             </p>
           </div>
 
@@ -319,11 +319,11 @@ export default function SettingsPage() {
         <h2 className="text-xl font-semibold mb-4">Profiles</h2>
 
         {!loading && profiles.length === 0 && (
-          <div className="text-gray-400 text-center py-12">
-            <p>No profiles configured.</p>
+          <div className="text-center py-12">
+            <p className="text-gray-400">No profiles configured.</p>
             <button
               onClick={handleAddProfile}
-              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
+              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition text-white"
             >
               Add Your First Profile
             </button>
