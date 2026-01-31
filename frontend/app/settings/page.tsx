@@ -211,17 +211,7 @@ export default function SettingsPage() {
               <span className="text-gray-400 font-normal ml-2">(Optional)</span>
             </label>
             <p className="text-sm text-gray-400 mb-2">
-              Enter your SteamGridDB API key as a fallback source for game images when Steam CDN images are unavailable.
-              Get your free API key from{' '}
-              <a 
-                href="https://www.steamgriddb.com/profile/preferences/api" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:underline"
-              >
-                steamgriddb.com
-              </a>
-              . After saving your API key, manually trigger a sync for each profile to download missing game images.
+              SteamGridDB provides high-quality game cover images as a fallback when Steam CDN images are unavailable.
             </p>
             <div className="relative">
               <input
@@ -249,6 +239,18 @@ export default function SettingsPage() {
                 )}
               </button>
             </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Get your free API key from{' '}
+              <a 
+                href="https://www.steamgriddb.com/profile/preferences/api" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:underline"
+              >
+                steamgriddb.com
+              </a>
+              . After saving your API key, manually trigger a sync for each profile to download missing game images.
+            </p>
           </div>
 
           <div>
