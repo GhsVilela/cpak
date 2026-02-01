@@ -1,3 +1,5 @@
+import { logger } from '../utils/logger.js';
+
 interface RateLimitConfig {
   maxRequests: number;
   windowMs: number;
@@ -42,7 +44,7 @@ class RateLimiterService {
     const config = this.platformConfigs[platform];
 
     if (!config) {
-      console.warn(`[RateLimiter] No config for platform: ${platform}`);
+      logger.warn(`[RateLimiter] No config for platform: ${platform}`);
       return true;
     }
 
@@ -102,7 +104,7 @@ class RateLimiterService {
           if (this.isRetryableError(error)) {
             attempt++;
             if (attempt < maxRetries) {
-              console.warn(
+              logger.warn(
                 `[RateLimiter] Retryable error for ${platform}, attempt ${attempt}/${maxRetries}`
               );
               await this.waitForDelay(platform);
@@ -115,7 +117,7 @@ class RateLimiterService {
         // Rate limit exceeded, wait and retry
         attempt++;
         if (attempt < maxRetries) {
-          console.warn(
+          logger.warn(
             `[RateLimiter] Rate limit exceeded for ${platform}, waiting...`
           );
           await this.waitForDelay(platform);

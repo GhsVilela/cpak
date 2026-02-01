@@ -117,12 +117,12 @@ description: "Task list for cpak (Cross Platform Achievement Keeper)"
 
 ## Phase N: Polish & Cross-Cutting Concerns
 
-- [ ] T043 [P] Documentation updates: `README.md` and `specs/001-cpak/quickstart.md`
-- [ ] T044 Code cleanup and refactoring across `frontend/` and `backend/`
-- [ ] T045 Performance tuning: query pagination and memoization in `backend/src/services/*`
-- [ ] T046 [P] Export/import JSON endpoints in `backend/src/api/routes/exportImport.ts`
-- [ ] T047 Security hardening: encrypt tokens at rest in `backend/src/utils/crypto.ts`
-- [ ] T048 [P] Validate `docker-compose.yml` and `ops/Caddyfile` with a local run
+- [X] T043 [P] Documentation updates: `README.md` and `specs/001-cpak/quickstart.md`
+- [X] T044 Code cleanup and refactoring across `frontend/` and `backend/`
+- [X] T045 Performance tuning: query pagination and memoization in `backend/src/services/*`
+- [X] T046 [P] Export/import JSON endpoints in `backend/src/api/routes/exportImport.ts`
+- [X] T047 Security hardening: encrypt tokens at rest in `backend/src/utils/crypto.ts`
+- [X] T048 [P] Validate `docker-compose.yml` and `ops/Caddyfile` with a local run
 
 ---
 

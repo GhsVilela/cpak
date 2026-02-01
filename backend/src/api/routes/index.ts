@@ -7,6 +7,7 @@ import { getAchievements } from './achievements.js';
 import { registerIconRoutes } from './icons.js';
 import { syncRunsRoutes } from './syncRuns.js';
 import { getSettings, updateSettings } from './settings.js';
+import { exportData, importData } from './exportImport.js';
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Register system routes at root
@@ -35,6 +36,10 @@ export async function registerRoutes(fastify: FastifyInstance) {
   // Settings API
   fastify.get('/settings', getSettings);
   fastify.put('/settings', updateSettings);
+
+  // Export/Import API
+  fastify.get('/export', exportData);
+  fastify.post('/import', importData);
 
   // Icons API
   await registerIconRoutes(fastify);
