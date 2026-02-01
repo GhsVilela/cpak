@@ -31,6 +31,12 @@ services:
       - ./data/mongo:/data/db
     environment:
       - MONGO_INITDB_DATABASE=cpak
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   api:
     build: ./backend
@@ -51,8 +57,10 @@ services:
       - IMAGES_DIR=${IMAGES_DIR:-/app/data/images}
       - SYNC_BATCH_SIZE=${SYNC_BATCH_SIZE:-10}
       - ICON_DOWNLOAD_CONCURRENCY=${ICON_DOWNLOAD_CONCURRENCY:-5}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     ports:
       - "8080:8080"
     volumes:

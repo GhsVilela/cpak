@@ -1,6 +1,7 @@
 import cron, { ScheduledTask } from 'node-cron';
 import { syncService } from './syncService.js';
 import { Profile } from '../models/profile.js';
+import { logger } from '../utils/logger.js';
 
 class SchedulerService {
   private task: ScheduledTask | null = null;
@@ -16,21 +17,21 @@ class SchedulerService {
    */
   start(): void {
     if (this.task) {
-      console.log('[Scheduler] Already running');
+      logger.info('[Scheduler] Already running');
       return;
     }
 
     if (!cron.validate(this.cronExpression)) {
-      console.error(`[Scheduler] Invalid cron expression: ${this.cronExpression}`);
+      logger.error(`[Scheduler] Invalid cron expression: ${this.cronExpression}`);
       return;
     }
 
     this.task = cron.schedule(this.cronExpression, async () => {
-      console.log('[Scheduler] Running scheduled sync for all profiles');
+      logger.info('[Scheduler] Running scheduled sync for all profiles');
       await this.syncAllProfiles();
     });
 
-    console.log(`[Scheduler] Started with schedule: ${this.cronExpression}`);
+    logger.info(`[Scheduler] Started with schedule: ${this.cronExpression}`);
   }
 
   /**
@@ -40,7 +41,7 @@ class SchedulerService {
     if (this.task) {
       this.task.stop();
       this.task = null;
-      console.log('[Scheduler] Stopped');
+      logger.info('[Scheduler] Stopped');
     }
   }
 
@@ -52,29 +53,29 @@ class SchedulerService {
       const profiles = await Profile.find();
       
       if (profiles.length === 0) {
-        console.log('[Scheduler] No profiles to sync');
+        logger.info('[Scheduler] No profiles to sync');
         return;
       }
 
-      console.log(`[Scheduler] Found ${profiles.length} profile(s) to sync`);
+      logger.info(`[Scheduler] Found ${profiles.length} profile(s) to sync`);
 
       for (const profile of profiles) {
         try {
-          console.log(`[Scheduler] Syncing ${profile.platform}:${profile.profileId}`);
+          logger.info(`[Scheduler] Syncing ${profile.platform}:${profile.profileId}`);
           await syncService.syncProfile(profile);
-          console.log(`[Scheduler] Successfully synced ${profile.platform}:${profile.profileId}`);
+          logger.info(`[Scheduler] Successfully synced ${profile.platform}:${profile.profileId}`);
         } catch (error) {
-          console.error(
-            `[Scheduler] Failed to sync ${profile.platform}:${profile.profileId}:`,
-            error instanceof Error ? error.message : error
+          logger.error(
+            { error, platform: profile.platform, profileId: profile.profileId },
+            `[Scheduler] Failed to sync ${profile.platform}:${profile.profileId}`
           );
           // Continue with next profile even if one fails
         }
       }
 
-      console.log('[Scheduler] Completed scheduled sync');
+      logger.info('[Scheduler] Completed scheduled sync');
     } catch (error) {
-      console.error('[Scheduler] Error during scheduled sync:', error);
+      logger.error({ error }, '[Scheduler] Error during scheduled sync');
     }
   }
 
@@ -82,7 +83,7 @@ class SchedulerService {
    * Run a manual sync for all profiles (useful for testing)
    */
   async runManualSync(): Promise<void> {
-    console.log('[Scheduler] Running manual sync');
+    logger.info('[Scheduler] Running manual sync');
     await this.syncAllProfiles();
   }
 }

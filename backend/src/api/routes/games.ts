@@ -7,6 +7,10 @@ interface GamesQuery {
   platform?: 'steam' | 'xbox' | 'playstation';
   profileId?: string;
   onlyCompleted?: string;
+  limit?: string;
+  offset?: string;
+  sortBy?: string;
+  sortOrder?: string;
 }
 
 export async function getGames(
@@ -14,7 +18,19 @@ export async function getGames(
   reply: FastifyReply
 ) {
   try {
-    const { platform, profileId, onlyCompleted } = req.query;
+    const { 
+      platform, 
+      profileId, 
+      onlyCompleted, 
+      limit = '50', 
+      offset = '0',
+      sortBy = 'title',
+      sortOrder = 'asc'
+    } = req.query;
+
+    // Parse and validate pagination params
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500); // Max 500
+    const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
 
     const filter: any = {};
 
@@ -40,11 +56,30 @@ export async function getGames(
       filter.completionPercent = 100;
     }
 
+    // Validate and build sort object
+    const validSortFields = ['title', 'completionPercent', 'lastSyncedAt', 'achievementsTotal'];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : 'title';
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+
+    // Get total count for pagination metadata
+    const totalCount = await Game.countDocuments(filter);
+
     const games = await Game.find(filter)
-      .sort({ title: 1 })
+      .collation({ locale: 'en', strength: 2 }) // Case-insensitive sorting
+      .sort({ [sortField]: sortDirection })
+      .limit(limitNum)
+      .skip(offsetNum)
       .lean();
 
-    reply.send(games);
+    reply.send({
+      data: games,
+      pagination: {
+        total: totalCount,
+        limit: limitNum,
+        offset: offsetNum,
+        hasMore: offsetNum + games.length < totalCount
+      }
+    });
   } catch (error) {
     logger.error({ error }, 'Failed to fetch games');
     reply.status(500).send({ error: 'Internal server error' });

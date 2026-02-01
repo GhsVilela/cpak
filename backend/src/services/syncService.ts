@@ -59,8 +59,11 @@ class SyncService {
   }
 
   private async syncSteam(profile: IProfile): Promise<void> {
+    // Get decrypted credentials
+    const credentials = profile.getDecryptedCredentials();
+    
     // Use profile-specific Steam API key if available, otherwise fall back to config
-    const apiKey = (profile.credentials as any)?.steamApiKey || undefined;
+    const apiKey = credentials?.steamApiKey || undefined;
     const steamAdapter = createSteamAdapter(apiKey);
     
     // Fetch and update display name from Steam API (source of truth)
