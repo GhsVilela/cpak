@@ -10,7 +10,7 @@ interface Game {
   achievementsTotal: number;
   achievementsUnlocked: number;
   completionPercent: number;
-  iconPath?: string;
+  imagePath?: string;
   profileId: string;
 }
 

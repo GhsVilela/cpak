@@ -8,11 +8,7 @@ export interface IGame extends Document {
   achievementsTotal: number;
   achievementsUnlocked: number;
   completionPercent: number;
-  iconPath?: string;
-  imageRefs?: {
-    provider: 'steamgriddb' | 'native' | 'custom';
-    urls: string[];
-  };
+  imagePath?: string;
   lastSyncedAt: Date;
 }
 
@@ -29,14 +25,7 @@ const GameSchema = new Schema<IGame>(
     achievementsTotal: { type: Number, required: true, default: 0 },
     achievementsUnlocked: { type: Number, required: true, default: 0 },
     completionPercent: { type: Number, required: true, default: 0 },
-    iconPath: String,
-    imageRefs: {
-      provider: {
-        type: String,
-        enum: ['steamgriddb', 'native', 'custom'],
-      },
-      urls: [String],
-    },
+    imagePath: String,
     lastSyncedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
