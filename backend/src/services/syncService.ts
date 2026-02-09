@@ -219,10 +219,10 @@ class SyncService {
           lastSyncedAt: new Date(),
         };
 
-        // Only update iconPath if we successfully downloaded an image
+        // Only update imagePath if we successfully downloaded an image
         const imagePath = gameImageMap.get(game.appId);
         if (imagePath) {
-          updateData.iconPath = imagePath;
+          updateData.imagePath = imagePath;
         }
 
         return Game.findOneAndUpdate(
@@ -248,7 +248,7 @@ class SyncService {
     const achievementIconPromises: Promise<{
       appId: number;
       achievementId: string;
-      iconPath?: string;
+      imagePath?: string;
       iconGrayPath?: string;
     }>[] = [];
 

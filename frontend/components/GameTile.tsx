@@ -11,7 +11,7 @@ interface GameTileProps {
     achievementsTotal: number;
     achievementsUnlocked: number;
     completionPercent: number;
-    iconPath?: string;
+    imagePath?: string;
     profileId: string;
   };
 }
@@ -54,9 +54,9 @@ export default function GameTile({ game }: GameTileProps) {
     >
       {/* Game Image */}
       <div className="relative aspect-[2/3] bg-gray-900">
-        {game.iconPath ? (
+        {game.imagePath ? (
           <img
-            src={`/api/icons/${game.iconPath}`}
+            src={`/api/icons/${game.imagePath}`}
             alt={game.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
