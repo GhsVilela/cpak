@@ -295,7 +295,8 @@ export async function createSteamGridDBAdapter(apiKey?: string): Promise<SteamGr
   if (!key) {
     try {
       const settings = await Settings.findById('global');
-      key = settings?.steamGridApiKey;
+      // Use method to get decrypted key
+      key = settings?.getDecryptedApiKey();
     } catch (error) {
       logger.warn({ error }, 'Failed to load SteamGridDB API key from settings');
     }
