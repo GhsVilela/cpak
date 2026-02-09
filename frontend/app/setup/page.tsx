@@ -55,28 +55,6 @@ export default function SetupPage() {
           <h2 className="text-xl font-semibold mb-4">Steam Configuration</h2>
           <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Steam API Key</label>
-                <input
-                  type="text"
-                  value={steamApiKey}
-                  onChange={(e) => setSteamApiKey(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded focus:outline-none focus:border-[var(--steam-accent)]"
-                  placeholder="Enter your Steam API key"
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  Get your API key from{' '}
-                  <a
-                    href="https://steamcommunity.com/dev/apikey"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[var(--steam-accent)] hover:underline"
-                  >
-                    steamcommunity.com/dev/apikey
-                  </a>
-                </p>
-              </div>
-
-              <div>
                 <label className="block text-sm font-medium mb-2">Steam ID</label>
                 <input
                   type="text"
@@ -94,6 +72,28 @@ export default function SetupPage() {
                     className="text-[var(--steam-accent)] hover:underline"
                   >
                     steamid.io
+                  </a>
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Steam API Key</label>
+                <input
+                  type="text"
+                  value={steamApiKey}
+                  onChange={(e) => setSteamApiKey(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded focus:outline-none focus:border-[var(--steam-accent)]"
+                  placeholder="Enter your Steam API key"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Get your API key from{' '}
+                  <a
+                    href="https://steamcommunity.com/dev/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--steam-accent)] hover:underline"
+                  >
+                    steamcommunity.com/dev/apikey
                   </a>
                 </p>
               </div>

@@ -44,8 +44,8 @@ export async function getProfileById(req: FastifyRequest<{ Params: { id: string 
       return reply.status(404).send({ error: 'Profile not found' });
     }
 
-    const response = profile.toObject() as any;
-    reply.send(response);
+    // toJSON is called automatically by reply.send
+    reply.send(profile);
   } catch (error) {
     logger.error({ error }, 'Failed to fetch profile');
     reply.status(500).send({ error: 'Internal server error' });
@@ -57,30 +57,36 @@ export async function createProfile(req: FastifyRequest, reply: FastifyReply) {
     const body = profileSchema.parse(req.body);
     logger.info({ body }, 'Creating/updating profile');
     
-    // Use findOneAndUpdate with upsert to handle both create and update
-    const profile = await Profile.findOneAndUpdate(
-      {
+    // Check if profile already exists
+    let profile = await Profile.findOne({
+      platform: body.platform,
+      profileId: body.profileId,
+    });
+
+    if (profile) {
+      // Update existing profile
+      profile.displayName = body.displayName || profile.displayName;
+      if (body.credentials) {
+        profile.credentials = {
+          ...profile.credentials,
+          ...body.credentials,
+        };
+      }
+    } else {
+      // Create new profile
+      profile = new Profile({
         platform: body.platform,
         profileId: body.profileId,
-      },
-      {
-        $set: {
-          platform: body.platform,
-          profileId: body.profileId,
-          displayName: body.displayName || `${body.platform} User ${body.profileId}`,
-          credentials: body.credentials || {},
-        },
-      },
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true,
-      }
-    );
+        displayName: body.displayName || `${body.platform} User ${body.profileId}`,
+        credentials: body.credentials || {},
+      });
+    }
 
-    const response = profile.toObject() as any;
-    delete response.credentials;
-    reply.status(201).send(response);
+    // Save triggers pre-save hook for encryption
+    await profile.save();
+
+    // Return without credentials (toJSON is called automatically)
+    reply.status(201).send(profile);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return reply.status(400).send({ error: 'Invalid request body', details: error.errors });
@@ -95,12 +101,31 @@ export async function updateProfile(req: FastifyRequest<{ Params: { id: string }
     const { id } = req.params;
     const body = updateProfileSchema.parse(req.body);
 
-    const profile = await Profile.findByIdAndUpdate(id, body, { new: true }).select('-credentials');
+    // Find profile first to trigger pre-save hooks
+    const profile = await Profile.findById(id);
     if (!profile) {
       return reply.status(404).send({ error: 'Profile not found' });
     }
 
-    reply.send(profile);
+    // Update fields
+    if (body.displayName !== undefined) {
+      profile.displayName = body.displayName;
+    }
+
+    // Update credentials - merge with existing to preserve other fields
+    if (body.credentials) {
+      profile.credentials = {
+        ...profile.credentials,
+        ...body.credentials,
+      };
+    }
+
+    // Save triggers pre-save hook for encryption
+    await profile.save();
+
+    // Return without credentials
+    const profileObj = profile.toJSON();
+    reply.send(profileObj);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return reply.status(400).send({ error: 'Invalid request body', details: error.errors });

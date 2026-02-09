@@ -36,7 +36,8 @@ ProfileSchema.index({ platform: 1, profileId: 1 }, { unique: true });
 
 // Encrypt sensitive fields before saving
 ProfileSchema.pre('save', function (next) {
-  if (this.isModified('credentials')) {
+  // Check if credentials exist and are being created or modified
+  if (this.credentials && (this.isNew || this.isModified('credentials'))) {
     const creds = this.credentials as any;
     
     // Encrypt sensitive tokens
@@ -79,8 +80,10 @@ ProfileSchema.methods.toJSON = function() {
   const obj = this.toObject();
   // Remove sensitive data from API responses
   if (obj.credentials) {
+    const hasApiKey = !!(obj.credentials.steamApiKey);
     obj.credentials = { 
       configured: true,
+      steamApiKeyConfigured: hasApiKey,
       // Only expose non-sensitive metadata
       tokenType: obj.credentials.tokenType,
       expiresAt: obj.credentials.expiresAt,

@@ -11,13 +11,14 @@ export async function getSettings(
   reply: FastifyReply
 ) {
   try {
-    let settings = await Settings.findById('global').lean();
+    let settings = await Settings.findById('global');
     
     // Create default settings if none exist
     if (!settings) {
       settings = await Settings.create({ _id: 'global' });
     }
 
+    // toJSON is called automatically by reply.send
     reply.send(settings);
   } catch (error) {
     logger.error({ error }, 'Failed to fetch settings');
@@ -35,15 +36,18 @@ export async function updateSettings(
     // Ensure settings document exists
     let settings = await Settings.findById('global');
     if (!settings) {
-      settings = await Settings.create({ _id: 'global', ...updates });
-    } else {
-      // Update fields
-      if (updates.steamGridApiKey !== undefined) {
-        settings.steamGridApiKey = updates.steamGridApiKey;
-      }
-      await settings.save();
+      settings = new Settings({ _id: 'global' });
     }
 
+    // Update fields - only update if provided and not empty
+    if (updates.steamGridApiKey !== undefined && updates.steamGridApiKey.trim()) {
+      settings.steamGridApiKey = updates.steamGridApiKey;
+    }
+
+    // Save triggers encryption via pre-save hook
+    await settings.save();
+
+    // Return sanitized response (toJSON hides encrypted key)
     reply.send(settings);
   } catch (error) {
     logger.error({ error }, 'Failed to update settings');
