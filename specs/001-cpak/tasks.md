@@ -123,6 +123,18 @@ description: "Task list for cpak (Cross Platform Achievement Keeper)"
 - [X] T046 [P] Export/import JSON endpoints in `backend/src/api/routes/exportImport.ts`
 - [X] T047 Security hardening: encrypt tokens at rest in `backend/src/utils/crypto.ts`
 - [X] T048 [P] Validate `docker-compose.yml` and `ops/Caddyfile` with a local run
+- [X] T049 Create `BackupMetadata` model in `backend/src/models/backupMetadata.ts` for tracking operations
+- [X] T050 [P] Implement async backup with progress tracking in `backend/src/api/routes/backup.ts` (background job, in-memory state)
+- [X] T051 [P] Implement async restore with progress tracking in `backend/src/api/routes/backup.ts` (bulk operations, event loop yielding)
+- [X] T052 Add status endpoint `GET /api/backup/status` returning current/last backup and restore operations
+- [X] T053 [P] Implement cancel endpoints: `DELETE /api/backup/cancel/:jobId` and `DELETE /api/backup/restore/cancel/:jobId`
+- [X] T054 Add cancellation checkpoints in backup/restore background processes (check cancelled jobs set at key stages)
+- [X] T055 Update settings page UI in `frontend/app/settings/page.tsx` for async backup/restore (status display, timestamps, check status button)
+- [X] T056 [P] Add relative timestamp formatting (similar to sync) showing "5m ago", "2h ago" for last operations
+- [X] T057 Add cancel buttons in settings page progress bars for active backup/restore operations
+- [X] T058 [P] Persist backup/restore metadata to database (completion times, download times, operation counts)
+- [X] T059 Optimize restore progress calculation based on total work units (db items + image files)
+- [X] T060 Add mutual exclusion: disable backup when restore active and vice versa in settings UI
 
 ---
 
