@@ -104,11 +104,26 @@ export default function SettingsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState('');
   const [showSteamGridApiKey, setShowSteamGridApiKey] = useState(false);
+  
+  // Backup/Restore status
+  interface BackupStatus {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+    lastCompleted: { completedAt: string; downloadedAt?: string; jobId: string } | null;
+    ready: boolean;
+  }
+  interface RestoreStatus {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+    lastCompleted: { completedAt: string; metadata?: any } | null;
+  }
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
+  const [restoreStatus, setRestoreStatus] = useState<RestoreStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
 
   useEffect(() => {
     loadProfiles();
     loadSyncRuns();
     loadSettings();
+    loadStatus();
   }, []);
 
   const loadProfiles = async () => {
@@ -178,6 +193,160 @@ export default function SettingsPage() {
 
   const handleAddProfile = () => {
     router.push('/setup');
+  };
+
+  // Load backup/restore status from server
+  const loadStatus = async () => {
+    setStatusLoading(true);
+    try {
+      const response = await fetch('http://localhost:8000/api/backup/status');
+      if (response.ok) {
+        const data = await response.json();
+        setBackupStatus(data.backup);
+        setRestoreStatus(data.restore);
+      }
+    } catch (err) {
+      console.error('Failed to load backup/restore status:', err);
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  // Start new backup
+  const handleCreateBackup = async () => {
+    setError('');
+    try {
+      const response = await fetch('http://localhost:8000/api/backup/start', {
+        method: 'POST'
+      });
+      
+      if (!response.ok) throw new Error('Failed to start backup');
+      
+      const { jobId } = await response.json();
+      console.log('Backup started:', jobId);
+      
+      // Immediately refresh status
+      await loadStatus();
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start backup');
+    }
+  };
+
+  // Download ready backup
+  const handleDownloadBackup = async () => {
+    if (!backupStatus?.lastCompleted?.jobId) return;
+    
+    try {
+      const jobId = backupStatus.lastCompleted.jobId;
+      const downloadResponse = await fetch(`http://localhost:8000/api/backup/download/${jobId}`);
+      if (!downloadResponse.ok) throw new Error('Failed to download backup');
+      
+      const blob = await downloadResponse.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cpak-backup-${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      // Refresh status to show download timestamp
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to download backup');
+    }
+  };
+
+  // Start restore
+  const handleRestoreBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setError('');
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('http://localhost:8000/api/backup/restore/start', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to start restore: ${errorText}`);
+      }
+      
+      const { jobId } = await response.json();
+      console.log('Restore started:', jobId);
+      
+      // Immediately refresh status
+      await loadStatus();
+      
+      // Reload profiles after a delay to show restored data
+      setTimeout(() => loadProfiles(), 30000); // Reload after 30 seconds
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start restore');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  // Cancel backup
+  const handleCancelBackup = async () => {
+    if (!backupStatus?.current?.jobId) return;
+
+    try {
+      const jobId = backupStatus.current.jobId;
+      const response = await fetch(`http://localhost:8000/api/backup/cancel/${jobId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) throw new Error('Failed to cancel backup');
+
+      // Refresh status
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel backup');
+    }
+  };
+
+  // Cancel restore
+  const handleCancelRestore = async () => {
+    if (!restoreStatus?.current?.jobId) return;
+
+    try {
+      const jobId = restoreStatus.current.jobId;
+      const response = await fetch(`http://localhost:8000/api/backup/restore/cancel/${jobId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) throw new Error('Failed to cancel restore');
+
+      // Refresh status
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel restore');
+    }
+  };
+
+  // Format relative time like sync does
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
   };
 
   return (
@@ -329,6 +498,196 @@ export default function SettingsPage() {
           >
             Save Settings
           </button>
+        </div>
+      </div>
+
+      {/* Backup & Restore Section */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Backup & Restore</h2>
+          <button
+            onClick={loadStatus}
+            disabled={statusLoading}
+            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 rounded text-sm font-medium transition flex items-center gap-2"
+          >
+            {statusLoading ? (
+              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+            )}
+            Check Status
+          </button>
+        </div>
+        
+        <div className="space-y-4">
+          {/* Backup Section */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Backup</h3>
+            <p className="text-sm text-gray-400 mb-3">
+              Create a complete backup including all data (profiles, games, achievements, settings) and images.
+            </p>
+            
+            {/* Current backup in progress */}
+            {backupStatus?.current && (
+              <div className="mb-3 p-3 bg-blue-900/20 border border-blue-500/30 rounded">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="text-blue-400 font-medium">{backupStatus.current.message}</span>
+                  <span className="text-blue-400 font-bold">{backupStatus.current.progress}%</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${backupStatus.current.progress}%` }}
+                  ></div>
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-xs text-gray-400">Backup is running in the background. You can check back later or refresh the status.</p>
+                  <button
+                    onClick={handleCancelBackup}
+                    className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition flex items-center gap-1"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Ready to download */}
+            {backupStatus?.ready && !backupStatus?.current && (
+              <div className="mb-3">
+                <div className="flex items-center gap-2 text-sm text-green-400 mb-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="font-medium">Backup ready for download</span>
+                </div>
+                {backupStatus.lastCompleted && (
+                  <p className="text-xs text-gray-400 mb-3">
+                    Created: {formatRelativeTime(backupStatus.lastCompleted.completedAt)}
+                    {backupStatus.lastCompleted.downloadedAt && (
+                      <span> • Downloaded: {formatRelativeTime(backupStatus.lastCompleted.downloadedAt)}</span>
+                    )}
+                  </p>
+                )}
+                <button
+                  onClick={handleDownloadBackup}
+                  disabled={!!restoreStatus?.current}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition flex items-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download Backup
+                </button>
+              </div>
+            )}
+            
+            {/* Last download info (no backup ready) */}
+            {!backupStatus?.ready && !backupStatus?.current && backupStatus?.lastCompleted?.downloadedAt && (
+              <p className="text-xs text-gray-400 mb-3">
+                Last backup downloaded: {formatRelativeTime(backupStatus.lastCompleted.downloadedAt)}
+              </p>
+            )}
+            
+            {/* Create backup button */}
+            {!backupStatus?.current && (
+              <button
+                onClick={handleCreateBackup}
+                disabled={!!backupStatus?.current || !!restoreStatus?.current}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Create Backup
+              </button>
+            )}
+          </div>
+
+          {/* Restore Section */}
+          <div className="border-t border-gray-700 pt-4">
+            <h3 className="text-sm font-medium mb-2">Restore</h3>
+            <p className="text-sm text-gray-400 mb-3">
+              Upload a backup file to restore all data and images. This will merge with existing data.
+            </p>
+            
+            {/* Current restore in progress */}
+            {restoreStatus?.current && (
+              <div className="mb-3 p-3 bg-orange-900/20 border border-orange-500/30 rounded">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="text-orange-400 font-medium">{restoreStatus.current.message}</span>
+                  <span className="text-orange-400 font-bold">{restoreStatus.current.progress}%</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-orange-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${restoreStatus.current.progress}%` }}
+                  ></div>
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-xs text-gray-400">Restore is running in the background. You can check back later or refresh the status.</p>
+                  <button
+                    onClick={handleCancelRestore}
+                    className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition flex items-center gap-1"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Last restore info */}
+            {restoreStatus?.lastCompleted && !restoreStatus?.current && (
+              <div className="mb-3 text-sm">
+                <div className="flex items-center gap-2 text-green-400 mb-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="font-medium">Last restore: {formatRelativeTime(restoreStatus.lastCompleted.completedAt)}</span>
+                </div>
+                {restoreStatus.lastCompleted.metadata && (
+                  <p className="text-xs text-gray-400 ml-7">
+                    Restored {restoreStatus.lastCompleted.metadata.profiles || 0} profiles, {restoreStatus.lastCompleted.metadata.games || 0} games, {restoreStatus.lastCompleted.metadata.achievements || 0} achievements and {restoreStatus.lastCompleted.metadata.images || 0} images
+                  </p>
+                )}
+              </div>
+            )}
+            
+            {/* Upload button */}
+            {!restoreStatus?.current && (
+              <div className="flex items-center gap-3">
+                <label className={`px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded font-medium transition flex items-center gap-2 ${(backupStatus?.current || restoreStatus?.current) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  Upload Backup File
+                  <input
+                    type="file"
+                    accept=".zip"
+                    onChange={handleRestoreBackup}
+                    disabled={!!backupStatus?.current || !!restoreStatus?.current}
+                    className="hidden"
+                  />
+                </label>
+                <span className="text-xs text-gray-500">.zip files only</span>
+              </div>
+            )}
+            
+            <p className="text-xs text-yellow-500 mt-2">
+              ⚠️ Warning: Restoring a backup will merge data with existing records. Consider creating a backup first.
+            </p>
+          </div>
         </div>
       </div>
 
