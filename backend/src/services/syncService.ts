@@ -248,7 +248,7 @@ class SyncService {
     const achievementIconPromises: Promise<{
       appId: number;
       achievementId: string;
-      imagePath?: string;
+      iconPath?: string;
       iconGrayPath?: string;
     }>[] = [];
 

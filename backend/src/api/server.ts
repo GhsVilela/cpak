@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import { config, getApiPort, getAllowedOrigins } from '../utils/config.js';
 import { connectDB } from '../utils/db.js';
 import { registerRoutes } from './routes/index.js';
@@ -21,6 +22,13 @@ const fastify = Fastify({
 await fastify.register(cors, {
   origin: getAllowedOrigins(),
   credentials: true,
+});
+
+// Register multipart for file uploads
+await fastify.register(multipart, {
+  limits: {
+    fileSize: 1024 * 1024 * 500, // 500 MB max file size
+  },
 });
 
 // Connect to MongoDB

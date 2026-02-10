@@ -8,6 +8,7 @@ import { registerIconRoutes } from './icons.js';
 import { syncRunsRoutes } from './syncRuns.js';
 import { getSettings, updateSettings } from './settings.js';
 import { exportData, importData } from './exportImport.js';
+import { startBackup, getBackupProgress, downloadBackup, startRestore, getRestoreProgress, getStatus, cancelBackup, cancelRestore } from './backup.js';
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Register system routes at root
@@ -40,6 +41,16 @@ export async function registerRoutes(fastify: FastifyInstance) {
   // Export/Import API
   fastify.get('/export', exportData);
   fastify.post('/import', importData);
+  
+  // Full Backup/Restore API with progress tracking
+  fastify.get('/backup/status', getStatus);
+  fastify.post('/backup/start', startBackup);
+  fastify.get('/backup/progress/:jobId', getBackupProgress);
+  fastify.get('/backup/download/:jobId', downloadBackup);
+  fastify.delete('/backup/cancel/:jobId', cancelBackup);
+  fastify.post('/backup/restore/start', startRestore);
+  fastify.get('/backup/restore/progress/:jobId', getRestoreProgress);
+  fastify.delete('/backup/restore/cancel/:jobId', cancelRestore);
 
   // Icons API
   await registerIconRoutes(fastify);
