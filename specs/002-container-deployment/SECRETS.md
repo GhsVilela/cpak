@@ -108,24 +108,29 @@ git push origin v0.1.0-test
 
 ## Workflow Trigger Pattern
 
-The release workflow only triggers on **semantic version tags**:
+The release workflow triggers on **semantic version tags** (including pre-releases):
 
 ### Valid Tags (Triggers workflow)
-- `v1.0.0`
-- `v2.5.13`
-- `v10.99.999`
+- `v1.0.0` (stable release)
+- `v2.5.13` (stable release)
+- `v10.99.999` (stable release)
+- `v1.0.0-beta` (beta pre-release)
+- `v1.0.0-rc1` (release candidate)
+- `v1.0.0-alpha.1` (alpha pre-release)
 
 ### Invalid Tags (Does NOT trigger)
-- `v1.0.0-beta` (pre-release suffix)
-- `v1.0.0-rc1` (release candidate)
 - `1.0.0` (missing 'v' prefix)
 - `release-1.0.0` (wrong format)
+- `v1.0` (incomplete version)
 
 ### Creating a Production Release
 
 ```bash
-# Create semantic version tag
+# Create semantic version tag (stable)
 git tag v1.0.0
+
+# Or create a pre-release tag
+git tag v1.0.0-beta
 
 # Push tag to trigger release
 git push origin v1.0.0
