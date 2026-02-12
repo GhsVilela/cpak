@@ -38,7 +38,7 @@ await connectDB();
 await fastify.register(registerRoutes, { prefix: config.API_BASE_PATH });
 
 // Start scheduler for automatic syncs
-schedulerService.start();
+await schedulerService.start();
 fastify.log.info('Scheduler started for automatic profile syncs');
 
 // Start server

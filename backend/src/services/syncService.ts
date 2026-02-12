@@ -7,6 +7,7 @@ import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
 import { logger } from '../utils/logger.js';
 import { imageStorage } from '../utils/imageStorage.js';
 import pLimit from 'p-limit';
+import { configService } from './configService.js';
 
 class SyncService {
   async syncProfile(profile: IProfile): Promise<void> {
@@ -64,7 +65,7 @@ class SyncService {
     
     // Use profile-specific Steam API key if available, otherwise fall back to config
     const apiKey = credentials?.steamApiKey || undefined;
-    const steamAdapter = createSteamAdapter(apiKey);
+    const steamAdapter = await createSteamAdapter(apiKey);
     
     // Fetch and update display name from Steam API (source of truth)
     try {
@@ -83,13 +84,25 @@ class SyncService {
     // Check if SteamGridDB API key is configured
     const steamGridDBAdapter = await createSteamGridDBAdapter();
     const hasSteamGridDB = steamGridDBAdapter !== null;
-    const iconConcurrency = parseInt(process.env.ICON_DOWNLOAD_CONCURRENCY || '5', 10);
+    
+    // Get image download concurrency from settings (database > env > default)
+    let imageConcurrency = 5; // default
+    try {
+      const concurrencySetting = await configService.getSetting('sync_image_concurrency');
+      imageConcurrency = concurrencySetting ? parseInt(concurrencySetting, 10) : 5;
+    } catch (error) {
+      // Fallback to environment variable or default
+      imageConcurrency = parseInt(process.env.IMAGE_DOWNLOAD_CONCURRENCY || '5', 10);
+    }
+
+    // Create concurrency limiter for all image downloads (game covers and achievement icons)
+    const limit = pLimit(imageConcurrency);
 
     // Download game images in parallel batches
     const gameImagePromises: Promise<{ appId: number; imagePath?: string }>[] = [];
 
     for (const game of result.games) {
-      const promise = (async () => {
+      const promise = limit(async () => {
         let imagePath: string | undefined;
 
         // Priority 1: Check for existing local grid files first (avoid unnecessary downloads)
@@ -195,7 +208,7 @@ class SyncService {
         }
 
         return { appId: game.appId, imagePath };
-      })();
+      });
 
       gameImagePromises.push(promise);
     }
@@ -243,8 +256,7 @@ class SyncService {
       achievementsByGame.get(gameId)!.push(achievement);
     }
 
-    // Download achievement icons with concurrency limit
-    const limit = pLimit(iconConcurrency);
+    // Download achievement icons with concurrency limit (uses same limit as game images)
     const achievementIconPromises: Promise<{
       appId: number;
       achievementId: string;

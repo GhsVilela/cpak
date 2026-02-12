@@ -1,0 +1,63 @@
+# CPAK Split Volumes Deployment
+# Separate database and images for different storage backends or backup strategies
+# Use case: Database on fast SSD, images on slower bulk storage
+
+services:
+  cpak:
+    # For local testing/development, uncomment build and comment out image:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # For production, use published image:
+    # image: ghcr.io/ghsvilela/cpak:latest
+    # Alternative: docker.io/ghsvilela/cpak:latest
+    container_name: cpak
+    hostname: cpak
+    ports:
+      - "8000:80"  # Change 8000 to any available port
+    environment:
+      # Optional: Custom encryption key for securing API keys in database
+      # Generate with: openssl rand -base64 32
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+    volumes:
+      # Database on fast SSD (adjust path as needed)
+      - cpak_db:/data/db
+      # Images on slower bulk storage (adjust path as needed)
+      - cpak_images:/data/images
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  cpak_db:
+    driver: local
+    # Example: Bind to specific host path for SSD storage
+    # driver_opts:
+    #   type: none
+    #   o: bind
+    #   device: /mnt/ssd/cpak/db
+  
+  cpak_images:
+    driver: local
+    # Example: Bind to specific host path for bulk storage
+    # driver_opts:
+    #   type: none
+    #   o: bind
+    #   device: /mnt/storage/cpak/images
+
+# Quick Start:
+# 1. Uncomment driver_opts for volumes if using specific host paths
+# 2. Create directories: mkdir -p /mnt/ssd/cpak/db /mnt/storage/cpak/images
+# 3. docker compose -f docker-compose.split-volumes.yml up -d
+# 4. Open browser: http://localhost:8000
+# 5. Configure platform API keys in Settings UI
+
+# Benefits:
+# - Database lives on fast SSD for quick queries
+# - Images stored on cheaper bulk storage
+# - Independent backup strategies for DB vs images
+# - Easier to manage storage growth

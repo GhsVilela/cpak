@@ -1,6 +1,7 @@
 import { config } from '../../utils/config.js';
 import { logger } from '../../utils/logger.js';
 import { rateLimiter } from '../rateLimiter.js';
+import { configService } from '../configService.js';
 
 interface SteamGame {
   appid: number;
@@ -296,10 +297,10 @@ export class SteamAdapter {
   }
 }
 
-export function createSteamAdapter(apiKey?: string): SteamAdapter {
-  const key = apiKey || config.STEAM_API_KEY;
-  if (!key) {
-    throw new Error('STEAM_API_KEY not configured');
+export async function createSteamAdapter(apiKey?: string): Promise<SteamAdapter> {
+  // Steam API key is configured per-profile, not globally
+  if (!apiKey) {
+    throw new Error('Steam API key not configured. Please set it in the Profile settings.');
   }
-  return new SteamAdapter(key);
+  return new SteamAdapter(apiKey);
 }

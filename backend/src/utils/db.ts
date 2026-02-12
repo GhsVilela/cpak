@@ -13,7 +13,6 @@ export async function connectDB(): Promise<void> {
   try {
     const uri = config.MONGO_URI;
     await mongoose.connect(uri, {
-      dbName: config.MONGO_DB,
       ...(config.MONGO_USERNAME && config.MONGO_PASSWORD && {
         auth: {
           username: config.MONGO_USERNAME,
@@ -23,7 +22,7 @@ export async function connectDB(): Promise<void> {
     });
 
     isConnected = true;
-    logger.info(`MongoDB connected: ${config.MONGO_DB}`);
+    logger.info('MongoDB connected');
   } catch (error) {
     logger.error({ error }, 'MongoDB connection failed');
     throw error;

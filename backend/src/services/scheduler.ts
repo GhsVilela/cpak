@@ -2,20 +2,35 @@ import cron, { ScheduledTask } from 'node-cron';
 import { syncService } from './syncService.js';
 import { Profile } from '../models/profile.js';
 import { logger } from '../utils/logger.js';
+import { configService } from './configService.js';
 
 class SchedulerService {
   private task: ScheduledTask | null = null;
-  private readonly cronExpression: string;
+  private cronExpression: string;
 
   constructor() {
     // Default: Daily at 3am UTC (0 3 * * *)
-    this.cronExpression = process.env.SCHEDULER_CRON || '0 3 * * *';
+    this.cronExpression = '0 3 * * *';
+    this.loadConfiguration();
+  }
+
+  private async loadConfiguration(): Promise<void> {
+    try {
+      // Load scheduler cron from database settings, fall back to environment
+      this.cronExpression = await configService.getSetting('scheduler_cron') || process.env.SCHEDULER_CRON || '0 3 * * *';
+    } catch (error) {
+      logger.debug({ error }, 'Failed to load scheduler configuration from settings, using defaults');
+      this.cronExpression = process.env.SCHEDULER_CRON || '0 3 * * *';
+    }
   }
 
   /**
    * Start the scheduled sync task
    */
-  start(): void {
+  async start(): Promise<void> {
+    // Reload configuration from database on start
+    await this.loadConfiguration();
+    
     if (this.task) {
       logger.info('[Scheduler] Already running');
       return;
