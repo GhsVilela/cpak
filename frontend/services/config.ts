@@ -21,7 +21,7 @@ export async function getConfig(): Promise<AppConfig> {
   } catch (error) {
     console.error('Failed to load config, using defaults', error);
     cachedConfig = {
-      API_BASE_URL: 'http://localhost:8080/api',
+      API_BASE_URL: '/api',
     };
     return cachedConfig;
   }
