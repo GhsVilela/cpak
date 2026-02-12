@@ -1,0 +1,269 @@
+openapi: 3.0.3
+info:
+  title: cpak API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080/api
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /version:
+    get:
+      summary: Version
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+  /profiles:
+    get:
+      summary: List profiles
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Profile'
+    post:
+      summary: Create profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+  /profiles/{id}:
+    patch:
+      summary: Update profile
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete profile
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No Content
+  /sync/{platform}:
+    post:
+      summary: Trigger manual sync
+      parameters:
+        - in: path
+          name: platform
+          required: true
+          schema:
+            type: string
+            enum: [steam, xbox, playstation]
+        - in: query
+          name: profileId
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Accepted
+  /games:
+    get:
+      summary: List games
+      parameters:
+        - in: query
+          name: platform
+          required: true
+          schema:
+            type: string
+            enum: [steam, xbox, playstation]
+        - in: query
+          name: profileId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: onlyCompleted
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Game'
+  /achievements:
+    get:
+      summary: List achievements
+      parameters:
+        - in: query
+          name: gameId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: profileId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Achievement'
+  /images:
+    get:
+      summary: Get image metadata
+      parameters:
+        - in: query
+          name: gameId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageAsset'
+components:
+  schemas:
+    Profile:
+      type: object
+      properties:
+        id:
+          type: string
+        platform:
+          type: string
+          enum: [steam, xbox, playstation]
+        profileId:
+          type: string
+        displayName:
+          type: string
+    ProfileCreate:
+      type: object
+      properties:
+        platform:
+          type: string
+          enum: [steam, xbox, playstation]
+        profileId:
+          type: string
+        displayName:
+          type: string
+        credentials:
+          type: object
+    ProfileUpdate:
+      type: object
+      properties:
+        displayName:
+          type: string
+        credentials:
+          type: object
+    Game:
+      type: object
+      properties:
+        id:
+          type: string
+        platform:
+          type: string
+        profileId:
+          type: string
+        gameId:
+          type: string
+        title:
+          type: string
+        achievementsTotal:
+          type: integer
+        achievementsUnlocked:
+          type: integer
+        completionPercent:
+          type: integer
+        imageRefs:
+          type: object
+    Achievement:
+      type: object
+      properties:
+        id:
+          type: string
+        platform:
+          type: string
+        profileId:
+          type: string
+        gameId:
+          type: string
+        achievementId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        unlockedAt:
+          type: string
+          format: date-time
+    ImageAsset:
+      type: object
+      properties:
+        id:
+          type: string
+        platform:
+          type: string
+        gameId:
+          type: string
+        provider:
+          type: string
+        urls:
+          type: array
+          items:
+            type: string
+        cachedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
