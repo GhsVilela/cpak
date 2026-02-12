@@ -1,0 +1,20 @@
+:80 {
+    # Enable compression
+    encode gzip
+
+    # Proxy API requests to backend (preserve /api prefix)
+    handle /api/* {
+        reverse_proxy api:8080
+    }
+
+    # Proxy all other requests to Next.js frontend
+    handle {
+        reverse_proxy frontend:3000
+    }
+
+    # Basic access logging
+    log {
+        output stdout
+        format json
+    }
+}

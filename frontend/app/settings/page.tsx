@@ -1,0 +1,784 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { apiClient } from '../../services/apiClient';
+import ProfileSyncControls from '../../components/ProfileSyncControls';
+
+interface Profile {
+  _id: string;
+  platform: 'steam' | 'xbox' | 'playstation';
+  profileId: string;
+  displayName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface SyncRun {
+  _id: string;
+  profileId: string | { _id: string }; // Can be string or populated object
+  completedAt: string;
+  status: 'success' | 'failed';
+}
+
+interface GlobalSettings {
+  _id: string;
+  steamGridApiKey?: string;
+  steamGridApiKeyConfigured?: boolean;
+  schedulerEnabled?: boolean;
+  schedulerCron?: string;
+}
+
+const platformColors = {
+  steam: 'var(--steam-accent)',
+  xbox: '#107c10',
+  playstation: '#003791',
+};
+
+const platformNames = {
+  steam: 'Steam',
+  xbox: 'Xbox',
+  playstation: 'PlayStation',
+};
+
+const getCronDescription = (cron: string): string => {
+  if (!cron) return '';
+  
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return 'Invalid cron expression';
+  
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  
+  // Common patterns
+  if (cron === '0 3 * * *') return 'Runs every day at 3:00 AM';
+  if (cron === '0 0 * * *') return 'Runs every day at midnight';
+  if (cron === '0 */6 * * *') return 'Runs every 6 hours';
+  if (cron === '0 * * * *') return 'Runs every hour';
+  if (cron === '*/30 * * * *') return 'Runs every 30 minutes';
+  if (cron === '0 0 * * 0') return 'Runs every Sunday at midnight';
+  if (cron === '0 0 1 * *') return 'Runs on the 1st day of every month at midnight';
+  
+  // Build description
+  let desc = 'Runs ';
+  
+  // Day of week (0-6, Sunday=0)
+  if (dayOfWeek !== '*') {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayNum = parseInt(dayOfWeek);
+    desc += `every ${days[dayNum]} `;
+  } else if (dayOfMonth !== '*') {
+    desc += `on day ${dayOfMonth} of every month `;
+  } else {
+    desc += 'every day ';
+  }
+  
+  // Hour and minute
+  if (hour !== '*' && minute !== '*') {
+    const h = parseInt(hour);
+    const m = parseInt(minute);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const displayHour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    desc += `at ${displayHour}:${m.toString().padStart(2, '0')} ${period}`;
+  } else if (hour !== '*') {
+    desc += `at hour ${hour}`;
+  } else if (minute !== '*') {
+    desc += `at minute ${minute} of every hour`;
+  }
+  
+  return desc;
+};
+
+export default function SettingsPage() {
+  const router = useRouter();
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [syncRuns, setSyncRuns] = useState<Record<string, SyncRun>>({});
+  const [settings, setSettings] = useState<GlobalSettings>({ 
+    _id: 'global',
+    steamGridApiKey: '',
+    steamGridApiKeyConfigured: false,
+    schedulerEnabled: false,
+    schedulerCron: '0 3 * * *'
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [showSteamGridApiKey, setShowSteamGridApiKey] = useState(false);
+  
+  // Backup/Restore status
+  interface BackupStatus {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+    lastCompleted: { completedAt: string; downloadedAt?: string; jobId: string } | null;
+    ready: boolean;
+  }
+  interface RestoreStatus {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+    lastCompleted: { completedAt: string; metadata?: any } | null;
+  }
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
+  const [restoreStatus, setRestoreStatus] = useState<RestoreStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+
+  useEffect(() => {
+    loadProfiles();
+    loadSyncRuns();
+    loadSettings();
+    loadStatus();
+  }, []);
+
+  const loadProfiles = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await apiClient.get<Profile[]>('/profiles');
+      setProfiles(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load profiles');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSyncRuns = async () => {
+    try {
+      const runs = await apiClient.get<SyncRun[]>('/sync/runs?limit=100');
+      const runsByProfile: Record<string, SyncRun> = {};
+      runs.forEach((run) => {
+        const profileId = typeof run.profileId === 'string' ? run.profileId : (run.profileId as any)._id;
+        if (!runsByProfile[profileId]) {
+          runsByProfile[profileId] = run;
+        }
+      });
+      setSyncRuns(runsByProfile);
+    } catch (err) {
+      console.error('Failed to load sync runs:', err);
+    }
+  };
+
+  const loadSettings = async () => {
+    try {
+      const data = await apiClient.get<GlobalSettings>('/settings');
+      // Never populate steamGridApiKey field for security
+      setSettings({ ...data, steamGridApiKey: '' });
+    } catch (err) {
+      console.error('Failed to load settings:', err);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    setSaveMessage('');
+    setError('');
+    
+    try {
+      await apiClient.put('/settings', settings);
+      setSaveMessage('Settings saved successfully!');
+      // Reload settings to get fresh state with cleared API key field
+      await loadSettings();
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save settings');
+    }
+  };
+
+  const handleDelete = async (profileId: string) => {
+    try {
+      await apiClient.delete(`/profiles/${profileId}`);
+      setProfiles(profiles.filter((p) => p._id !== profileId));
+      setDeleteConfirm(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete profile');
+    }
+  };
+
+  const handleAddProfile = () => {
+    router.push('/setup');
+  };
+
+  // Load backup/restore status from server
+  const loadStatus = async () => {
+    setStatusLoading(true);
+    try {
+      const response = await fetch('http://localhost:8000/api/backup/status');
+      if (response.ok) {
+        const data = await response.json();
+        setBackupStatus(data.backup);
+        setRestoreStatus(data.restore);
+      }
+    } catch (err) {
+      console.error('Failed to load backup/restore status:', err);
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  // Start new backup
+  const handleCreateBackup = async () => {
+    setError('');
+    try {
+      const response = await fetch('http://localhost:8000/api/backup/start', {
+        method: 'POST'
+      });
+      
+      if (!response.ok) throw new Error('Failed to start backup');
+      
+      const { jobId } = await response.json();
+      console.log('Backup started:', jobId);
+      
+      // Immediately refresh status
+      await loadStatus();
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start backup');
+    }
+  };
+
+  // Download ready backup
+  const handleDownloadBackup = async () => {
+    if (!backupStatus?.lastCompleted?.jobId) return;
+    
+    try {
+      const jobId = backupStatus.lastCompleted.jobId;
+      const downloadResponse = await fetch(`http://localhost:8000/api/backup/download/${jobId}`);
+      if (!downloadResponse.ok) throw new Error('Failed to download backup');
+      
+      const blob = await downloadResponse.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cpak-backup-${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      // Refresh status to show download timestamp
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to download backup');
+    }
+  };
+
+  // Start restore
+  const handleRestoreBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setError('');
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('http://localhost:8000/api/backup/restore/start', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to start restore: ${errorText}`);
+      }
+      
+      const { jobId } = await response.json();
+      console.log('Restore started:', jobId);
+      
+      // Immediately refresh status
+      await loadStatus();
+      
+      // Reload profiles after a delay to show restored data
+      setTimeout(() => loadProfiles(), 30000); // Reload after 30 seconds
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start restore');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  // Cancel backup
+  const handleCancelBackup = async () => {
+    if (!backupStatus?.current?.jobId) return;
+
+    try {
+      const jobId = backupStatus.current.jobId;
+      const response = await fetch(`http://localhost:8000/api/backup/cancel/${jobId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) throw new Error('Failed to cancel backup');
+
+      // Refresh status
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel backup');
+    }
+  };
+
+  // Cancel restore
+  const handleCancelRestore = async () => {
+    if (!restoreStatus?.current?.jobId) return;
+
+    try {
+      const jobId = restoreStatus.current.jobId;
+      const response = await fetch(`http://localhost:8000/api/backup/restore/cancel/${jobId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) throw new Error('Failed to cancel restore');
+
+      // Refresh status
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel restore');
+    }
+  };
+
+  // Format relative time like sync does
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Settings</h1>
+        <button
+          onClick={handleAddProfile}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
+        >
+          + Add Profile
+        </button>
+      </div>
+
+      {loading && <p>Loading profiles...</p>}
+
+      {error && (
+        <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-2 rounded mb-4">
+          {error}
+        </div>
+      )}
+
+      {saveMessage && (
+        <div className="bg-green-900/20 border border-green-500 text-green-400 px-4 py-2 rounded mb-4">
+          {saveMessage}
+        </div>
+      )}
+
+      {/* Global Configuration */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+        <h2 className="text-xl font-semibold mb-4">Global Configuration</h2>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              SteamGridDB API Key
+              <span className="text-gray-400 font-normal ml-2">(Optional)</span>
+            </label>
+            <p className="text-sm text-gray-400 mb-2">
+              SteamGridDB provides game cover images as a fallback when Steam CDN images are unavailable.
+            </p>
+            <div className="relative">
+              <input
+                type={showSteamGridApiKey ? "text" : "password"}
+                value={settings.steamGridApiKey || ''}
+                onChange={(e) => setSettings({ ...settings, steamGridApiKey: e.target.value })}
+                placeholder={settings.steamGridApiKeyConfigured ? "Enter new API key to replace existing" : "Enter your SteamGridDB API key"}
+                className="w-full px-4 py-2 pr-24 bg-gray-900 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                {settings.steamGridApiKeyConfigured && !settings.steamGridApiKey && (
+                  <div className="flex items-center gap-1 text-green-400" title="API key is configured">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-xs font-medium">Configured</span>
+                  </div>
+                )}
+                {settings.steamGridApiKey && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSteamGridApiKey(!showSteamGridApiKey)}
+                    className="text-gray-400 hover:text-gray-200"
+                    aria-label={showSteamGridApiKey ? "Hide API key" : "Show API key"}
+                  >
+                    {showSteamGridApiKey ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Get your free API key from{' '}
+              <a 
+                href="https://www.steamgriddb.com/profile/preferences/api" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:underline"
+              >
+                steamgriddb.com
+              </a>
+              . Your API key is encrypted and never displayed. Leave empty to keep your existing key unchanged. After saving your API key, manually trigger a sync for each profile to download missing game images.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Automatic Sync Scheduler
+              <span className="text-gray-400 font-normal ml-2">(Optional)</span>
+            </label>
+            <p className="text-sm text-gray-400 mb-3">
+              Automatically sync all profiles on a schedule. Configure when syncs should run using a cron expression.
+            </p>
+            
+            <div className="space-y-3">
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={settings.schedulerEnabled || false}
+                  onChange={(e) => setSettings({ ...settings, schedulerEnabled: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-600 bg-gray-900 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+                />
+                <span className="text-sm">Enable automatic sync scheduler</span>
+              </label>
+              
+              {settings.schedulerEnabled && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Cron Expression
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.schedulerCron || '0 3 * * *'}
+                    onChange={(e) => setSettings({ ...settings, schedulerCron: e.target.value })}
+                    placeholder="0 3 * * *"
+                    className="w-full px-4 py-2 bg-gray-900 border border-gray-600 rounded focus:outline-none focus:border-blue-500 font-mono text-sm"
+                  />
+                  <p className="text-sm text-blue-400 mt-2">
+                    {getCronDescription(settings.schedulerCron || '0 3 * * *')}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Need help with cron expressions? Visit{' '}
+                    <a 
+                      href="https://crontab.guru" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:underline"
+                    >
+                      crontab.guru
+                    </a>
+                    {' '}for examples and explanations.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button
+            onClick={handleSaveSettings}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
+          >
+            Save Settings
+          </button>
+        </div>
+      </div>
+
+      {/* Backup & Restore Section */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Backup & Restore</h2>
+          <button
+            onClick={loadStatus}
+            disabled={statusLoading}
+            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 rounded text-sm font-medium transition flex items-center gap-2"
+          >
+            {statusLoading ? (
+              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+            )}
+            Check Status
+          </button>
+        </div>
+        
+        <div className="space-y-4">
+          {/* Backup Section */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Backup</h3>
+            <p className="text-sm text-gray-400 mb-3">
+              Create a complete backup including all data (profiles, games, achievements, settings) and images.
+            </p>
+            
+            {/* Current backup in progress */}
+            {backupStatus?.current && (
+              <div className="mb-3 p-3 bg-blue-900/20 border border-blue-500/30 rounded">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="text-blue-400 font-medium">{backupStatus.current.message}</span>
+                  <span className="text-blue-400 font-bold">{backupStatus.current.progress}%</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${backupStatus.current.progress}%` }}
+                  ></div>
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-xs text-gray-400">Backup is running in the background. You can check back later or refresh the status.</p>
+                  <button
+                    onClick={handleCancelBackup}
+                    className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition flex items-center gap-1"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Ready to download */}
+            {backupStatus?.ready && !backupStatus?.current && (
+              <div className="mb-3">
+                <div className="flex items-center gap-2 text-sm text-green-400 mb-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="font-medium">Backup ready for download</span>
+                </div>
+                {backupStatus.lastCompleted && (
+                  <p className="text-xs text-gray-400 mb-3">
+                    Created: {formatRelativeTime(backupStatus.lastCompleted.completedAt)}
+                    {backupStatus.lastCompleted.downloadedAt && (
+                      <span> • Downloaded: {formatRelativeTime(backupStatus.lastCompleted.downloadedAt)}</span>
+                    )}
+                  </p>
+                )}
+                <button
+                  onClick={handleDownloadBackup}
+                  disabled={!!restoreStatus?.current}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition flex items-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download Backup
+                </button>
+              </div>
+            )}
+            
+            {/* Last download info (no backup ready) */}
+            {!backupStatus?.ready && !backupStatus?.current && backupStatus?.lastCompleted?.downloadedAt && (
+              <p className="text-xs text-gray-400 mb-3">
+                Last backup downloaded: {formatRelativeTime(backupStatus.lastCompleted.downloadedAt)}
+              </p>
+            )}
+            
+            {/* Create backup button */}
+            {!backupStatus?.current && (
+              <button
+                onClick={handleCreateBackup}
+                disabled={!!backupStatus?.current || !!restoreStatus?.current}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Create Backup
+              </button>
+            )}
+          </div>
+
+          {/* Restore Section */}
+          <div className="border-t border-gray-700 pt-4">
+            <h3 className="text-sm font-medium mb-2">Restore</h3>
+            <p className="text-sm text-gray-400 mb-3">
+              Upload a backup file to restore all data and images. This will merge with existing data.
+            </p>
+            
+            {/* Current restore in progress */}
+            {restoreStatus?.current && (
+              <div className="mb-3 p-3 bg-orange-900/20 border border-orange-500/30 rounded">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="text-orange-400 font-medium">{restoreStatus.current.message}</span>
+                  <span className="text-orange-400 font-bold">{restoreStatus.current.progress}%</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-orange-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${restoreStatus.current.progress}%` }}
+                  ></div>
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-xs text-gray-400">Restore is running in the background. You can check back later or refresh the status.</p>
+                  <button
+                    onClick={handleCancelRestore}
+                    className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition flex items-center gap-1"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Last restore info */}
+            {restoreStatus?.lastCompleted && !restoreStatus?.current && (
+              <div className="mb-3 text-sm">
+                <div className="flex items-center gap-2 text-green-400 mb-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="font-medium">Last restore: {formatRelativeTime(restoreStatus.lastCompleted.completedAt)}</span>
+                </div>
+                {restoreStatus.lastCompleted.metadata && (
+                  <p className="text-xs text-gray-400 ml-7">
+                    Restored {restoreStatus.lastCompleted.metadata.profiles || 0} profiles, {restoreStatus.lastCompleted.metadata.games || 0} games, {restoreStatus.lastCompleted.metadata.achievements || 0} achievements and {restoreStatus.lastCompleted.metadata.images || 0} images
+                  </p>
+                )}
+              </div>
+            )}
+            
+            {/* Upload button */}
+            {!restoreStatus?.current && (
+              <div className="flex items-center gap-3">
+                <label className={`px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded font-medium transition flex items-center gap-2 ${(backupStatus?.current || restoreStatus?.current) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  Upload Backup File
+                  <input
+                    type="file"
+                    accept=".zip"
+                    onChange={handleRestoreBackup}
+                    disabled={!!backupStatus?.current || !!restoreStatus?.current}
+                    className="hidden"
+                  />
+                </label>
+                <span className="text-xs text-gray-500">.zip files only</span>
+              </div>
+            )}
+            
+            <p className="text-xs text-yellow-500 mt-2">
+              ⚠️ Warning: Restoring a backup will merge data with existing records. Consider creating a backup first.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Profiles Section */}
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold mb-4">Profiles</h2>
+
+        {!loading && profiles.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-gray-400">No profiles configured.</p>
+            <button
+              onClick={handleAddProfile}
+              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition text-white"
+            >
+              Add Your First Profile
+            </button>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {profiles.map((profile) => (
+            <div
+              key={profile._id}
+              className="bg-gray-800 border border-gray-700 rounded-lg p-6"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span
+                      className="px-3 py-1 rounded-full text-sm font-semibold"
+                      style={{
+                        backgroundColor: `${platformColors[profile.platform]}20`,
+                        color: platformColors[profile.platform],
+                        border: `1px solid ${platformColors[profile.platform]}`,
+                      }}
+                    >
+                      {platformNames[profile.platform]}
+                    </span>
+                    <h3 className="text-xl font-semibold">{profile.displayName}</h3>
+                  </div>
+                  <p className="text-sm text-gray-400">Profile ID: {profile.profileId}</p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Added: {new Date(profile.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => router.push(`/settings/edit/${profile._id}`)}
+                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
+                  >
+                    Edit
+                  </button>
+                  {deleteConfirm === profile._id ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleDelete(profile._id)}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium transition"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirm(null)}
+                        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirm(profile._id)}
+                      className="px-4 py-2 bg-red-900/50 hover:bg-red-900/70 border border-red-500/50 rounded font-medium transition"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Sync Controls */}
+              <ProfileSyncControls
+                profileId={profile._id}
+                platform={profile.platform}
+                displayName={profile.displayName}
+                lastSync={syncRuns[profile._id]}
+                onSyncComplete={loadSyncRuns}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
