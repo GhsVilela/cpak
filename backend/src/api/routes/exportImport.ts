@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { Profile } from '../../models/profile.js';
 import { Game } from '../../models/game.js';
 import { Achievement } from '../../models/achievement.js';
-import { Settings } from '../../models/settings.js';
+import { Setting } from '../../models/setting.js';
 import { logger } from '../../utils/logger.js';
 
 interface ExportData {
@@ -28,7 +28,7 @@ export async function exportData(
       Profile.find().lean(),
       Game.find().lean(),
       Achievement.find().lean(),
-      Settings.findOne().lean()
+      Setting.find().lean()
     ]);
 
     const exportData: ExportData = {
@@ -118,12 +118,9 @@ export async function importData(
     }
 
     // Import settings (overwrite existing)
-    if (data.settings) {
-      await Settings.findOneAndUpdate(
-        {},
-        data.settings,
-        { upsert: true, new: true }
-      );
+    if (data.settings && Array.isArray(data.settings)) {
+      await Setting.deleteMany({});
+      await Setting.insertMany(data.settings);
       imported.settings = true;
     }
 

@@ -1,0 +1,54 @@
+# CPAK Unified Container Deployment
+# Single container includes: Caddy, Next.js frontend, Fastify backend, MongoDB
+# Deployment time: < 5 minutes | Required env vars: 1 (optional)
+#
+# ℹ️  NOTE: This file is identical to docker-compose.yml (the default)
+# You can use either:
+#   docker compose up -d                              (uses docker-compose.yml)
+#   docker compose -f docker-compose.unified.yml up -d  (uses this file)
+#
+# This file is kept for documentation purposes and to match quickstart.md references.
+# =============================================================================
+
+services:
+  cpak:
+    # For local testing/development, uncomment build and comment out image:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # For production, use published image:
+    # image: ghcr.io/ghsvilela/cpak:latest
+    # Alternative: docker.io/ghsvilela/cpak:latest
+    container_name: cpak
+    hostname: cpak
+    ports:
+      - "8000:80"  # Change 8000 to any available port
+    environment:
+      # Optional: Custom encryption key for securing API keys in database
+      # Generate with: openssl rand -base64 32
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+    volumes:
+      # All persistent data (database + images) in one unified volume
+      - cpak_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  cpak_data:
+    driver: local
+
+# Quick Start:
+# 1. docker compose -f docker-compose.unified.yml up -d
+# 2. Open browser: http://localhost:8000
+# 3. Configure platform API keys in Settings UI
+#
+# Data Backup:
+# docker run --rm -v cpak_data:/data -v $(pwd):/backup alpine tar czf /backup/cpak-backup.tar.gz /data
+#
+# Data Restore:
+# docker run --rm -v cpak_data:/data -v $(pwd):/backup alpine tar xzf /backup/cpak-backup.tar.gz -C /

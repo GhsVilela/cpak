@@ -1,16 +1,24 @@
 import { z } from 'zod';
 
 const configSchema = z.object({
+  // Fixed internal ports for containerized deployment
   API_PORT: z.string().default('8080'),
   API_BASE_PATH: z.string().default('/api'),
-  MONGO_URI: z.string().default('mongodb://localhost:27017'),
-  MONGO_DB: z.string().default('cpak'),
+  
+  // Database configuration
+  MONGO_URI: z.string().default('mongodb://localhost:27017/cpak'),
   MONGO_USERNAME: z.string().optional(),
   MONGO_PASSWORD: z.string().optional(),
-  ALLOWED_ORIGINS: z.string().default('http://localhost:3000'),
+  
+  // CORS - auto-detect from request headers in container deployment
+  ALLOWED_ORIGINS: z.string().default('*'),
+  
+  // Scheduler configuration (UI-configurable in future)
   SCHEDULER_ENABLED: z.string().default('false'),
   SCHEDULER_CRON: z.string().default('0 3 * * *'),
   SYNC_RATE_LIMIT_PER_MIN: z.string().default('60'),
+  
+  // Platform API keys (UI-configurable in future)
   STEAM_API_KEY: z.string().optional(),
   XBOX_CLIENT_ID: z.string().optional(),
   XBOX_CLIENT_SECRET: z.string().optional(),
@@ -19,6 +27,9 @@ const configSchema = z.object({
   PLAYSTATION_CLIENT_SECRET: z.string().optional(),
   PLAYSTATION_REDIRECT_URI: z.string().optional(),
   STEAMGRID_API_KEY: z.string().optional(),
+  
+  // Fixed internal path for containerized deployment
+  IMAGES_DIR: z.string().default('/data/images'),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -30,6 +41,10 @@ export function getApiPort(): number {
 }
 
 export function getAllowedOrigins(): string[] {
+  // In container deployment, accept all origins and validate via reverse proxy
+  if (config.ALLOWED_ORIGINS === '*') {
+    return ['*'];
+  }
   return config.ALLOWED_ORIGINS.split(',').map(o => o.trim());
 }
 

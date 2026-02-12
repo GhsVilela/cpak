@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { Profile } from '../../models/profile.js';
 import { Game } from '../../models/game.js';
 import { Achievement } from '../../models/achievement.js';
-import { Settings } from '../../models/settings.js';
+import { Setting } from '../../models/setting.js';
 import { BackupMetadata } from '../../models/backupMetadata.js';
 import { logger } from '../../utils/logger.js';
 import archiver from 'archiver';
@@ -253,7 +253,7 @@ async function createBackupInBackground(jobId: string) {
       Profile.find().lean(),
       Game.find().lean(),
       Achievement.find().lean(),
-      Settings.findOne().lean()
+      Setting.find().lean()
     ]);
 
     const exportData = {
@@ -408,7 +408,7 @@ export async function downloadFullBackup(
       Profile.find().lean(),
       Game.find().lean(),
       Achievement.find().lean(),
-      Settings.findOne().lean()
+      Setting.find().lean()
     ]);
 
     const exportData = {
@@ -866,12 +866,9 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
     }
 
     // Import settings
-    if (backupData.settings) {
-      await Settings.findByIdAndUpdate(
-        'global',
-        backupData.settings,
-        { upsert: true, new: true }
-      );
+    if (backupData.settings && Array.isArray(backupData.settings)) {
+      await Setting.deleteMany({});
+      await Setting.insertMany(backupData.settings);
       imported.settings = true;
       processedWorkUnits++;
       
@@ -1060,12 +1057,9 @@ export async function uploadFullBackup(
     }
 
     // Import settings
-    if (backupData.settings) {
-      await Settings.findByIdAndUpdate(
-        'global',
-        backupData.settings,
-        { upsert: true, new: true }
-      );
+    if (backupData.settings && Array.isArray(backupData.settings)) {
+      await Setting.deleteMany({});
+      await Setting.insertMany(backupData.settings);
       imported.settings = true;
     }
 

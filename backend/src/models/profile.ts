@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
-import { encrypt, decrypt } from '../utils/crypto.js';
+import { encrypt, decrypt, isEncrypted } from '../utils/crypto.js';
 
 export interface IProfile extends Document {
   platform: 'steam' | 'xbox' | 'playstation';
@@ -40,15 +40,15 @@ ProfileSchema.pre('save', function (next) {
   if (this.credentials && (this.isNew || this.isModified('credentials'))) {
     const creds = this.credentials as any;
     
-    // Encrypt sensitive tokens
-    if (creds.steamApiKey && !creds.steamApiKey.startsWith('encrypted:')) {
-      creds.steamApiKey = `encrypted:${encrypt(creds.steamApiKey)}`;
+    // Encrypt sensitive tokens (encrypt() now adds prefix automatically)
+    if (creds.steamApiKey && !isEncrypted(creds.steamApiKey)) {
+      creds.steamApiKey = encrypt(creds.steamApiKey);
     }
-    if (creds.accessToken && !creds.accessToken.startsWith('encrypted:')) {
-      creds.accessToken = `encrypted:${encrypt(creds.accessToken)}`;
+    if (creds.accessToken && !isEncrypted(creds.accessToken)) {
+      creds.accessToken = encrypt(creds.accessToken);
     }
-    if (creds.refreshToken && !creds.refreshToken.startsWith('encrypted:')) {
-      creds.refreshToken = `encrypted:${encrypt(creds.refreshToken)}`;
+    if (creds.refreshToken && !isEncrypted(creds.refreshToken)) {
+      creds.refreshToken = encrypt(creds.refreshToken);
     }
   }
   next();
@@ -59,14 +59,15 @@ ProfileSchema.methods.getDecryptedCredentials = function() {
   const creds = { ...this.credentials } as any;
   
   try {
-    if (creds.steamApiKey?.startsWith('encrypted:')) {
-      creds.steamApiKey = decrypt(creds.steamApiKey.substring(10));
+    // decrypt() now handles prefix automatically
+    if (creds.steamApiKey && isEncrypted(creds.steamApiKey)) {
+      creds.steamApiKey = decrypt(creds.steamApiKey);
     }
-    if (creds.accessToken?.startsWith('encrypted:')) {
-      creds.accessToken = decrypt(creds.accessToken.substring(10));
+    if (creds.accessToken && isEncrypted(creds.accessToken)) {
+      creds.accessToken = decrypt(creds.accessToken);
     }
-    if (creds.refreshToken?.startsWith('encrypted:')) {
-      creds.refreshToken = decrypt(creds.refreshToken.substring(10));
+    if (creds.refreshToken && isEncrypted(creds.refreshToken)) {
+      creds.refreshToken = decrypt(creds.refreshToken);
     }
   } catch (error) {
     console.error('[Profile] Failed to decrypt credentials:', error);

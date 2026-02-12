@@ -1,7 +1,7 @@
 import { config } from '../../utils/config.js';
 import { logger } from '../../utils/logger.js';
 import { imageStorage } from '../../utils/imageStorage.js';
-import { Settings } from '../../models/settings.js';
+import { configService } from '../configService.js';
 
 interface SteamGridDBGame {
   id: number;
@@ -288,28 +288,17 @@ export class SteamGridDBAdapter {
   }
 }
 
-export async function createSteamGridDBAdapter(apiKey?: string): Promise<SteamGridDBAdapter | null> {
-  // Priority: 1) Provided API key, 2) Database settings, 3) Environment variable
-  let key = apiKey;
-  
-  if (!key) {
-    try {
-      const settings = await Settings.findById('global');
-      // Use method to get decrypted key
-      key = settings?.getDecryptedApiKey();
-    } catch (error) {
-      logger.warn({ error }, 'Failed to load SteamGridDB API key from settings');
+export async function createSteamGridDBAdapter(): Promise<SteamGridDBAdapter | null> {
+  // SteamGridDB API key is configured globally in settings
+  try {
+    const key = await configService.getSetting('steamgrid_api_key');
+    if (!key) {
+      logger.debug('SteamGridDB API key not configured in settings, images from this source are disabled');
+      return null;
     }
-  }
-  
-  if (!key) {
-    key = config.STEAMGRID_API_KEY;
-  }
-  
-  if (!key) {
-    logger.warn('STEAMGRID_API_KEY not configured, images from this source are disabled');
+    return new SteamGridDBAdapter(key);
+  } catch (error) {
+    logger.debug({ error }, 'Failed to load SteamGridDB API key from settings');
     return null;
   }
-  
-  return new SteamGridDBAdapter(key);
 }

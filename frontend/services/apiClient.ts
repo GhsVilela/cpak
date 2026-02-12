@@ -76,6 +76,23 @@ export class ApiClient {
       throw new Error(`API error: ${response.statusText}`);
     }
   }
+
+  // Settings API methods
+  async getAllSettings(): Promise<{ settings: Array<{ key: string; value: string; category: string; isSecret: boolean }> }> {
+    return this.get('/settings');
+  }
+
+  async getSetting(key: string): Promise<{ key: string; value: string; category: string; isSecret: boolean }> {
+    return this.get(`/settings/${key}`);
+  }
+
+  async updateSetting(key: string, value: string, category: string): Promise<{ message: string }> {
+    return this.put(`/settings/${key}`, { value, category });
+  }
+
+  async deleteSetting(key: string): Promise<void> {
+    return this.delete(`/settings/${key}`);
+  }
 }
 
 export const apiClient = new ApiClient();

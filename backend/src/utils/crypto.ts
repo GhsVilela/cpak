@@ -7,6 +7,19 @@ const SALT_LENGTH = 64;
 const KEY_LENGTH = 32;
 
 /**
+ * Encryption prefix to identify encrypted values
+ * Single source of truth for both Profile and Settings encryption
+ */
+export const ENCRYPTED_PREFIX = 'encrypted:';
+
+/**
+ * Check if a value is encrypted (has the prefix)
+ */
+export function isEncrypted(value: string): boolean {
+  return value.startsWith(ENCRYPTED_PREFIX);
+}
+
+/**
  * Get encryption key from environment or generate one
  * In production, this should be stored securely (e.g., KMS, secrets manager)
  */
@@ -27,7 +40,7 @@ function getEncryptionKey(): Buffer {
 
 /**
  * Encrypt sensitive data (e.g., API tokens)
- * Returns base64-encoded string: salt:iv:authTag:encryptedData
+ * Returns encrypted string with prefix: encrypted:base64Data
  */
 export function encrypt(plaintext: string): string {
   try {
@@ -48,7 +61,7 @@ export function encrypt(plaintext: string): string {
       Buffer.from(encrypted, 'hex')
     ]);
     
-    return combined.toString('base64');
+    return ENCRYPTED_PREFIX + combined.toString('base64');
   } catch (error) {
     throw new Error(`Encryption failed: ${error instanceof Error ? error.message : error}`);
   }
@@ -56,12 +69,18 @@ export function encrypt(plaintext: string): string {
 
 /**
  * Decrypt sensitive data
- * Accepts base64-encoded string from encrypt()
+ * Accepts encrypted string with or without prefix (for backward compatibility)
+ * Format: encrypted:base64Data or base64Data
  */
 export function decrypt(ciphertext: string): string {
   try {
+    // Strip prefix if present
+    const base64Data = ciphertext.startsWith(ENCRYPTED_PREFIX) 
+      ? ciphertext.substring(ENCRYPTED_PREFIX.length)
+      : ciphertext;
+    
     const key = getEncryptionKey();
-    const combined = Buffer.from(ciphertext, 'base64');
+    const combined = Buffer.from(base64Data, 'base64');
     
     // Extract iv, authTag, and encrypted data
     const iv = combined.subarray(0, IV_LENGTH);
