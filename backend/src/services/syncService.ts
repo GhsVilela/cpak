@@ -87,13 +87,8 @@ class SyncService {
     
     // Get image download concurrency from settings (database > env > default)
     let imageConcurrency = 5; // default
-    try {
-      const concurrencySetting = await configService.getSetting('sync_image_concurrency');
-      imageConcurrency = concurrencySetting ? parseInt(concurrencySetting, 10) : 5;
-    } catch (error) {
-      // Fallback to environment variable or default
-      imageConcurrency = parseInt(process.env.IMAGE_DOWNLOAD_CONCURRENCY || '5', 10);
-    }
+    const concurrencySetting = await configService.getSetting('sync_image_concurrency');
+    imageConcurrency = concurrencySetting ? parseInt(concurrencySetting, 10) : 5;
 
     // Create concurrency limiter for all image downloads (game covers and achievement icons)
     const limit = pLimit(imageConcurrency);

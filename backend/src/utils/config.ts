@@ -13,23 +13,9 @@ const configSchema = z.object({
   // CORS - auto-detect from request headers in container deployment
   ALLOWED_ORIGINS: z.string().default('*'),
   
-  // Scheduler configuration (UI-configurable in future)
-  SCHEDULER_ENABLED: z.string().default('false'),
-  SCHEDULER_CRON: z.string().default('0 3 * * *'),
-  SYNC_RATE_LIMIT_PER_MIN: z.string().default('60'),
-  
-  // Platform API keys (UI-configurable in future)
-  STEAM_API_KEY: z.string().optional(),
-  XBOX_CLIENT_ID: z.string().optional(),
-  XBOX_CLIENT_SECRET: z.string().optional(),
-  XBOX_REDIRECT_URI: z.string().optional(),
-  PLAYSTATION_CLIENT_ID: z.string().optional(),
-  PLAYSTATION_CLIENT_SECRET: z.string().optional(),
-  PLAYSTATION_REDIRECT_URI: z.string().optional(),
-  STEAMGRID_API_KEY: z.string().optional(),
-  
   // Fixed internal path for containerized deployment
   IMAGES_DIR: z.string().default('/data/images'),
+  BACKUP_DIR: z.string().default('/data/backups')
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -46,8 +32,4 @@ export function getAllowedOrigins(): string[] {
     return ['*'];
   }
   return config.ALLOWED_ORIGINS.split(',').map(o => o.trim());
-}
-
-export function isSchedulerEnabled(): boolean {
-  return config.SCHEDULER_ENABLED.toLowerCase() === 'true';
 }

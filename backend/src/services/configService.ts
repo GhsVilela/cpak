@@ -6,29 +6,25 @@ const DEFAULTS: Record<string, string> = {
   scheduler_enabled: 'false',
   scheduler_cron: '0 3 * * *',
   sync_batch_size: '10',
-  image_download_concurrency: '5',
-  sync_rate_limit_per_min: '60',
+  sync_image_concurrency: '5'
 };
 
 // Secret setting keys
 const SECRET_KEYS = new Set([
-  'steam_api_key',
-  'xbox_client_id',
-  'xbox_client_secret',
-  'playstation_client_id',
-  'playstation_client_secret',
   'steamgrid_api_key',
 ]);
 
 /**
  * ConfigService - Manages application configuration with precedence:
  * 1. Database settings (highest priority)
- * 2. Environment variables (fallback)
- * 3. Default values (last resort)
+ * 2. Default values (fallback for non-secret settings)
+ * 
+ * Note: API keys and credentials are only configured through the UI
  */
 export class ConfigService {
   /**
-   * Get a setting value with precedence: Database > Env Var > Default
+   * Get a setting value with precedence: Database > Default
+   * Secret settings (API keys) are only available from database
    */
   async getSetting(key: string): Promise<string | undefined> {
     // 1. Check database first
@@ -37,14 +33,7 @@ export class ConfigService {
       return dbSetting.getDecryptedValue();
     }
 
-    // 2. Check environment variables
-    const envKey = key.toUpperCase();
-    const envValue = config[envKey as keyof typeof config];
-    if (envValue !== undefined && envValue !== '') {
-      return String(envValue);
-    }
-
-    // 3. Return default
+    // 2. Return default (only for non-secret settings)
     return DEFAULTS[key];
   }
 
@@ -54,8 +43,7 @@ export class ConfigService {
   async setSetting(
     key: string,
     value: string,
-    category: SettingCategory,
-    updatedBy: string = 'system'
+    category: SettingCategory
   ): Promise<void> {
     const isSecret = SECRET_KEYS.has(key);
 
@@ -68,8 +56,7 @@ export class ConfigService {
       {
         value: storedValue,
         category,
-        isSecret,
-        updatedBy,
+        isSecret
       },
       {
         upsert: true,
@@ -112,56 +99,39 @@ export class ConfigService {
   }
 
   /**
-   * Get setting for display (masks secrets)
+   * Get setting for display (omits secret values)
    */
-  async getSettingForDisplay(key: string): Promise<{ key: string; value: string; isSecret: boolean } | null> {
+  async getSettingForDisplay(key: string): Promise<{ key: string; value?: string; isSecret: boolean } | null> {
     const dbSetting = await Setting.findOne({ key });
     if (!dbSetting) {
       return null;
     }
 
-    const value = dbSetting.isSecret ? '********' : dbSetting.getDecryptedValue();
-
-    return {
+    // Omit value field entirely for secrets
+    const result: { key: string; value?: string; isSecret: boolean } = {
       key: dbSetting.key,
-      value,
       isSecret: dbSetting.isSecret,
     };
+
+    if (!dbSetting.isSecret) {
+      result.value = dbSetting.getDecryptedValue();
+    }
+
+    return result;
   }
 
   /**
-   * Initialize settings from environment variables on first run
+   * Initialize default settings on first run
+   * Note: API keys and credentials are only configured through the UI
    */
-  async initializeFromEnvironment(): Promise<void> {
-    const envMappings: Array<{ key: string; envKey: keyof typeof config; category: SettingCategory }> = [
-      { key: 'steam_api_key', envKey: 'STEAM_API_KEY', category: SettingCategory.IMAGE_PROVIDER },
-      { key: 'xbox_client_id', envKey: 'XBOX_CLIENT_ID', category: SettingCategory.IMAGE_PROVIDER },
-      { key: 'xbox_client_secret', envKey: 'XBOX_CLIENT_SECRET', category: SettingCategory.IMAGE_PROVIDER },
-      { key: 'playstation_client_id', envKey: 'PLAYSTATION_CLIENT_ID', category: SettingCategory.IMAGE_PROVIDER },
-      { key: 'playstation_client_secret', envKey: 'PLAYSTATION_CLIENT_SECRET', category: SettingCategory.IMAGE_PROVIDER },
-      { key: 'steamgrid_api_key', envKey: 'STEAMGRID_API_KEY', category: SettingCategory.IMAGE_PROVIDER },
-      { key: 'scheduler_enabled', envKey: 'SCHEDULER_ENABLED', category: SettingCategory.SCHEDULER },
-      { key: 'scheduler_cron', envKey: 'SCHEDULER_CRON', category: SettingCategory.SCHEDULER },
-    ];
-
-    for (const { key, envKey, category } of envMappings) {
-      const existingSetting = await Setting.findOne({ key });
-      if (!existingSetting) {
-        const envValue = config[envKey];
-        if (envValue !== undefined && envValue !== '') {
-          await this.setSetting(key, String(envValue), category, 'environment');
-          console.log(`[ConfigService] Imported ${key} from environment variable`);
-        }
-      }
-    }
-
-    // Set defaults for non-secret settings
+  async initializeDefaults(): Promise<void> {
+    // Set defaults for non-secret settings only
     for (const [key, value] of Object.entries(DEFAULTS)) {
       const existingSetting = await Setting.findOne({ key });
       if (!existingSetting) {
         const category = key.startsWith('scheduler_') ? SettingCategory.SCHEDULER : SettingCategory.SYNC;
-        await this.setSetting(key, value, category, 'system');
-        console.log(`[ConfigService] Initialized ${key} with default value`);
+        await this.setSetting(key, value, category);
+        console.log(`[ConfigService] Initialized ${key} with default value: ${value}`);
       }
     }
 

@@ -68,14 +68,16 @@ if mountpoint -q /data/db && mountpoint -q /data/images 2>/dev/null; then
     echo "     - Images:   /data/images"
     DB_PATH="/data/db"
     IMAGES_PATH="/data/images"
+    BACKUP_PATH="/data/backups"
 else
     echo "   Unified volume mode (default):"
     echo "     - All data: /data"
     DB_PATH="/data/db"
     IMAGES_PATH="/data/images"
+    BACKUP_PATH="/data/backups"
     
     # Create subdirectories if they don't exist
-    mkdir -p "$DB_PATH" "$IMAGES_PATH"
+    mkdir -p "$DB_PATH" "$IMAGES_PATH" "$BACKUP_PATH"
 fi
 
 # Validate write permissions
@@ -104,6 +106,7 @@ fi
 
 # Update backend environment with correct paths
 export IMAGES_DIR="$IMAGES_PATH"
+export BACKUP_DIR="$BACKUP_PATH"
 
 # ============================================================================
 # MongoDB Health Check (Bundled Mode)

@@ -289,7 +289,7 @@ export class SteamGridDBAdapter {
 }
 
 export async function createSteamGridDBAdapter(): Promise<SteamGridDBAdapter | null> {
-  // SteamGridDB API key is configured globally in settings
+  // SteamGridDB API key is configured in settings
   try {
     const key = await configService.getSetting('steamgrid_api_key');
     if (!key) {

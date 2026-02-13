@@ -156,7 +156,7 @@ export default function SettingsPage() {
     setSettings((prevSettings) => ({ ...prevSettings, [key]: value }));
   };
 
-  const handleSteamGridSettingsSave = async () => {
+  const handleImageProvidersSettingsSave = async () => {
     try {
       // Only save if value is non-empty (user entered something)
       if (settings.steamgrid_api_key && settings.steamgrid_api_key.trim() !== '') {
@@ -407,7 +407,7 @@ export default function SettingsPage() {
                 type={showSteamGridApiKey ? "text" : "password"}
                 value={settings.steamgrid_api_key || ''}
                 onChange={(e) => handleSettingChange('steamgrid_api_key', e.target.value)}
-                placeholder={configured.steamgrid_api_key ? "Enter new API key to replace existing" : "Enter your SteamGridDB API key"}
+                placeholder={configured.steamgrid_api_key ? "Enter new API key" : "SteamGridDB API key"}
                 className="w-full px-4 py-2 pr-24 bg-gray-900 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
@@ -455,10 +455,10 @@ export default function SettingsPage() {
           </div>
 
           <button
-            onClick={handleSteamGridSettingsSave}
+            onClick={handleImageProvidersSettingsSave}
             className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
           >
-            Save SteamGridDB API Key
+            Save Image Settings
           </button>
         </div>
       </div>
@@ -698,11 +698,11 @@ export default function SettingsPage() {
               key={profile._id}
               className="bg-gray-800 rounded-lg p-6"
             >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <span
-                      className="px-3 py-1 rounded-full text-sm font-semibold"
+                      className="px-3 py-1 rounded-full text-sm font-semibold whitespace-nowrap"
                       style={{
                         backgroundColor: `${platformColors[profile.platform]}20`,
                         color: platformColors[profile.platform],
@@ -711,18 +711,18 @@ export default function SettingsPage() {
                     >
                       {platformNames[profile.platform]}
                     </span>
-                    <h3 className="text-xl font-semibold">{profile.displayName}</h3>
+                    <h3 className="text-xl font-semibold break-words">{profile.displayName}</h3>
                   </div>
-                  <p className="text-sm text-gray-400">Profile ID: {profile.profileId}</p>
+                  <p className="text-sm text-gray-400 break-all">Profile ID: {profile.profileId}</p>
                   <p className="text-xs text-gray-500 mt-2">
                     Added: {new Date(profile.createdAt).toLocaleDateString()}
                   </p>
                 </div>
                 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-shrink-0 sm:self-start">
                   <button
                     onClick={() => router.push(`/settings/edit/${profile._id}`)}
-                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
+                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition whitespace-nowrap"
                   >
                     Edit
                   </button>
@@ -730,13 +730,13 @@ export default function SettingsPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleDelete(profile._id)}
-                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium transition"
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium transition whitespace-nowrap"
                       >
                         Confirm
                       </button>
                       <button
                         onClick={() => setDeleteConfirm(null)}
-                        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
+                        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition whitespace-nowrap"
                       >
                         Cancel
                       </button>
@@ -744,7 +744,7 @@ export default function SettingsPage() {
                   ) : (
                     <button
                       onClick={() => setDeleteConfirm(profile._id)}
-                      className="px-4 py-2 bg-red-900/50 hover:bg-red-900/70 border border-red-500/50 rounded font-medium transition"
+                      className="px-4 py-2 bg-red-900/50 hover:bg-red-900/70 border border-red-500/50 rounded font-medium transition whitespace-nowrap"
                     >
                       Delete
                     </button>
@@ -756,9 +756,9 @@ export default function SettingsPage() {
               <ProfileSyncControls
                 profileId={profile._id}
                 platform={profile.platform}
-                displayName={profile.displayName}
                 lastSync={syncRuns[profile._id]}
                 onSyncComplete={loadSyncRuns}
+                onToast={showToast}
               />
             </div>
           ))}

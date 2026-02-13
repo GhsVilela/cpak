@@ -5,46 +5,53 @@
 [![Docker Image Size](https://img.shields.io/docker/image-size/ghsvilela/cpak/latest?label=image%20size)](https://hub.docker.com/r/ghsvilela/cpak)
 [![License](https://img.shields.io/github/license/ghsvilela/cpak)](LICENSE)
 
-Self-hosted trophy hunter for Steam, Xbox, and PlayStation achievements.
+Achievements are not just achievements, they are also a memory, welcome to CPAK, a s elf-hosted cross platform achievement keeper for Steam, Xbox, and PlayStation, keep all of your memories locally, forever! But, don't forget to always backup everything.
 
 ## Features
 
-- **Multi-Platform Support**: Track achievements from Steam, Xbox, and PlayStation (Steam MVP ready)
+- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation (Steam MVP ready)
 - **Self-Hosted**: Run on your own infrastructure with Docker
-- **Unified Container**: All-in-one image with web server, backend, frontend, and optional MongoDB
-- **UI-Based Configuration**: Configure API keys and settings through the web interface (no environment variables needed)
-- **100% Filter**: Default view shows only completed games
+- **Unified Container**: All-in-one image with web server, backend, frontend, and MongoDB
+- **UI-Based Configuration**: Configure API keys and all other settings through the web interface (no environment variables needed)
 - **Responsive Design**: Mobile-ready UI with Tailwind CSS
-- **Automatic Sync**: Daily scheduler updates your achievements
+- **Automatic Sync**: Scheduler to keep your achievements up to date
 - **Image Integration**: SteamGridDB support for game artwork
+- **Backup and Restore**: Backups all profiles, games, achievements and images to a zip file
 
-## Quick Start (Unified Container)
+## Quick Start
 
 ### Prerequisites
 
 - Docker and Docker Compose installed
-- Steam API key (get from https://steamcommunity.com/dev/apikey)
-- (Optional) SteamGridDB API key for enhanced game images
 
 ### Deployment with Bundled Database (Recommended)
 
 The simplest way to get started is with the unified container that includes everything:
 
-1. **Download the docker-compose file**:
+2. **[Option 1] Start the container**:
    ```bash
-   curl -O https://raw.githubusercontent.com/ghsvilela/cpak/main/docker-compose.yml
+   docker run -d \
+  -p 8000:80 \
+  -v cpak_data:/data \
+  docker.io/ghsvilela/cpak:latest
    ```
 
-2. **Start the container**:
+2. **[Option 2] Start the container with docker compose**:
    ```bash
-   docker compose up -d
+services:
+  cpak:
+    container_name: cpak
+    hostname: cpak
+    image: docker.io/ghsvilela/cpak:latest
+    ports:
+      - '8000:80'
+    restart: unless-stopped
+    volumes:
+      - cpak_data:/data
+volumes:
+  cpak_data:
+    driver: local
    ```
-
-   This single container includes:
-   - MongoDB 8.0 (bundled)
-   - Fastify backend API
-   - Next.js frontend
-   - Caddy web server
 
 3. **Access the application**:
    ```
@@ -53,39 +60,47 @@ The simplest way to get started is with the unified container that includes ever
 
 4. **Complete setup**:
    - Navigate to Settings page in the UI
-   - Enter your Steam API key
+   - Add your first profile (Steam, Xbox or Playstation)
    - (Optional) Add SteamGridDB API key for game images
-   - Go to Setup wizard to add your first profile
-   - Enter your Steam ID and start syncing
+   - Sync will start automatically after adding profile
 
 ### Deployment with External Database
 
-For production or when you already have a MongoDB instance:
+Using another MongoDB instance:
 
-1. **Download the external-db compose file**:
+2. **[Option 1] Start the container**:
    ```bash
-   curl -O https://raw.githubusercontent.com/ghsvilela/cpak/main/docker-compose.external-db.yml
+   docker run -d \
+  -p 8000:80 \
+  -e EXTERNAL_DB=true \
+  -e MONGO_URI=mongodb://your-mongo-host:27017/cpak \
+  -v cpak_data:/data \
+  docker.io/ghsvilela/cpak:latest
    ```
 
-2. **Start the containers**:
+2. **[Option 2] Start the container with docker compose**:
    ```bash
-   docker compose -f docker-compose.external-db.yml up -d
-   ```
-
-   This setup includes:
-   - Separate MongoDB container (or use your existing MongoDB server)
-   - CPAK application container (backend + frontend + Caddy)
-
-3. **Custom MongoDB connection**:
-   Edit `docker-compose.external-db.yml` and set:
-   ```yaml
-   environment:
-     - MONGO_URI=mongodb://your-mongo-host:27017/cpak
+services:
+  cpak:
+    container_name: cpak
+    hostname: cpak
+    image: docker.io/ghsvilela/cpak:latest
+    ports:
+      - '8000:80'
+    environment:
+      - EXTERNAL_DB=true
+      - MONGO_URI=mongodb://your-mongo-host:27017/cpak
+    restart: unless-stopped
+    volumes:
+      - cpak_data:/data
+volumes:
+  cpak_data:
+    driver: local
    ```
 
 ### Optional: Custom Encryption Key
 
-For enhanced security of API keys stored in the database:
+For enhanced security of API keys stored in the database, if no key is set, API keys are stored on database without any encryption.
 
 ```bash
 # Generate a secure encryption key
@@ -95,20 +110,6 @@ openssl rand -base64 32
 environment:
   - ENCRYPTION_KEY=your-generated-key-here
 ```
-
-## Configuration
-
-### UI-Based Settings (Recommended)
-
-All configuration is now done through the **Settings** page in the web interface:
-
-- **Platform API Keys**: Steam, Xbox, PlayStation, SteamGridDB
-- **Scheduler**: Enable/disable automatic sync and set cron schedule
-- **Sync Settings**: Icon download concurrency and batch sizes
-
-Settings are stored in the database and can be updated without restarting the container.
-
-### Environment Variables (Container Configuration)
 
 ### Environment Variables (Container Configuration)
 
@@ -120,25 +121,12 @@ These variables configure the container infrastructure (not application settings
 | `EXTERNAL_DB` | Use external MongoDB | (empty = bundled) | No |
 | `MONGO_URI` | MongoDB connection (external mode) | `mongodb://mongo:27017/cpak` | External DB mode only |
 
-**Deprecated** (configure via UI Settings instead):
-- ~~`STEAM_API_KEY`~~ → Configure in Settings page
-- ~~`STEAMGRID_API_KEY`~~ → Configure in Settings page  
-- ~~`SCHEDULER_ENABLED`~~ → Configure in Settings page
-- ~~`SCHEDULER_CRON`~~ → Configure in Settings page
-- ~~`ICON_DOWNLOAD_CONCURRENCY`~~ → Configure in Settings page
-
-**Internal (Fixed for Container)**:
-- `API_PORT=8080` (internal, do not change)
-- `API_BASE_PATH=/api` (internal, do not change)
-- `IMAGES_DIR=/data/images` (internal, do not change)
-- `ALLOWED_ORIGINS=*` (validated by Caddy reverse proxy)
-
 ### Volume Configuration
 
 **Unified mode** (default):
 ```yaml
 volumes:
-  - cpak_data:/data  # Contains both database and images
+  - cpak_data:/data  # Contains both database / images and backups
 ```
 
 **Split volumes** (optional):
@@ -146,12 +134,22 @@ volumes:
 volumes:
   - cpak_db:/data/db
   - cpak_images:/data/images
+  - cpak_backups:/data/backups
 ```
 
 **External database mode**:
 ```yaml
 volumes:
-  - cpak_images:/data/images  # Only images, no database
+  - cpak_images:/data/images  # Only images and backup, no database
+  - cpak_backups:/data/backups
+```
+
+**Bind mode with different ssds/hdds**:
+```yaml
+volumes:
+  - /mnt/fast-ssd/cpak-db:/data/db
+  - /mnt/large-storage-1/cpak-images:/data/images
+  - /mnt/large-storage-2/cpak-backups:/data/backups
 ```
 
 ## Architecture
@@ -165,7 +163,7 @@ volumes:
 
 **Container Image**:
 - Base: Debian slim (Node.js 20)
-- Size: ~1.2 GB (includes MongoDB + all dependencies)
+- Size: ~300 MB (includes MongoDB + all dependencies)
 - Registries: `ghcr.io/ghsvilela/cpak` and `docker.io/ghsvilela/cpak`
 
 ## Development
@@ -194,14 +192,14 @@ npm run dev  # Development server on port 3000
 docker run -d -p 27017:27017 --name mongo mongo:8
 ```
 
-### Building the Container Image
+### Local Development (With Docker)
 
 ```bash
-# Build unified container
-docker build -t cpak:local .
+# Build container
+docker compose build
 
 # Test locally
-docker run -d -p 8000:80 -v cpak_data:/data cpak:local
+docker compose up -d
 ```
 
 ## Project Structure
@@ -225,12 +223,8 @@ cpak/
 │   └── supervisord/      # Process management config
 ├── scripts/
 │   └── docker-entrypoint.sh  # Container startup orchestration
-├── Dockerfile            # Multi-stage unified container build
-├── docker-compose.yml             # Default deployment (unified container)
-├── docker-compose.unified.yml     # Alias for default (kept for docs)
-├── docker-compose.external-db.yml # External database deployment
-├── docker-compose.split-volumes.yml # Advanced: split DB/images
-└── docker-compose.dev.yml         # Development: separate services
+├── Dockerfile                # Multi-stage unified container build
+└── docker-compose.yml        # Development: separate services
 ```
 ```
 
@@ -261,7 +255,7 @@ cpak/
 - `DELETE /api/settings/:key` - Delete setting
 
 **Setting Categories**:
-- `platform` - API keys for Steam, Xbox, PlayStation, SteamGridDB
+- `image_provider` - Image providers like SteamGridDB
 - `scheduler` - Automatic sync configuration
 - `sync` - Performance and concurrency settings
 
@@ -275,164 +269,13 @@ cpak/
 - `GET /api/export` - Export all data as JSON
 - `POST /api/import` - Import data from JSON
 
-## Implementation Status
-
-### ✅ US1: First-Time Setup & Initial Sync (MVP - P1)
-- ✅ Setup wizard for Steam/Xbox/PlayStation credentials
-- ✅ Initial sync of games and achievements
-- ✅ Platform pages with 100% completion filter default
-- ✅ Profile privacy warnings and validation
-- ✅ Error handling and progress feedback
-
-### ✅ US2: Multi-Profile Management & Scheduling (P2)
-- ✅ Multiple profiles per platform
-- ✅ Daily automatic sync scheduler (configurable via UI)
-- ✅ Manual sync per profile
-- ✅ Rate limiting and concurrency control
-- ✅ Sync run history tracking
-
-### ✅ US3: Game Images & Themed Views (P3)
-- ✅ SteamGridDB integration for game artwork
-- ✅ Steam CDN fallback for grid images
-- ✅ Platform-themed UI colors (Steam/Xbox/PlayStation)
-- ✅ Responsive grid layouts (mobile-first)
-- ✅ Achievement icon downloads with progress tracking
-
-## Obtaining API Keys
-
-**Steam API Key**:
-1. Visit [https://steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey)
-2. Login with your Steam account
-3. Enter domain name (can be `localhost` for development)
-4. Copy the generated key
-5. Add in Settings page: Settings → Platform APIs → Steam API Key
-
-**Steam ID**:
-1. Visit [https://steamid.io/](https://steamid.io/)
-2. Enter your Steam profile URL
-3. Copy your Steam ID 64 (17-digit number)
-4. Use in Setup wizard when creating your Steam profile
-
-**SteamGridDB API Key** (Optional - for enhanced game artwork):
-1. Visit [https://www.steamgriddb.com/](https://www.steamgriddb.com/)
-2. Create an account and login
-3. Go to Preferences → API
-4. Generate a new API key
-5. Add in Settings page: Settings → Platform APIs → SteamGridDB API Key
-
-**Profile Privacy**:
-Your Steam profile must be set to **Public** for syncing to work:
-1. Visit [Privacy Settings](https://steamcommunity.com/my/edit/settings)
-2. Set "My profile" to Public
-3. Set "Game details" to Public
-
-## Deployment Scenarios
-
-### Home Server (TrueNAS SCALE, Unraid, etc.)
-Use the default `docker-compose.yml` for a simple single-container deployment with all data in one volume:
-```bash
-docker compose up -d
-```
-
-### Production with Managed Database
-Use `docker-compose.external-db.yml` and point to:
-- MongoDB Atlas
-- AWS DocumentDB  
-- Azure Cosmos DB
-- Your own managed MongoDB instance
-
-```bash
-docker compose -f docker-compose.external-db.yml up -d
-```
-
-### Split Database and Images
-Use `docker-compose.split-volumes.yml` to mount separate volumes for better management:
-```bash
-docker compose -f docker-compose.split-volumes.yml up -d
-```
-
-Example volume configuration:
-```yaml
-volumes:
-  - /mnt/fast-ssd/cpak-db:/data/db
-  - /mnt/large-storage/cpak-images:/data/images
-```
-
-## Troubleshooting
-
-### Container Not Starting
-```bash
-# Check logs
-docker logs cpak
-
-# Verify MongoDB is starting (unified mode)
-docker exec cpak supervisorctl status
-```
-
-### Database Connection Issues (External Mode)
-```bash
-# Test MongoDB connectivity
-docker exec cpak mongosh $MONGO_URI --eval "db.adminCommand('ping')"
-```
-
-### Frontend Not Loading
-```bash
-# Check if all services are running
-docker exec cpak supervisorctl status
-
-# Should show:
-# mongodb   RUNNING (unified mode only)
-# backend   RUNNING  
-# frontend  RUNNING
-# caddy     RUNNING
-```
-
-### API Keys Not Working
-- Verify keys are entered in Settings page (not environment variables)
-- Check encryption key is consistent across container restarts
-- Settings are stored in database, not in container environment
-
-## Performance Tuning
-
-All performance settings are now configurable via the Settings UI:
-
-- **Sync Icon Concurrency**: Number of simultaneous icon downloads (default: 5)
-- **Scheduler Cron**: When to run automatic syncs (default: `0 3 * * *` = 3am daily)
-
-## Backup and Restore
-
-### Automated Backups
-Use the Settings page to create backups:
-1. Navigate to Settings → Backup & Restore
-2. Click "Create Backup"
-3. Monitor progress
-4. Download backup file when complete
-
-Backups include:
-- All profiles, games, and achievements
-- Settings and configuration
-- Images directory (optional)
-
-### Manual Database Backup
-```bash
-# Unified mode
-docker exec cpak mongodump --out=/tmp/backup
-
-# External mode
-docker exec mongo mongodump --out=/backup
-```
-
 ## Contributing
 
-1. Follow the speckit workflow (see `.specify/scripts/`)
-2. Update tasks in `specs/001-cpak/tasks.md` as you go
-3. Ensure all tests pass before submitting
+1. Follow the speckit workflow (see `https://github.com/github/spec-kit`)
+2. Update tasks as you go
+3. Ensure all build/tests pass before submitting
 4. Follow constitution principles (see `.specify/memory/constitution.md`)
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-For issues or questions, see the specification in `specs/001-cpak/spec.md`.
