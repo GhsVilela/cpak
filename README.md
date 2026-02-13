@@ -100,7 +100,7 @@ volumes:
 
 ### Optional: Custom Encryption Key
 
-For enhanced security of API keys stored in the database, if no key is set, API keys are stored on database without any encryption.
+For enhanced security of API keys stored in the database, if no key is set, API keys are stored on database with a deterministic default value (see [crypto.ts:36](backend/src/utils/crypto.ts#L36)).
 
 ```bash
 # Generate a secure encryption key
