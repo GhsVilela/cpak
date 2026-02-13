@@ -28,37 +28,37 @@ Achievements are not just achievements, they are also a memory, welcome to CPAK,
 
 The simplest way to get started is with the unified container that includes everything:
 
-2. **[Option 1] Start the container**:
+1. **[Option 1] Start the container**:
    ```bash
    docker run -d \
-  -p 8000:80 \
-  -v cpak_data:/data \
-  docker.io/ghsvilela/cpak:latest
+     -p 8000:80 \
+     -v cpak_data:/data \
+     docker.io/ghsvilela/cpak:latest
    ```
 
-3. **[Option 2] Start the container with docker compose**:
+2. **[Option 2] Start the container with docker compose**:
    ```yaml
-services:
-  cpak:
-    container_name: cpak
-    hostname: cpak
-    image: docker.io/ghsvilela/cpak:latest
-    ports:
-      - '8000:80'
-    restart: unless-stopped
-    volumes:
-      - cpak_data:/data
-volumes:
-  cpak_data:
-    driver: local
+   services:
+     cpak:
+       container_name: cpak
+       hostname: cpak
+       image: docker.io/ghsvilela/cpak:latest
+       ports:
+         - '8000:80'
+       restart: unless-stopped
+       volumes:
+         - cpak_data:/data
+   volumes:
+     cpak_data:
+       driver: local
    ```
 
-4. **Access the application**:
+3. **Access the application**:
    ```
    http://localhost:8000
    ```
 
-5. **Complete setup**:
+4. **Complete setup**:
    - Navigate to Settings page in the UI
    - Add your first profile (Steam, Xbox or Playstation)
    - (Optional) Add SteamGridDB API key for game images
@@ -68,34 +68,34 @@ volumes:
 
 Using another MongoDB instance:
 
-2. **[Option 1] Start the container**:
+1. **[Option 1] Start the container**:
    ```bash
    docker run -d \
-  -p 8000:80 \
-  -e EXTERNAL_DB=true \
-  -e MONGO_URI=mongodb://your-mongo-host:27017/cpak \
-  -v cpak_data:/data \
-  docker.io/ghsvilela/cpak:latest
+     -p 8000:80 \
+     -e EXTERNAL_DB=true \
+     -e MONGO_URI=mongodb://your-mongo-host:27017/cpak \
+     -v cpak_data:/data \
+     docker.io/ghsvilela/cpak:latest
    ```
 
-3. **[Option 2] Start the container with docker compose**:
+2. **[Option 2] Start the container with docker compose**:
    ```yaml
-services:
-  cpak:
-    container_name: cpak
-    hostname: cpak
-    image: docker.io/ghsvilela/cpak:latest
-    ports:
-      - '8000:80'
-    environment:
-      - EXTERNAL_DB=true
-      - MONGO_URI=mongodb://your-mongo-host:27017/cpak
-    restart: unless-stopped
-    volumes:
-      - cpak_data:/data
-volumes:
-  cpak_data:
-    driver: local
+   services:
+     cpak:
+       container_name: cpak
+       hostname: cpak
+       image: docker.io/ghsvilela/cpak:latest
+       ports:
+         - '8000:80'
+       environment:
+         - EXTERNAL_DB=true
+         - MONGO_URI=mongodb://your-mongo-host:27017/cpak
+       restart: unless-stopped
+       volumes:
+         - cpak_data:/data
+   volumes:
+     cpak_data:
+       driver: local
    ```
 
 ### Optional: Custom Encryption Key
@@ -117,7 +117,7 @@ These variables configure the container infrastructure (not application settings
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `ENCRYPTION_KEY` | Encryption key for secret settings | Auto-generated (insecure) | Recommended |
+| `ENCRYPTION_KEY` | Encryption key for secret settings | Default value (insecure) | Recommended |
 | `EXTERNAL_DB` | Use external MongoDB | (empty = bundled) | No |
 | `MONGO_URI` | MongoDB connection (external mode) | `mongodb://mongo:27017/cpak` | External DB mode only |
 
