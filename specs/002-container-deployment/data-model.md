@@ -20,9 +20,9 @@ This feature introduces a new data entity to support UI-based configuration of s
 | Field | Type | Required | Encrypted | Description |
 |-------|------|----------|-----------|-------------|
 | `_id` | ObjectId | Yes | No | MongoDB document identifier |
-| `key` | String | Yes | No | Unique setting identifier (e.g., "steam_api_key", "scheduler_enabled") |
+| `key` | String | Yes | No | Unique setting identifier (e.g., "steamgrid_api_key", "scheduler_enabled") |
 | `value` | String | Yes | Conditional | Setting value; encrypted for sensitive keys |
-| `category` | Enum | Yes | No | Setting category: `platform_api`, `scheduler`, `sync`, `system` |
+| `category` | Enum | Yes | No | Setting category: `image_provider`, `scheduler`, `sync`, `system` |
 | `isSecret` | Boolean | Yes | No | Indicates if value should be encrypted at rest |
 | `updatedAt` | Date | Yes | No | Last modification timestamp |
 | `updatedBy` | String | No | No | User or system identifier (future: multi-user support) |
@@ -35,9 +35,9 @@ This feature introduces a new data entity to support UI-based configuration of s
 ```json
 {
   "_id": "65a1234567890abcdef12345",
-  "key": "steam_api_key",
+  "key": "steamgrid_api_key",
   "value": "ENCRYPTED_VALUE_HERE",
-  "category": "platform_api",
+  "category": "image_provider",
   "isSecret": true,
   "updatedAt": "2026-02-12T10:30:00Z",
   "updatedBy": "system"
@@ -66,7 +66,7 @@ This feature introduces a new data entity to support UI-based configuration of s
 
 **Validation Rules**:
 - `key` must match pattern: `^[a-z_]+$` (lowercase with underscores)
-- `category` must be one of: `platform_api`, `scheduler`, `sync`, `system`
+- `category` must be one of: `image_provider`, `scheduler`, `sync`, `system`
 - `isSecret` determines encryption requirement
 - `value` maximum length: 2048 characters (encrypted values expand)
 
@@ -87,13 +87,8 @@ The existing MongoDB collections (`profiles`, `games`, `achievements`, `sync_run
 
 ## Setting Categories
 
-### platform_api (Sensitive)
+### image_provider (Sensitive)
 Settings for external platform API credentials:
-- `steam_api_key` (isSecret: true)
-- `xbox_client_id` (isSecret: true)
-- `xbox_client_secret` (isSecret: true)
-- `playstation_client_id` (isSecret: true)
-- `playstation_client_secret` (isSecret: true)
 - `steamgrid_api_key` (isSecret: true)
 
 ### scheduler (Non-sensitive)
@@ -104,8 +99,7 @@ Settings for automated sync scheduling:
 ### sync (Non-sensitive)
 Settings for sync behavior:
 - `sync_batch_size` (isSecret: false, numeric string, default: "10")
-- `icon_download_concurrency` (isSecret: false, numeric string, default: "5")
-- `sync_rate_limit_per_min` (isSecret: false, numeric string, default: "60")
+- `sync_image_concurrency` (isSecret: false, numeric string, default: "5")
 
 ### system (Non-sensitive)
 Internal system settings:
@@ -206,8 +200,7 @@ async function setSetting(key, value, category, isSecret) {
       value: encrypted,
       category,
       isSecret,
-      updatedAt: new Date(),
-      updatedBy: 'system' // or user ID in future
+      updatedAt: new Date()
     },
     { upsert: true, new: true }
   );
@@ -237,9 +230,9 @@ Retrieve all settings or filtered by category.
 {
   "settings": [
     {
-      "key": "steam_api_key",
+      "key": "steamgrid_api_key",
       "value": "***hidden***",
-      "category": "platform_api",
+      "category": "image_provider",
       "isSecret": true,
       "hasValue": true,
       "updatedAt": "2026-02-12T10:30:00Z"
@@ -283,7 +276,7 @@ Update or create a setting.
 ```json
 {
   "value": "new_value_here",
-  "category": "platform_api",
+  "category": "image_provider",
   "isSecret": true
 }
 ```
@@ -291,7 +284,7 @@ Update or create a setting.
 **Response**:
 ```json
 {
-  "key": "steam_api_key",
+  "key": "steamgrid_api_key",
   "hasValue": true,
   "updatedAt": "2026-02-12T10:30:00Z"
 }

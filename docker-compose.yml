@@ -1,115 +1,58 @@
-# CPAK - Unified Container Deployment
-# Single container includes: Caddy, Next.js frontend, Fastify backend, MongoDB
-# Deployment time: < 5 minutes | Required env vars: 1 (optional)
-#
-# This is the RECOMMENDED deployment method as of v1.0.0
-# For other scenarios, see: docker-compose.external-db.yml, docker-compose.split-volumes.yml
-# For development with separate services, see: docker-compose.dev.yml
-
 services:
-  cpak:
-    # For local testing/development, use build:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    
-    # For production, use published image instead:
-    # image: ghcr.io/ghsvilela/cpak:latest
-    # Alternative: docker.io/ghsvilela/cpak:latest
-    
-    container_name: cpak
-    hostname: cpak
-    
+  frontend:
+    build: ./frontend
     ports:
-      - "8000:80"  # Change 8000 to any available port
-    
+      - "3000:3000"
     environment:
-      # Optional: Custom encryption key for securing API keys in database
-      # Generate with: openssl rand -base64 32
-      # Without this, a random key is generated on each startup (settings won't persist across restarts)
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
-    
+      - NODE_ENV=production
+    depends_on:
+      - api
+
+  web:
+    image: caddy:2
     volumes:
-      # All persistent data (database + images) in one unified volume
-      - cpak_data:/data
-    
-    restart: unless-stopped
-    
+      - ./ops/Caddyfile:/etc/caddy/Caddyfile
+    ports:
+      - "8000:80"
+      - "443:443"
+    environment:
+      - API_BASE_URL=http://api:8080/api
+    depends_on:
+      - frontend
+      - api
+
+  mongo:
+    image: mongo:8
+    ports:
+      - "27017:27017"
+    volumes:
+      - cpak_db:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=cpak
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    build: ./backend
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/cpak
+    volumes:
+      - cpak_images:/data/images
+      - cpak_backups:/data/backups
 
 volumes:
-  cpak_data:
+  cpak_db:
     driver: local
-
-# =============================================================================
-# Quick Start Guide
-# =============================================================================
-#
-# 1. Deploy:
-#    docker compose up -d
-#
-# 2. Access Application:
-#    Open browser: http://localhost:8000
-#
-# 3. Configure Platform API Keys:
-#    Settings UI → Platform APIs
-#    - Steam API Key: https://steamcommunity.com/dev/apikey
-#    - SteamGridDB API Key: https://www.steamgriddb.com/profile/preferences/api
-#
-# 4. Create Profile & Sync:
-#    - Add a profile with your Steam ID
-#    - Click "Sync Now"
-#
-# =============================================================================
-# Alternative Deployment Scenarios
-# =============================================================================
-#
-# External MongoDB Database:
-#   docker compose -f docker-compose.external-db.yml up -d
-#
-# Split Volumes (DB on SSD, images on bulk storage):
-#   docker compose -f docker-compose.split-volumes.yml up -d
-#
-# Development Mode (separate services):
-#   docker compose -f docker-compose.dev.yml up -d
-#
-# =============================================================================
-# Data Management
-# =============================================================================
-#
-# Backup (All Data):
-#   docker run --rm -v cpak_data:/data -v $(pwd):/backup alpine \
-#     tar czf /backup/cpak-backup-$(date +%Y%m%d).tar.gz /data
-#
-# Restore (All Data):
-#   docker compose down
-#   docker run --rm -v cpak_data:/data -v $(pwd):/backup alpine \
-#     tar xzf /backup/cpak-backup-YYYYMMDD.tar.gz -C /
-#   docker compose up -d
-#
-# Backup (Database Only):
-#   Use Settings UI → Backup & Restore → Create Backup
-#
-# =============================================================================
-# Troubleshooting
-# =============================================================================
-#
-# Container won't start:
-#   docker logs cpak
-#   docker exec cpak supervisorctl status
-#
-# Services not running:
-#   docker exec cpak supervisorctl restart all
-#
-# Reset everything (LOSES ALL DATA):
-#   docker compose down -v
-#   docker compose up -d
-#
-# For detailed troubleshooting, see: docs/troubleshooting.md
-#
-# =============================================================================
+  cpak_images:
+    driver: local
+  cpak_backups:
+    driver: local

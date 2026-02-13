@@ -71,6 +71,11 @@ const getCronDescription = (cron: string): string => {
 export default function SchedulerSettings({ values, onChange, onSave }: SchedulerSettingsProps) {
   const [saving, setSaving] = useState(false);
   const [customCron, setCustomCron] = useState(values.scheduler_cron || '0 3 * * *');
+  const [isCustomMode, setIsCustomMode] = useState(() => {
+    // Check if current cron value is one of the predefined schedules
+    const currentCron = values.scheduler_cron || '0 3 * * *';
+    return !COMMON_SCHEDULES.some(s => s.cron === currentCron);
+  });
 
   const handleSave = async () => {
     setSaving(true);
@@ -82,12 +87,27 @@ export default function SchedulerSettings({ values, onChange, onSave }: Schedule
   };
 
   const handleCronChange = (cron: string) => {
+    if (cron === 'custom') {
+      // User selected "Custom..." from dropdown
+      setIsCustomMode(true);
+      // Don't update the actual cron value yet
+    } else {
+      // User selected a predefined schedule
+      setIsCustomMode(false);
+      setCustomCron(cron);
+      onChange('scheduler_cron', cron);
+    }
+  };
+
+  const handleCustomCronInput = (cron: string) => {
     setCustomCron(cron);
     onChange('scheduler_cron', cron);
   };
 
   const isEnabled = values.scheduler_enabled === 'true';
   const cronValue = values.scheduler_cron || '0 3 * * *';
+  // For dropdown display: show 'custom' if in custom mode, otherwise show actual cron
+  const dropdownValue = isCustomMode ? 'custom' : cronValue;
 
   return (
     <div className="bg-gray-900 rounded-lg p-6 space-y-6">
@@ -131,7 +151,7 @@ export default function SchedulerSettings({ values, onChange, onSave }: Schedule
               Sync Schedule
             </label>
             <select
-              value={cronValue}
+              value={dropdownValue}
               onChange={(e) => handleCronChange(e.target.value)}
               disabled={!isEnabled}
               className="w-full bg-gray-800 border border-gray-700 rounded px-4 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:border-blue-500"
@@ -146,7 +166,7 @@ export default function SchedulerSettings({ values, onChange, onSave }: Schedule
           </div>
 
           {/* Custom Cron Expression */}
-          {cronValue === 'custom' && (
+          {isCustomMode && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 Custom Cron Expression
@@ -154,7 +174,7 @@ export default function SchedulerSettings({ values, onChange, onSave }: Schedule
               <input
                 type="text"
                 value={customCron}
-                onChange={(e) => handleCronChange(e.target.value)}
+                onChange={(e) => handleCustomCronInput(e.target.value)}
                 disabled={!isEnabled}
                 placeholder="0 3 * * *"
                 className="w-full bg-gray-800 border border-gray-700 rounded px-4 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:border-blue-500 font-mono"
@@ -166,7 +186,7 @@ export default function SchedulerSettings({ values, onChange, onSave }: Schedule
           )}
 
           {/* Cron Description */}
-          {isEnabled && cronValue && cronValue !== 'custom' && (
+          {isEnabled && cronValue && !isCustomMode && (
             <div className="bg-gray-800 rounded px-4 py-3 border border-gray-700">
               <div className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -181,7 +201,7 @@ export default function SchedulerSettings({ values, onChange, onSave }: Schedule
             </div>
           )}
 
-          {customCron && cronValue === 'custom' && (
+          {customCron && isCustomMode && (
             <div className="bg-gray-800 rounded px-4 py-3 border border-gray-700">
               <div className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

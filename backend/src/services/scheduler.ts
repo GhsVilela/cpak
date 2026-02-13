@@ -16,11 +16,11 @@ class SchedulerService {
 
   private async loadConfiguration(): Promise<void> {
     try {
-      // Load scheduler cron from database settings, fall back to environment
-      this.cronExpression = await configService.getSetting('scheduler_cron') || process.env.SCHEDULER_CRON || '0 3 * * *';
+      // Load scheduler cron from database settings (defaults handled by configService)
+      this.cronExpression = await configService.getSetting('scheduler_cron') || '0 3 * * *';
     } catch (error) {
       logger.debug({ error }, 'Failed to load scheduler configuration from settings, using defaults');
-      this.cronExpression = process.env.SCHEDULER_CRON || '0 3 * * *';
+      this.cronExpression = '0 3 * * *';
     }
   }
 
@@ -28,6 +28,13 @@ class SchedulerService {
    * Start the scheduled sync task
    */
   async start(): Promise<void> {
+    // Check if scheduler is enabled
+    const isEnabled = await configService.getSetting('scheduler_enabled');
+    if (isEnabled === 'false' || isEnabled === undefined) {
+      logger.info('[Scheduler] Disabled - not starting scheduled sync');
+      return;
+    }
+    
     // Reload configuration from database on start
     await this.loadConfiguration();
     
@@ -47,6 +54,20 @@ class SchedulerService {
     });
 
     logger.info(`[Scheduler] Started with schedule: ${this.cronExpression}`);
+  }
+
+  /**
+   * Reload scheduler configuration and restart if necessary
+   * Call this after scheduler settings are updated in the UI
+   */
+  async reload(): Promise<void> {
+    logger.info('[Scheduler] Reloading configuration');
+    
+    // Stop existing task if running
+    this.stop();
+    
+    // Start with new configuration (will check enabled state)
+    await this.start();
   }
 
   /**

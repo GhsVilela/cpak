@@ -169,7 +169,8 @@ export class SteamAdapter {
     } = { games: [], achievements: [] };
 
     // Process games in batches for better performance
-    const batchSize = parseInt(process.env.SYNC_BATCH_SIZE || '10', 10);
+    const batchSizeStr = await configService.getSetting('sync_batch_size');
+    const batchSize = parseInt(batchSizeStr || '10', 10);
     let processedCount = 0;
 
     for (let i = 0; i < games.length; i += batchSize) {

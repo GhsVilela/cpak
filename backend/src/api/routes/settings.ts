@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { configService } from '../../services/configService.js';
 import { SettingCategory } from '../../models/setting.js';
 import { logger } from '../../utils/logger.js';
+import { schedulerService } from '../../services/scheduler.js';
 import { z } from 'zod';
 
 // Request validation schemas
@@ -14,7 +15,7 @@ type UpdateSettingBody = z.infer<typeof updateSettingSchema>;
 
 /**
  * GET /api/settings
- * Get all settings (secrets are masked)
+ * Get all settings (secret values are hidden)
  */
 export async function getAllSettings(
   req: FastifyRequest,
@@ -23,13 +24,21 @@ export async function getAllSettings(
   try {
     const settings = await configService.getAllSettings();
     
-    // Mask secret values for display
-    const masked = settings.map(setting => ({
-      key: setting.key,
-      value: setting.isSecret ? '********' : setting.value,
-      category: setting.category,
-      isSecret: setting.isSecret,
-    }));
+    // Omit value field for secret settings
+    const masked = settings.map(setting => {
+      const result: any = {
+        key: setting.key,
+        category: setting.category,
+        isSecret: setting.isSecret,
+      };
+      
+      // Only include value for non-secret settings
+      if (!setting.isSecret) {
+        result.value = setting.value;
+      }
+      
+      return result;
+    });
 
     reply.send({ settings: masked });
   } catch (error) {
@@ -40,7 +49,7 @@ export async function getAllSettings(
 
 /**
  * GET /api/settings/:key
- * Get a specific setting (secret values are masked)
+ * Get a specific setting (secret values are hidden)
  */
 export async function getSetting(
   req: FastifyRequest<{ Params: { key: string } }>,
@@ -96,7 +105,13 @@ export async function updateSetting(
     const { value, category } = validation.data;
 
     // Update or create setting
-    await configService.setSetting(key, value, category, 'api');
+    await configService.setSetting(key, value, category);
+
+    // Reload scheduler if scheduler settings were updated
+    if (key === 'scheduler_enabled' || key === 'scheduler_cron') {
+      await schedulerService.reload();
+      logger.info({ key, value }, '[Settings] Scheduler reloaded after settings update');
+    }
 
     logger.info({ key, category }, '[Settings] Setting updated');
 
@@ -130,6 +145,12 @@ export async function deleteSetting(
 
     if (!deleted) {
       return reply.status(404).send({ error: 'Setting not found' });
+    }
+
+    // Reload scheduler if scheduler settings were deleted
+    if (key === 'scheduler_enabled' || key === 'scheduler_cron') {
+      await schedulerService.reload();
+      logger.info({ key }, '[Settings] Scheduler reloaded after settings deletion');
     }
 
     logger.info({ key }, '[Settings] Setting deleted');
