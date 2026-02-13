@@ -36,8 +36,8 @@ The simplest way to get started is with the unified container that includes ever
   docker.io/ghsvilela/cpak:latest
    ```
 
-2. **[Option 2] Start the container with docker compose**:
-   ```bash
+3. **[Option 2] Start the container with docker compose**:
+   ```yaml
 services:
   cpak:
     container_name: cpak
@@ -53,12 +53,12 @@ volumes:
     driver: local
    ```
 
-3. **Access the application**:
+4. **Access the application**:
    ```
    http://localhost:8000
    ```
 
-4. **Complete setup**:
+5. **Complete setup**:
    - Navigate to Settings page in the UI
    - Add your first profile (Steam, Xbox or Playstation)
    - (Optional) Add SteamGridDB API key for game images
@@ -78,8 +78,8 @@ Using another MongoDB instance:
   docker.io/ghsvilela/cpak:latest
    ```
 
-2. **[Option 2] Start the container with docker compose**:
-   ```bash
+3. **[Option 2] Start the container with docker compose**:
+   ```yaml
 services:
   cpak:
     container_name: cpak
@@ -186,9 +186,6 @@ npm run dev  # Development server on port 3000
 
 **MongoDB**: 
 ```bash
-
-**MongoDB**: 
-```bash
 docker run -d -p 27017:27017 --name mongo mongo:8
 ```
 
@@ -225,7 +222,6 @@ cpak/
 │   └── docker-entrypoint.sh  # Container startup orchestration
 ├── Dockerfile                # Multi-stage unified container build
 └── docker-compose.yml        # Development: separate services
-```
 ```
 
 ## API Endpoints
