@@ -58,7 +58,6 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsState>({});
   const [configured, setConfigured] = useState<ConfiguredState>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [showSteamGridApiKey, setShowSteamGridApiKey] = useState(false);
   
@@ -100,13 +99,12 @@ export default function SettingsPage() {
 
   const loadProfiles = async () => {
     setLoading(true);
-    setError('');
 
     try {
       const data = await apiClient.get<Profile[]>('/profiles');
       setProfiles(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load profiles');
+      showToast(err instanceof Error ? err.message : 'Failed to load profiles', 'error');
     } finally {
       setLoading(false);
     }
@@ -206,8 +204,9 @@ export default function SettingsPage() {
       await apiClient.delete(`/profiles/${profileId}`);
       setProfiles(profiles.filter((p) => p._id !== profileId));
       setDeleteConfirm(null);
+      showToast('Profile deleted successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete profile');
+      showToast(err instanceof Error ? err.message : 'Failed to delete profile', 'error');
     }
   };
 
@@ -219,7 +218,7 @@ export default function SettingsPage() {
   const loadStatus = async () => {
     setStatusLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/backup/status');
+      const response = await fetch('/api/backup/status');
       if (response.ok) {
         const data = await response.json();
         setBackupStatus(data.backup);
@@ -234,9 +233,8 @@ export default function SettingsPage() {
 
   // Start new backup
   const handleCreateBackup = async () => {
-    setError('');
     try {
-      const response = await fetch('http://localhost:8000/api/backup/start', {
+      const response = await fetch('/api/backup/start', {
         method: 'POST'
       });
       
@@ -248,8 +246,9 @@ export default function SettingsPage() {
       // Immediately refresh status
       await loadStatus();
       
+      showToast('Backup started successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start backup');
+      showToast(err instanceof Error ? err.message : 'Failed to start backup', 'error');
     }
   };
 
@@ -259,7 +258,7 @@ export default function SettingsPage() {
     
     try {
       const jobId = backupStatus.lastCompleted.jobId;
-      const downloadResponse = await fetch(`http://localhost:8000/api/backup/download/${jobId}`);
+      const downloadResponse = await fetch(`/api/backup/download/${jobId}`);
       if (!downloadResponse.ok) throw new Error('Failed to download backup');
       
       const blob = await downloadResponse.blob();
@@ -274,8 +273,10 @@ export default function SettingsPage() {
       
       // Refresh status to show download timestamp
       await loadStatus();
+      
+      showToast('Backup downloaded successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to download backup');
+      showToast(err instanceof Error ? err.message : 'Failed to download backup', 'error');
     }
   };
 
@@ -284,13 +285,11 @@ export default function SettingsPage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setError('');
-    
     try {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('http://localhost:8000/api/backup/restore/start', {
+      const response = await fetch('/api/backup/restore/start', {
         method: 'POST',
         body: formData,
       });
@@ -306,10 +305,12 @@ export default function SettingsPage() {
       // Immediately refresh status
       await loadStatus();
       
+      showToast('Restore started successfully', 'success');
+      
       // Reload profiles after a delay to show restored data
       setTimeout(() => loadProfiles(), 30000); // Reload after 30 seconds
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start restore');
+      showToast(err instanceof Error ? err.message : 'Failed to start restore', 'error');
     } finally {
       event.target.value = '';
     }
@@ -321,7 +322,7 @@ export default function SettingsPage() {
 
     try {
       const jobId = backupStatus.current.jobId;
-      const response = await fetch(`http://localhost:8000/api/backup/cancel/${jobId}`, {
+      const response = await fetch(`/api/backup/cancel/${jobId}`, {
         method: 'DELETE'
       });
 
@@ -329,8 +330,10 @@ export default function SettingsPage() {
 
       // Refresh status
       await loadStatus();
+      
+      showToast('Backup cancelled successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel backup');
+      showToast(err instanceof Error ? err.message : 'Failed to cancel backup', 'error');
     }
   };
 
@@ -340,7 +343,7 @@ export default function SettingsPage() {
 
     try {
       const jobId = restoreStatus.current.jobId;
-      const response = await fetch(`http://localhost:8000/api/backup/restore/cancel/${jobId}`, {
+      const response = await fetch(`/api/backup/restore/cancel/${jobId}`, {
         method: 'DELETE'
       });
 
@@ -348,8 +351,10 @@ export default function SettingsPage() {
 
       // Refresh status
       await loadStatus();
+      
+      showToast('Restore cancelled successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel restore');
+      showToast(err instanceof Error ? err.message : 'Failed to cancel restore', 'error');
     }
   };
 
@@ -382,12 +387,6 @@ export default function SettingsPage() {
       </div>
 
       {loading && <p>Loading profiles...</p>}
-
-      {error && (
-        <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-2 rounded mb-4">
-          {error}
-        </div>
-      )}
 
       {/* Image Providers */}
       <div className="bg-gray-900 rounded-lg p-6 mb-6">
