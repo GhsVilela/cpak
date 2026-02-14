@@ -1,11 +1,15 @@
 # cpak - Cross Platform Achievement Keeper
 
+[![Build](https://img.shields.io/github/actions/workflow/status/ghsvilela/cpak/build.yml?branch=main&label=build)](https://github.com/ghsvilela/cpak/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/actions/workflow/status/ghsvilela/cpak/release.yml?label=release)](https://github.com/ghsvilela/cpak/actions/workflows/release.yml)
 [![Docker Hub](https://img.shields.io/docker/v/ghsvilela/cpak?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/ghsvilela/cpak)
 [![GitHub Container Registry](https://img.shields.io/badge/ghcr.io-cpak-blue?logo=github)](https://ghcr.io/ghsvilela/cpak)
 [![Docker Image Size](https://img.shields.io/docker/image-size/ghsvilela/cpak/latest?label=image%20size)](https://hub.docker.com/r/ghsvilela/cpak)
-[![License](https://img.shields.io/github/license/ghsvilela/cpak)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-Achievements are more than just a simple game feature, they're memories. CPAK is a self-hosted, cross-platform achievement keeper for Steam, Xbox, and PlayStation that lets you preserve your gaming memories locally, forever. Remember to backup regularly to keep them safe.
+Achievements are more than just a game feature, they're memories. CPAK is a self-hosted, cross-platform achievement keeper for Steam, Xbox, and PlayStation that lets you preserve your gaming memories locally, forever. Remember to backup regularly to keep them safe.
+
+> **Note on Development Approach**: This project leverages AI-assisted "vibe coding" with [Speckit](https://github.com/github/spec-kit) for spec-driven development. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
 
 ## Features
 
