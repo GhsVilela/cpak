@@ -83,7 +83,7 @@ jobs:
             
             **Docker Hub:**
             ```bash
-            docker pull ghsvilela/cpak:${{ github.ref_name }}
+            docker pull docker.io/ghsvilela/cpak:${{ github.ref_name }}
             ```
             
             **GitHub Container Registry:**
@@ -97,9 +97,9 @@ jobs:
             docker run -d \
               -p 8000:80 \
               -v cpak_data:/data \
-              ghcr.io/ghsvilela/cpak:${{ github.ref_name }}
+              docker.io/ghsvilela/cpak:${{ github.ref_name }}
             ```
             
             Access at: http://localhost:8000
             
-            See [quickstart guide](https://github.com/ghsvilela/cpak/blob/main/specs/002-container-deployment/quickstart.md) for more deployment options.
+            See the [Quick Start guide](https://github.com/ghsvilela/cpak/blob/main/README.md#quick-start) in README.md for more deployment options.
