@@ -6,7 +6,7 @@ import { getGames, getGameById } from './games.js';
 import { getAchievements } from './achievements.js';
 import { registerIconRoutes } from './icons.js';
 import { syncRunsRoutes } from './syncRuns.js';
-import { getSettings, updateSettings } from './settings.js';
+import { getAllSettings, getSetting, updateSetting, deleteSetting } from './settings.js';
 import { exportData, importData } from './exportImport.js';
 import { startBackup, getBackupProgress, downloadBackup, startRestore, getRestoreProgress, getStatus, cancelBackup, cancelRestore } from './backup.js';
 
@@ -34,9 +34,11 @@ export async function registerRoutes(fastify: FastifyInstance) {
   // Achievements API
   fastify.get('/achievements', getAchievements);
 
-  // Settings API
-  fastify.get('/settings', getSettings);
-  fastify.put('/settings', updateSettings);
+  // Settings API (key-value configuration)
+  fastify.get('/settings', getAllSettings);
+  fastify.get('/settings/:key', getSetting);
+  fastify.put('/settings/:key', updateSetting);
+  fastify.delete('/settings/:key', deleteSetting);
 
   // Export/Import API
   fastify.get('/export', exportData);

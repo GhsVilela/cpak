@@ -19,18 +19,13 @@ FROM node:20-alpine AS runtime
 
 WORKDIR /app
 
-# Copy package files and install production dependencies
-COPY package*.json ./
-RUN npm install --production
-
-# Copy built app from builder (distDir is set to "dist" in next.config.ts)
-COPY --from=builder /app/dist ./dist
+# Copy standalone output from builder
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.js ./next.config.js
-COPY --from=builder /app/package.json ./package.json
 
 # Expose port 3000
 EXPOSE 3000
 
-# Start Next.js server
-CMD ["npm", "start"]
+# Start Next.js standalone server
+CMD ["node", "server.js"]

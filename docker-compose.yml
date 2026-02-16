@@ -1,8 +1,6 @@
 services:
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ./frontend
     ports:
       - "3000:3000"
     environment:
@@ -24,11 +22,11 @@ services:
       - api
 
   mongo:
-    image: mongo:6
+    image: mongo:8
     ports:
       - "27017:27017"
     volumes:
-      - ./data/mongo:/data/db
+      - cpak_db:/data/db
     environment:
       - MONGO_INITDB_DATABASE=cpak
     healthcheck:
@@ -40,28 +38,21 @@ services:
 
   api:
     build: ./backend
-    environment:
-      - API_PORT=8080
-      - API_BASE_PATH=/api
-      - MONGO_URI=mongodb://mongo:27017
-      - MONGO_DB=cpak
-      - ALLOWED_ORIGINS=http://localhost:8000
-      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-false}
-      - SCHEDULER_CRON=${SCHEDULER_CRON:-0 3 * * *}
-      - STEAM_API_KEY=${STEAM_API_KEY:-}
-      - XBOX_CLIENT_ID=${XBOX_CLIENT_ID:-}
-      - XBOX_CLIENT_SECRET=${XBOX_CLIENT_SECRET:-}
-      - PLAYSTATION_CLIENT_ID=${PLAYSTATION_CLIENT_ID:-}
-      - PLAYSTATION_CLIENT_SECRET=${PLAYSTATION_CLIENT_SECRET:-}
-      - STEAMGRID_API_KEY=${STEAMGRID_API_KEY:-}
-      - IMAGES_DIR=${IMAGES_DIR:-/app/data/images}
-      - SYNC_BATCH_SIZE=${SYNC_BATCH_SIZE:-10}
-      - ICON_DOWNLOAD_CONCURRENCY=${ICON_DOWNLOAD_CONCURRENCY:-5}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
     depends_on:
       mongo:
         condition: service_healthy
     ports:
       - "8080:8080"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/cpak
     volumes:
-      - ./data/images:${IMAGES_DIR:-/app/data/images}
+      - cpak_images:/app/data/images
+      - cpak_backups:/app/data/backups
+
+volumes:
+  cpak_db:
+    driver: local
+  cpak_images:
+    driver: local
+  cpak_backups:
+    driver: local

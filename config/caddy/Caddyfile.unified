@@ -1,0 +1,44 @@
+{
+	# Global options
+	admin off
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+	auto_https off
+}
+
+:80 {
+	# API routes proxy to backend
+	handle /api/* {
+		reverse_proxy localhost:8080 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Health check endpoint (for container health checks)
+	handle /health {
+		reverse_proxy localhost:8080
+	}
+
+	# Frontend routes proxy to Next.js
+	handle {
+		reverse_proxy localhost:3000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Enable gzip compression
+	encode gzip
+
+	# Logging
+	log {
+		output stdout
+		format json
+	}
+}

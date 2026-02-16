@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { Profile } from '../../models/profile.js';
 import { Game } from '../../models/game.js';
 import { Achievement } from '../../models/achievement.js';
-import { Settings } from '../../models/settings.js';
+import { Setting } from '../../models/setting.js';
 import { BackupMetadata } from '../../models/backupMetadata.js';
 import { logger } from '../../utils/logger.js';
 import archiver from 'archiver';
@@ -14,7 +14,7 @@ import { Extract } from 'unzipper';
 import { readdir } from 'fs/promises';
 
 const IMAGES_DIR = process.env.IMAGES_DIR || '/app/data/images';
-const BACKUP_TEMP_DIR = '/tmp/backups';
+const BACKUP_TEMP_DIR = process.env.BACKUP_DIR || '/app/data/backups';
 
 // In-memory progress tracking
 interface BackupProgress {
@@ -253,7 +253,7 @@ async function createBackupInBackground(jobId: string) {
       Profile.find().lean(),
       Game.find().lean(),
       Achievement.find().lean(),
-      Settings.findOne().lean()
+      Setting.find().lean()
     ]);
 
     const exportData = {
@@ -290,8 +290,15 @@ async function createBackupInBackground(jobId: string) {
     }
 
     // Step 3: Create archive
-    if (!fs.existsSync(BACKUP_TEMP_DIR)) {
-      fs.mkdirSync(BACKUP_TEMP_DIR, { recursive: true });
+    try {
+      if (!fs.existsSync(BACKUP_TEMP_DIR)) {
+        logger.info({ dir: BACKUP_TEMP_DIR }, 'Creating backup directory');
+        fs.mkdirSync(BACKUP_TEMP_DIR, { recursive: true, mode: 0o755 });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error({ error: errorMessage, dir: BACKUP_TEMP_DIR }, 'Failed to create backup directory');
+      throw new Error(`Failed to create backup directory: ${errorMessage}`);
     }
 
     const backupFilePath = path.join(BACKUP_TEMP_DIR, `${jobId}.zip`);
@@ -408,7 +415,7 @@ export async function downloadFullBackup(
       Profile.find().lean(),
       Game.find().lean(),
       Achievement.find().lean(),
-      Settings.findOne().lean()
+      Setting.find().lean()
     ]);
 
     const exportData = {
@@ -494,8 +501,13 @@ export async function startRestore(
 
     logger.info({ jobId, filename: data.filename }, '[Restore] File received, saving to disk');
     
+    // Ensure backup directory exists
+    if (!fs.existsSync(BACKUP_TEMP_DIR)) {
+      fs.mkdirSync(BACKUP_TEMP_DIR, { recursive: true, mode: 0o755 });
+    }
+    
     // Save file to disk BEFORE responding (stream must be consumed while request is active)
-    const tempZipPath = path.join('/tmp', `${jobId}.zip`);
+    const tempZipPath = path.join(BACKUP_TEMP_DIR, `${jobId}.zip`);
     const writeStream = createWriteStream(tempZipPath);
     
     await pipeline(data.file, writeStream);
@@ -649,7 +661,7 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
     logger.info({ jobId }, '[Restore] Step 1: File already saved, proceeding to extract');
     
     // File is already saved by startRestore, proceed to extraction
-    const tempExtractPath = path.join('/tmp', `${jobId}-extract`);
+    const tempExtractPath = path.join(BACKUP_TEMP_DIR, `${jobId}-extract`);
     
     logger.info({ jobId, tempExtractPath }, '[Restore] Temp extract path created');
     
@@ -866,12 +878,9 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
     }
 
     // Import settings
-    if (backupData.settings) {
-      await Settings.findByIdAndUpdate(
-        'global',
-        backupData.settings,
-        { upsert: true, new: true }
-      );
+    if (backupData.settings && Array.isArray(backupData.settings)) {
+      await Setting.deleteMany({});
+      await Setting.insertMany(backupData.settings);
       imported.settings = true;
       processedWorkUnits++;
       
@@ -986,9 +995,14 @@ export async function uploadFullBackup(
       return reply.status(400).send({ error: 'No file uploaded' });
     }
 
+    // Ensure backup directory exists
+    if (!fs.existsSync(BACKUP_TEMP_DIR)) {
+      fs.mkdirSync(BACKUP_TEMP_DIR, { recursive: true, mode: 0o755 });
+    }
+
     // Save uploaded file temporarily
-    const tempZipPath = path.join('/tmp', `restore-${Date.now()}.zip`);
-    const tempExtractPath = path.join('/tmp', `restore-extract-${Date.now()}`);
+    const tempZipPath = path.join(BACKUP_TEMP_DIR, `restore-${Date.now()}.zip`);
+    const tempExtractPath = path.join(BACKUP_TEMP_DIR, `restore-extract-${Date.now()}`);
     
     await pipeline(data.file, createWriteStream(tempZipPath));
     logger.info('[Restore] Backup file uploaded');
@@ -1060,12 +1074,9 @@ export async function uploadFullBackup(
     }
 
     // Import settings
-    if (backupData.settings) {
-      await Settings.findByIdAndUpdate(
-        'global',
-        backupData.settings,
-        { upsert: true, new: true }
-      );
+    if (backupData.settings && Array.isArray(backupData.settings)) {
+      await Setting.deleteMany({});
+      await Setting.insertMany(backupData.settings);
       imported.settings = true;
     }
 

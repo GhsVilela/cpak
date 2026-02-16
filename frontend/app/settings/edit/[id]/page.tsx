@@ -160,7 +160,7 @@ export default function EditProfilePage({ params }: PageProps) {
                 id="apiKey"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={profile.credentials?.steamApiKeyConfigured ? "Enter new API key to replace existing" : "Enter Steam API key for this profile"}
+                placeholder={profile.credentials?.steamApiKeyConfigured ? "Enter new API key" : "Steam API key"}
                 className="w-full px-4 py-2 pr-24 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">

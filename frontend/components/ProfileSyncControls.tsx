@@ -6,38 +6,42 @@ import { apiClient } from '../services/apiClient';
 interface ProfileSyncControlsProps {
   profileId: string;
   platform: string;
-  displayName: string;
   lastSync?: {
     completedAt: string;
     status: 'success' | 'failed';
   };
   onSyncComplete?: () => void;
+  onToast?: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
 export default function ProfileSyncControls({
   profileId,
   platform,
-  displayName,
   lastSync,
   onSyncComplete,
+  onToast,
 }: ProfileSyncControlsProps) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
 
   const handleSync = async () => {
     setSyncing(true);
     setError('');
-    setSuccess(false);
 
     try {
       await apiClient.post(`/sync/${platform}?profileId=${profileId}`, {});
-      setSuccess(true);
+      if (onToast) {
+        onToast('Sync started successfully', 'success');
+      }
       if (onSyncComplete) {
         onSyncComplete();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sync failed');
+      const errorMessage = err instanceof Error ? err.message : 'Sync failed';
+      setError(errorMessage);
+      if (onToast) {
+        onToast(errorMessage, 'error');
+      }
     } finally {
       setSyncing(false);
     }
@@ -60,46 +64,31 @@ export default function ProfileSyncControls({
 
   return (
     <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h3 className="font-semibold">{displayName}</h3>
-          <p className="text-xs text-gray-400 capitalize">{platform}</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          {lastSync ? (
+            <div className="text-sm text-gray-400 flex items-center gap-2">
+              <span>Last sync: {formatLastSync(lastSync.completedAt)}</span>
+              {lastSync.status === 'success' ? (
+                <span className="text-green-400">✓</span>
+              ) : (
+                <span className="text-red-400">✗</span>
+              )}
+            </div>
+          ) : !syncing ? (
+            <p className="text-sm text-gray-500">Never synced</p>
+          ) : (
+            <p className="text-sm text-gray-400">Syncing in progress...</p>
+          )}
         </div>
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition text-sm"
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition text-sm whitespace-nowrap flex-shrink-0 w-full sm:w-auto"
         >
           {syncing ? 'Syncing...' : 'Sync Now'}
         </button>
       </div>
-
-      {lastSync && (
-        <div className="text-sm text-gray-400 flex items-center gap-2">
-          <span>Last sync: {formatLastSync(lastSync.completedAt)}</span>
-          {lastSync.status === 'success' ? (
-            <span className="text-green-400">✓</span>
-          ) : (
-            <span className="text-red-400">✗</span>
-          )}
-        </div>
-      )}
-
-      {!lastSync && !syncing && (
-        <p className="text-sm text-gray-500">Never synced</p>
-      )}
-
-      {success && (
-        <div className="mt-2 text-sm text-green-400">
-          ✓ Sync started successfully
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-2 text-sm text-red-400">
-          ✗ {error}
-        </div>
-      )}
     </div>
   );
 }

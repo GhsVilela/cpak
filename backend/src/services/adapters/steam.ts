@@ -1,6 +1,7 @@
 import { config } from '../../utils/config.js';
 import { logger } from '../../utils/logger.js';
 import { rateLimiter } from '../rateLimiter.js';
+import { configService } from '../configService.js';
 
 interface SteamGame {
   appid: number;
@@ -168,7 +169,8 @@ export class SteamAdapter {
     } = { games: [], achievements: [] };
 
     // Process games in batches for better performance
-    const batchSize = parseInt(process.env.SYNC_BATCH_SIZE || '10', 10);
+    const batchSizeStr = await configService.getSetting('sync_batch_size');
+    const batchSize = parseInt(batchSizeStr || '10', 10);
     let processedCount = 0;
 
     for (let i = 0; i < games.length; i += batchSize) {
@@ -296,10 +298,10 @@ export class SteamAdapter {
   }
 }
 
-export function createSteamAdapter(apiKey?: string): SteamAdapter {
-  const key = apiKey || config.STEAM_API_KEY;
-  if (!key) {
-    throw new Error('STEAM_API_KEY not configured');
+export async function createSteamAdapter(apiKey?: string): Promise<SteamAdapter> {
+  // Steam API key is configured per-profile, not globally
+  if (!apiKey) {
+    throw new Error('Steam API key not configured. Please set it in the Profile settings.');
   }
-  return new SteamAdapter(key);
+  return new SteamAdapter(apiKey);
 }
