@@ -11,11 +11,12 @@ echo "Timestamp: $(date)"
 # Environment Variables Validation
 # ============================================================================
 
-# Warn if using default/missing encryption key
+# Info about encryption key
 if [ -z "$ENCRYPTION_KEY" ]; then
-    echo "⚠️  WARNING: ENCRYPTION_KEY not set. Using default key (INSECURE for production)."
-    echo "    Generate a secure key: openssl rand -base64 32"
-    export ENCRYPTION_KEY="default-insecure-key-change-me"
+    echo "ℹ️  INFO: ENCRYPTION_KEY not set. Credentials will be stored as plain text."
+    echo "    For encrypted storage, generate a secure key: openssl rand -base64 32"
+else
+    echo "🔒 INFO: ENCRYPTION_KEY configured. Credentials will be encrypted (AES-256-GCM)."
 fi
 
 # ============================================================================

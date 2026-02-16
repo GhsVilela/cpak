@@ -93,7 +93,7 @@ Using another MongoDB instance:
          - '8000:80'
        environment:
          - EXTERNAL_DB=true
-         - MONGO_URI=mongodb://your-mongo-host:27017/cpak
+         - MONGO_URI=mongodb://your-user:your-pass@your-host:27017/cpak?authSource=admin
        restart: unless-stopped
        volumes:
          - cpak_data:/app/data
@@ -102,9 +102,9 @@ Using another MongoDB instance:
        driver: local
    ```
 
-### Optional: Custom Encryption Key
+### Optional: Encryption for API Keys and Tokens
 
-For enhanced security of API keys stored in the database, if no key is set, API keys are stored on database with a deterministic default value (see [crypto.ts:36](backend/src/utils/crypto.ts#L36)).
+By default, API keys and tokens are stored as **plain text** in the database. For enhanced security, set an encryption key:
 
 ```bash
 # Generate a secure encryption key
@@ -115,13 +115,15 @@ environment:
   - ENCRYPTION_KEY=your-generated-key-here
 ```
 
+When `ENCRYPTION_KEY` is set, all credentials are encrypted using AES-256-GCM before storage. Without it, credentials are stored in plain text (suitable for testing/development or trusted environments).
+
 ### Environment Variables (Container Configuration)
 
 These variables configure the container infrastructure (not application settings):
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `ENCRYPTION_KEY` | Encryption key for secret settings | Default value (insecure) | Recommended |
+| `ENCRYPTION_KEY` | Encryption key for secret settings (API keys, tokens) | Plain text storage | Optional (recommended) |
 | `EXTERNAL_DB` | Use external MongoDB | (empty = bundled) | No |
 | `MONGO_URI` | MongoDB connection (external mode) | `mongodb://mongo:27017/cpak` | External DB mode only |
 

@@ -3,7 +3,6 @@ import crypto from 'crypto';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
-const SALT_LENGTH = 64;
 const KEY_LENGTH = 32;
 
 /**
@@ -20,10 +19,10 @@ export function isEncrypted(value: string): boolean {
 }
 
 /**
- * Get encryption key from environment or generate one
- * In production, this should be stored securely (e.g., KMS, secrets manager)
+ * Get encryption key from environment
+ * Returns null if ENCRYPTION_KEY is not set (plain text storage mode)
  */
-function getEncryptionKey(): Buffer {
+function getEncryptionKey(): Buffer | null {
   const envKey = process.env.ENCRYPTION_KEY;
   
   if (envKey) {
@@ -31,20 +30,24 @@ function getEncryptionKey(): Buffer {
     return crypto.scryptSync(envKey, 'cpak-salt', KEY_LENGTH);
   }
   
-  // Fallback: Generate deterministic key from system entropy
-  // WARNING: In production, use a proper key management system
-  const key = crypto.scryptSync('cpak-default-key', 'cpak-salt', KEY_LENGTH);
-  console.warn('[Crypto] Using default encryption key. Set ENCRYPTION_KEY environment variable for production.');
-  return key;
+  // No encryption key set - use plain text storage
+  return null;
 }
 
 /**
  * Encrypt sensitive data (e.g., API tokens)
- * Returns encrypted string with prefix: encrypted:base64Data
+ * If ENCRYPTION_KEY is set: Returns encrypted string with prefix (encrypted:base64Data)
+ * If ENCRYPTION_KEY is not set: Returns plain text (no encryption)
  */
 export function encrypt(plaintext: string): string {
   try {
     const key = getEncryptionKey();
+    
+    // No encryption key - store as plain text
+    if (!key) {
+      return plaintext;
+    }
+    
     const iv = crypto.randomBytes(IV_LENGTH);
     
     const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
@@ -69,17 +72,26 @@ export function encrypt(plaintext: string): string {
 
 /**
  * Decrypt sensitive data
- * Accepts encrypted string with or without prefix (for backward compatibility)
- * Format: encrypted:base64Data or base64Data
+ * If value has encrypted prefix: Attempts to decrypt (requires ENCRYPTION_KEY)
+ * If value has no prefix: Returns as plain text
  */
 export function decrypt(ciphertext: string): string {
   try {
-    // Strip prefix if present
-    const base64Data = ciphertext.startsWith(ENCRYPTED_PREFIX) 
-      ? ciphertext.substring(ENCRYPTED_PREFIX.length)
-      : ciphertext;
+    // If no encryption prefix, return as plain text
+    if (!ciphertext.startsWith(ENCRYPTED_PREFIX)) {
+      return ciphertext;
+    }
+    
+    // Strip prefix
+    const base64Data = ciphertext.substring(ENCRYPTED_PREFIX.length);
     
     const key = getEncryptionKey();
+    
+    // No encryption key but value is encrypted
+    if (!key) {
+      throw new Error('Cannot decrypt: ENCRYPTION_KEY not set but value is encrypted');
+    }
+    
     const combined = Buffer.from(base64Data, 'base64');
     
     // Extract iv, authTag, and encrypted data
