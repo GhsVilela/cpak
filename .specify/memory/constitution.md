@@ -67,7 +67,7 @@ The backend MUST be a single REST service exposing JSON endpoints, with minimal 
 ### III. Self-Hosting via Unified Container
 The system MUST be deployable as a single unified container image that includes all required components: frontend server (Next.js standalone), backend API (Fastify), reverse proxy (Caddy), bundled database (MongoDB), and process manager (supervisord). Deployment MUST require no more than three optional environment variables: `ENCRYPTION_KEY` (for settings encryption), `EXTERNAL_DB` (flag to disable bundled database), and `MONGO_URI` (external database connection string when `EXTERNAL_DB=true`).
 
-The unified container MUST support flexible volume configurations: single unified `/data` volume (default), split volumes (`/data/db` for database, `/data/images` for application data), or fully external database mode with application data volume only.
+The unified container MUST support flexible volume configurations: single unified `/app/data` volume (default), split volumes (`/app/data/db` for database, `/app/data/images` and `/app/data/backups` for application data), or fully external database mode with application data volumes only.
 
 **Rationale**: Unified container deployment eliminates orchestration complexity, reduces deployment failure points, and provides a consistent deployment experience across platforms (Docker, TrueNAS, Portainer, etc.). Flexible volume configuration accommodates different user needs from simple single-volume deployments to advanced split-storage scenarios.
 
@@ -171,8 +171,8 @@ docker run -d \
 docker run -d \
   --name cpak \
   -p 8080:80 \
-  -v cpak_db:/data/db \
-  -v cpak_images:/data/images \
+  -v cpak_db:/app/data/db \
+  -v cpak_images:/app/data/images \
   -e ENCRYPTION_KEY=your-64-char-hex-key \
   docker.io/ghsvilela/cpak:latest
 ```
@@ -183,7 +183,7 @@ docker run -d \
 docker run -d \
   --name cpak \
   -p 8080:80 \
-  -v cpak_images:/data/images \
+  -v cpak_images:/app/data/images \
   -e EXTERNAL_DB=true \
   -e MONGO_URI=mongodb://external-host:27017/cpak \
   -e ENCRYPTION_KEY=your-64-char-hex-key \
@@ -278,9 +278,9 @@ volumes:
 
 ### Image Integration
 - SHOULD use SteamGridDB (or best available alternative) to fetch game images; requires `steamgrid_api_key` configured via settings UI.
-- MUST cache image metadata locally in database; image files MUST be stored in `/data/images/{platform}/{gameId}/` directory structure.
+- MUST cache image metadata locally in database; image files MUST be stored in `/app/data/images/{platform}/{gameId}/` directory structure.
 - MUST gracefully fallback to platform-provided images if none available via SteamGridDB.
-- Image storage path MUST be configurable via volume mounts (unified `/data`, split `/data/images`, or custom path).
+- Image storage path MUST be configurable via volume mounts (unified `/app/data`, split `/app/data/images`, or custom path).
 
 ### Scheduler & Automation
 - Scheduler MUST be implemented using `node-cron` with configurable cron expressions via settings UI.

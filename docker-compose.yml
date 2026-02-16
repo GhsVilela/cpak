@@ -46,8 +46,8 @@ services:
     environment:
       - MONGO_URI=mongodb://mongo:27017/cpak
     volumes:
-      - cpak_images:/data/images
-      - cpak_backups:/data/backups
+      - cpak_images:/app/data/images
+      - cpak_backups:/app/data/backups
 
 volumes:
   cpak_db:

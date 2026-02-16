@@ -116,7 +116,7 @@ nodaemon=true
 user=root
 
 [program:mongodb]
-command=/usr/bin/mongod --dbpath /data/db --bind_ip_all
+command=/usr/bin/mongod --dbpath /app/data/db --bind_ip_all
 autostart=true
 autorestart=true
 priority=1
@@ -166,7 +166,7 @@ if [ -n "$EXTERNAL_DB" ] || [ -n "$MONGO_URI" ]; then
   echo "External database mode enabled"
 else
   # Bundled mode - ensure data directory exists
-  mkdir -p /data/db
+  mkdir -p /app/data/db
   echo "Bundled database mode enabled"
 fi
 
@@ -192,12 +192,12 @@ exec supervisord -c /etc/supervisord.conf
 **Implementation**:
 ```bash
 # Entrypoint detects mount points
-if mountpoint -q /data/db && mountpoint -q /data/images; then
+if mountpoint -q /app/data/db && mountpoint -q /app/data/images; then
   echo "Split volume mode detected"
-  DB_PATH=/data/db
-  IMAGES_PATH=/data/images
+  DB_PATH=/app/data/db
+  IMAGES_PATH=/app/data/images
 else
-  echo "Unified volume mode - using /data"
+  echo "Unified volume mode - using /app/data"
   DB_PATH=/data/db
   IMAGES_PATH=/data/images
   mkdir -p $DB_PATH $IMAGES_PATH
@@ -205,8 +205,8 @@ fi
 ```
 
 **User Documentation**:
-- Default: `docker run -v cpak_data:/data cpak:latest`
-- Split: `docker run -v cpak_db:/data/db -v cpak_images:/data/images cpak:latest`
+- Default: `docker run -v cpak_data:/app/data cpak:latest`
+- Split: `docker run -v cpak_db:/app/data/db -v cpak_images:/app/data/images cpak:latest`
 
 ---
 

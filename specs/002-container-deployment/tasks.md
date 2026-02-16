@@ -37,7 +37,7 @@
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
 - [X] T007 Install and configure supervisord in Alpine base - research implementation in Docker context
-- [X] T008 Define volume mount detection logic strategy for /data vs /data/db + /data/images
+- [X] T008 Define volume mount detection logic strategy for /app/data vs /app/data/db + /app/data/images
 - [X] T009 Define database mode detection strategy for bundled vs external MongoDB
 - [X] T010 Create configuration precedence framework (database > environment > defaults)
 - [X] T011 [P] Document container image metadata labels (OCI annotations) for plan reference
@@ -77,7 +77,7 @@
 - [X] T024 [US1] Implement database mode detection logic (EXTERNAL_DB/MONGO_URI check) in scripts/docker-entrypoint.sh
 - [X] T025 [US1] Implement MongoDB service disabling for external mode in scripts/docker-entrypoint.sh
 - [X] T026 [US1] Implement volume detection logic for unified vs split volumes in scripts/docker-entrypoint.sh
-- [X] T027 [US1] Add data directory creation (/data/db, /data/images) to scripts/docker-entrypoint.sh
+- [X] T027 [US1] Add data directory creation (/app/data/db, /app/data/images) to scripts/docker-entrypoint.sh
 - [X] T028 [US1] Add volume permissions validation to scripts/docker-entrypoint.sh
 - [X] T029 [US1] Add supervisord startup command at end of scripts/docker-entrypoint.sh
 - [X] T030 [US1] Make docker-entrypoint.sh executable and set as Docker ENTRYPOINT in Dockerfile
@@ -102,7 +102,7 @@
 - [X] T040 [P] [US1] Update backend server startup to use fixed internal ports (API_PORT=8080) in backend/src/utils/config.ts
 - [X] T041 [P] [US1] Update backend to use fixed API_BASE_PATH=/api in backend/src/utils/config.ts
 - [X] T042 [P] [US1] Update backend ALLOWED_ORIGINS to auto-detect from request headers in backend/src/api/middleware/cors.ts
-- [X] T043 [P] [US1] Update backend IMAGES_DIR to fixed /data/images in backend/src/utils/config.ts
+- [X] T043 [P] [US1] Update backend IMAGES_DIR to fixed /app/data/images in backend/src/utils/config.ts
 
 #### Docker Compose Examples
 
@@ -346,7 +346,7 @@
 # Task T040: Update backend server startup to use fixed internal ports
 # Task T041: Update backend to use fixed API_BASE_PATH=/api
 # Task T042: Update backend ALLOWED_ORIGINS to auto-detect
-# Task T043: Update backend IMAGES_DIR to fixed /data/images
+# Task T043: Update backend IMAGES_DIR to fixed /app/data/images
 ```
 
 ---

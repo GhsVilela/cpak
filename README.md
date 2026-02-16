@@ -36,7 +36,7 @@ The simplest way to get started is with the unified container that includes ever
    ```bash
    docker run -d \
      -p 8000:80 \
-     -v cpak_data:/data \
+     -v cpak_data:/app/data \
      docker.io/ghsvilela/cpak:latest
    ```
 
@@ -51,7 +51,7 @@ The simplest way to get started is with the unified container that includes ever
          - '8000:80'
        restart: unless-stopped
        volumes:
-         - cpak_data:/data
+         - cpak_data:/app/data
    volumes:
      cpak_data:
        driver: local
@@ -78,7 +78,7 @@ Using another MongoDB instance:
      -p 8000:80 \
      -e EXTERNAL_DB=true \
      -e MONGO_URI=mongodb://your-mongo-host:27017/cpak \
-     -v cpak_data:/data \
+     -v cpak_data:/app/data \
      docker.io/ghsvilela/cpak:latest
    ```
 
@@ -96,7 +96,7 @@ Using another MongoDB instance:
          - MONGO_URI=mongodb://your-mongo-host:27017/cpak
        restart: unless-stopped
        volumes:
-         - cpak_data:/data
+         - cpak_data:/app/data
    volumes:
      cpak_data:
        driver: local
@@ -130,30 +130,30 @@ These variables configure the container infrastructure (not application settings
 **Unified mode** (default):
 ```yaml
 volumes:
-  - cpak_data:/data  # Contains both database / images and backups
+  - cpak_data:/app/data  # Contains database, images and backups
 ```
 
 **Split volumes** (optional):
 ```yaml
 volumes:
-  - cpak_db:/data/db
-  - cpak_images:/data/images
-  - cpak_backups:/data/backups
+  - cpak_db:/app/data/db
+  - cpak_images:/app/data/images
+  - cpak_backups:/app/data/backups
 ```
 
 **External database mode**:
 ```yaml
 volumes:
-  - cpak_images:/data/images  # Only images and backup, no database
-  - cpak_backups:/data/backups
+  - cpak_images:/app/data/images  # Only images and backup, no database
+  - cpak_backups:/app/data/backups
 ```
 
 **Bind mode with different ssds/hdds**:
 ```yaml
 volumes:
-  - /mnt/fast-ssd/cpak-db:/data/db
-  - /mnt/large-storage-1/cpak-images:/data/images
-  - /mnt/large-storage-2/cpak-backups:/data/backups
+  - /mnt/fast-ssd/cpak-db:/app/data/db
+  - /mnt/large-storage-1/cpak-images:/app/data/images
+  - /mnt/large-storage-2/cpak-backups:/app/data/backups
 ```
 
 ## Architecture

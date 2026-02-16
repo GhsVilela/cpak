@@ -78,8 +78,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create MongoDB user and directories
-RUN mkdir -p /data/db /data/images && \
-    chown -R mongodb:mongodb /data/db
+RUN mkdir -p /app/data/db /app/data/images /app/data/backups && \
+    chown -R mongodb:mongodb /app/data/db
 
 # Create application directories
 RUN mkdir -p \

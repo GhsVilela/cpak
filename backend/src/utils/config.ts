@@ -14,8 +14,8 @@ const configSchema = z.object({
   ALLOWED_ORIGINS: z.string().default('*'),
   
   // Fixed internal path for containerized deployment
-  IMAGES_DIR: z.string().default('/data/images'),
-  BACKUP_DIR: z.string().default('/data/backups')
+  IMAGES_DIR: z.string().default('/app/data/images'),
+  BACKUP_DIR: z.string().default('/app/data/backups')
 });
 
 export type Config = z.infer<typeof configSchema>;

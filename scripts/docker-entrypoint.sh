@@ -40,7 +40,7 @@ else
     echo "📦 Bundled database mode (default)"
     
     # Ensure database directory exists
-    mkdir -p /data/db
+    mkdir -p /app/data/db
     
     # Set MONGO_URI for backend to connect to bundled MongoDB
     export MONGO_URI="mongodb://localhost:27017/cpak"
@@ -48,9 +48,9 @@ else
     echo "   MongoDB will start at: mongodb://localhost:27017"
     
     # Initialize MongoDB data directory if empty
-    if [ ! -d "/data/db/journal" ] && [ ! -f "/data/db/WiredTiger" ]; then
+    if [ ! -d "/app/data/db/journal" ] && [ ! -f "/app/data/db/WiredTiger" ]; then
         echo "   Initializing MongoDB database directory..."
-        chown -R mongodb:mongodb /data/db
+        chown -R mongodb:mongodb /app/data/db
     fi
 fi
 
@@ -62,19 +62,19 @@ echo ""
 echo "📁 Checking volume configuration..."
 
 # Check if split volumes are mounted
-if mountpoint -q /data/db && mountpoint -q /data/images 2>/dev/null; then
+if mountpoint -q /app/data/db && mountpoint -q /app/data/images 2>/dev/null; then
     echo "   Split volume mode detected:"
-    echo "     - Database: /data/db"
-    echo "     - Images:   /data/images"
-    DB_PATH="/data/db"
-    IMAGES_PATH="/data/images"
-    BACKUP_PATH="/data/backups"
+    echo "     - Database: /app/data/db"
+    echo "     - Images:   /app/data/images"
+    DB_PATH="/app/data/db"
+    IMAGES_PATH="/app/data/images"
+    BACKUP_PATH="/app/data/backups"
 else
     echo "   Unified volume mode (default):"
-    echo "     - All data: /data"
-    DB_PATH="/data/db"
-    IMAGES_PATH="/data/images"
-    BACKUP_PATH="/data/backups"
+    echo "     - All data: /app/data"
+    DB_PATH="/app/data/db"
+    IMAGES_PATH="/app/data/images"
+    BACKUP_PATH="/app/data/backups"
     
     # Create subdirectories if they don't exist
     mkdir -p "$DB_PATH" "$IMAGES_PATH" "$BACKUP_PATH"
@@ -125,7 +125,7 @@ fi
 echo ""
 echo "📋 Configuration Summary:"
 echo "   Database Mode:    ${EXTERNAL_DB:+External}${EXTERNAL_DB:-Bundled}"
-echo "   Volume Mode:      $(mountpoint -q /data/db 2>/dev/null && echo 'Split' || echo 'Unified')"
+echo "   Volume Mode:      $(mountpoint -q /app/data/db 2>/dev/null && echo 'Split' || echo 'Unified')"
 echo "   Images Path:      $IMAGES_PATH"
 echo "   MongoDB URI:      ${MONGO_URI}"
 echo "   Encryption Key:   ${ENCRYPTION_KEY:0:8}... (${#ENCRYPTION_KEY} chars)"
