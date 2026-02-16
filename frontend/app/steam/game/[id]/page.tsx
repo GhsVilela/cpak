@@ -206,7 +206,7 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
 
         {achievements.length === 0 && (
           <div className="text-center text-gray-400 py-12">
-            <p>No achievement data available for this game.</p>
+            <p>No achievement data available for this game or sync is still in progress.</p>
           </div>
         )}
       </div>

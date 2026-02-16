@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Removed output: "export" to support dynamic routes
-  distDir: "dist",
+  // Use standalone mode for containerized deployments
+  output: "standalone",
   images: {
     unoptimized: true,
   },

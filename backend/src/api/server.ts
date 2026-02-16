@@ -5,6 +5,7 @@ import { config, getApiPort, getAllowedOrigins } from '../utils/config.js';
 import { connectDB } from '../utils/db.js';
 import { registerRoutes } from './routes/index.js';
 import { schedulerService } from '../services/scheduler.js';
+import { configService } from '../services/configService.js';
 
 const fastify = Fastify({
   logger: {
@@ -34,11 +35,15 @@ await fastify.register(multipart, {
 // Connect to MongoDB
 await connectDB();
 
+// Initialize default settings (if not already in database)
+await configService.initializeDefaults();
+fastify.log.info('Configuration service initialized with defaults');
+
 // Register routes
 await fastify.register(registerRoutes, { prefix: config.API_BASE_PATH });
 
 // Start scheduler for automatic syncs
-schedulerService.start();
+await schedulerService.start();
 fastify.log.info('Scheduler started for automatic profile syncs');
 
 // Start server

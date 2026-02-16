@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSyncControls from '../../components/ProfileSyncControls';
+import SchedulerSettings from '../../components/SchedulerSettings';
+import SyncSettings from '../../components/SyncSettings';
+import Toast from '../../components/Toast';
 
 interface Profile {
   _id: string;
@@ -21,12 +24,19 @@ interface SyncRun {
   status: 'success' | 'failed';
 }
 
-interface GlobalSettings {
-  _id: string;
-  steamGridApiKey?: string;
-  steamGridApiKeyConfigured?: boolean;
-  schedulerEnabled?: boolean;
-  schedulerCron?: string;
+interface SettingsState {
+  // SteamGridDB API key (for image downloads)
+  steamgrid_api_key?: string;
+  // Scheduler
+  scheduler_enabled?: string;
+  scheduler_cron?: string;
+  // Sync
+  sync_batch_size?: string;
+  sync_image_concurrency?: string;
+}
+
+interface ConfiguredState {
+  steamgrid_api_key?: boolean;
 }
 
 const platformColors = {
@@ -41,69 +51,30 @@ const platformNames = {
   playstation: 'PlayStation',
 };
 
-const getCronDescription = (cron: string): string => {
-  if (!cron) return '';
-  
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return 'Invalid cron expression';
-  
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
-  
-  // Common patterns
-  if (cron === '0 3 * * *') return 'Runs every day at 3:00 AM';
-  if (cron === '0 0 * * *') return 'Runs every day at midnight';
-  if (cron === '0 */6 * * *') return 'Runs every 6 hours';
-  if (cron === '0 * * * *') return 'Runs every hour';
-  if (cron === '*/30 * * * *') return 'Runs every 30 minutes';
-  if (cron === '0 0 * * 0') return 'Runs every Sunday at midnight';
-  if (cron === '0 0 1 * *') return 'Runs on the 1st day of every month at midnight';
-  
-  // Build description
-  let desc = 'Runs ';
-  
-  // Day of week (0-6, Sunday=0)
-  if (dayOfWeek !== '*') {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const dayNum = parseInt(dayOfWeek);
-    desc += `every ${days[dayNum]} `;
-  } else if (dayOfMonth !== '*') {
-    desc += `on day ${dayOfMonth} of every month `;
-  } else {
-    desc += 'every day ';
-  }
-  
-  // Hour and minute
-  if (hour !== '*' && minute !== '*') {
-    const h = parseInt(hour);
-    const m = parseInt(minute);
-    const period = h >= 12 ? 'PM' : 'AM';
-    const displayHour = h > 12 ? h - 12 : h === 0 ? 12 : h;
-    desc += `at ${displayHour}:${m.toString().padStart(2, '0')} ${period}`;
-  } else if (hour !== '*') {
-    desc += `at hour ${hour}`;
-  } else if (minute !== '*') {
-    desc += `at minute ${minute} of every hour`;
-  }
-  
-  return desc;
-};
-
 export default function SettingsPage() {
   const router = useRouter();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [syncRuns, setSyncRuns] = useState<Record<string, SyncRun>>({});
-  const [settings, setSettings] = useState<GlobalSettings>({ 
-    _id: 'global',
-    steamGridApiKey: '',
-    steamGridApiKeyConfigured: false,
-    schedulerEnabled: false,
-    schedulerCron: '0 3 * * *'
-  });
+  const [settings, setSettings] = useState<SettingsState>({});
+  const [configured, setConfigured] = useState<ConfiguredState>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState('');
   const [showSteamGridApiKey, setShowSteamGridApiKey] = useState(false);
+  
+  // Toast state
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+    visible: boolean;
+  }>({ message: '', type: 'info', visible: false });
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+    setToast({ message, type, visible: true });
+  };
+
+  const hideToast = () => {
+    setToast({ ...toast, visible: false });
+  };
   
   // Backup/Restore status
   interface BackupStatus {
@@ -128,13 +99,12 @@ export default function SettingsPage() {
 
   const loadProfiles = async () => {
     setLoading(true);
-    setError('');
 
     try {
       const data = await apiClient.get<Profile[]>('/profiles');
       setProfiles(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load profiles');
+      showToast(err instanceof Error ? err.message : 'Failed to load profiles', 'error');
     } finally {
       setLoading(false);
     }
@@ -158,26 +128,74 @@ export default function SettingsPage() {
 
   const loadSettings = async () => {
     try {
-      const data = await apiClient.get<GlobalSettings>('/settings');
-      // Never populate steamGridApiKey field for security
-      setSettings({ ...data, steamGridApiKey: '' });
+      const { settings: allSettings } = await apiClient.getAllSettings();
+      
+      const settingsObj: SettingsState = {};
+      const configuredObj: ConfiguredState = {};
+      
+      allSettings.forEach((setting) => {
+        if (setting.isSecret) {
+          // For secrets, don't populate value, just mark as configured
+          configuredObj[setting.key as keyof ConfiguredState] = true;
+          settingsObj[setting.key as keyof SettingsState] = '';
+        } else {
+          settingsObj[setting.key as keyof SettingsState] = setting.value;
+        }
+      });
+      
+      setSettings(settingsObj);
+      setConfigured(configuredObj);
     } catch (err) {
       console.error('Failed to load settings:', err);
     }
   };
 
-  const handleSaveSettings = async () => {
-    setSaveMessage('');
-    setError('');
-    
+  const handleSettingChange = (key: keyof SettingsState, value: string) => {
+    setSettings((prevSettings) => ({ ...prevSettings, [key]: value }));
+  };
+
+  const handleImageProvidersSettingsSave = async () => {
     try {
-      await apiClient.put('/settings', settings);
-      setSaveMessage('Settings saved successfully!');
-      // Reload settings to get fresh state with cleared API key field
-      await loadSettings();
-      setTimeout(() => setSaveMessage(''), 3000);
+      // Only save if value is non-empty (user entered something)
+      if (settings.steamgrid_api_key && settings.steamgrid_api_key.trim() !== '') {
+        await apiClient.updateSetting('steamgrid_api_key', settings.steamgrid_api_key, 'image_provider');
+        showToast('SteamGridDB API key saved successfully!', 'success');
+        await loadSettings(); // Reload to get fresh configured state
+      } else {
+        showToast('Please enter a SteamGridDB API key', 'error');
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
+      showToast(err instanceof Error ? err.message : 'Failed to save SteamGridDB API key', 'error');
+    }
+  };
+
+  const handleSchedulerSettingsSave = async () => {
+    try {
+      if (settings.scheduler_enabled !== undefined) {
+        await apiClient.updateSetting('scheduler_enabled', settings.scheduler_enabled, 'scheduler');
+      }
+      if (settings.scheduler_cron && settings.scheduler_cron.trim() !== '') {
+        await apiClient.updateSetting('scheduler_cron', settings.scheduler_cron, 'scheduler');
+      }
+
+      showToast('Scheduler settings saved successfully!', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to save scheduler settings', 'error');
+    }
+  };
+
+  const handleSyncSettingsSave = async () => {
+    try {
+      if (settings.sync_batch_size !== undefined) {
+        await apiClient.updateSetting('sync_batch_size', settings.sync_batch_size, 'sync');
+      }
+      if (settings.sync_image_concurrency !== undefined) {
+        await apiClient.updateSetting('sync_image_concurrency', settings.sync_image_concurrency, 'sync');
+      }
+
+      showToast('Sync settings saved successfully!', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to save sync settings', 'error');
     }
   };
 
@@ -186,8 +204,9 @@ export default function SettingsPage() {
       await apiClient.delete(`/profiles/${profileId}`);
       setProfiles(profiles.filter((p) => p._id !== profileId));
       setDeleteConfirm(null);
+      showToast('Profile deleted successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete profile');
+      showToast(err instanceof Error ? err.message : 'Failed to delete profile', 'error');
     }
   };
 
@@ -199,7 +218,7 @@ export default function SettingsPage() {
   const loadStatus = async () => {
     setStatusLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/backup/status');
+      const response = await fetch('/api/backup/status');
       if (response.ok) {
         const data = await response.json();
         setBackupStatus(data.backup);
@@ -214,9 +233,8 @@ export default function SettingsPage() {
 
   // Start new backup
   const handleCreateBackup = async () => {
-    setError('');
     try {
-      const response = await fetch('http://localhost:8000/api/backup/start', {
+      const response = await fetch('/api/backup/start', {
         method: 'POST'
       });
       
@@ -228,8 +246,9 @@ export default function SettingsPage() {
       // Immediately refresh status
       await loadStatus();
       
+      showToast('Backup started successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start backup');
+      showToast(err instanceof Error ? err.message : 'Failed to start backup', 'error');
     }
   };
 
@@ -239,7 +258,7 @@ export default function SettingsPage() {
     
     try {
       const jobId = backupStatus.lastCompleted.jobId;
-      const downloadResponse = await fetch(`http://localhost:8000/api/backup/download/${jobId}`);
+      const downloadResponse = await fetch(`/api/backup/download/${jobId}`);
       if (!downloadResponse.ok) throw new Error('Failed to download backup');
       
       const blob = await downloadResponse.blob();
@@ -254,8 +273,10 @@ export default function SettingsPage() {
       
       // Refresh status to show download timestamp
       await loadStatus();
+      
+      showToast('Backup downloaded successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to download backup');
+      showToast(err instanceof Error ? err.message : 'Failed to download backup', 'error');
     }
   };
 
@@ -264,13 +285,11 @@ export default function SettingsPage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setError('');
-    
     try {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('http://localhost:8000/api/backup/restore/start', {
+      const response = await fetch('/api/backup/restore/start', {
         method: 'POST',
         body: formData,
       });
@@ -286,10 +305,12 @@ export default function SettingsPage() {
       // Immediately refresh status
       await loadStatus();
       
+      showToast('Restore started successfully', 'success');
+      
       // Reload profiles after a delay to show restored data
       setTimeout(() => loadProfiles(), 30000); // Reload after 30 seconds
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start restore');
+      showToast(err instanceof Error ? err.message : 'Failed to start restore', 'error');
     } finally {
       event.target.value = '';
     }
@@ -301,7 +322,7 @@ export default function SettingsPage() {
 
     try {
       const jobId = backupStatus.current.jobId;
-      const response = await fetch(`http://localhost:8000/api/backup/cancel/${jobId}`, {
+      const response = await fetch(`/api/backup/cancel/${jobId}`, {
         method: 'DELETE'
       });
 
@@ -309,8 +330,10 @@ export default function SettingsPage() {
 
       // Refresh status
       await loadStatus();
+      
+      showToast('Backup cancelled successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel backup');
+      showToast(err instanceof Error ? err.message : 'Failed to cancel backup', 'error');
     }
   };
 
@@ -320,7 +343,7 @@ export default function SettingsPage() {
 
     try {
       const jobId = restoreStatus.current.jobId;
-      const response = await fetch(`http://localhost:8000/api/backup/restore/cancel/${jobId}`, {
+      const response = await fetch(`/api/backup/restore/cancel/${jobId}`, {
         method: 'DELETE'
       });
 
@@ -328,8 +351,10 @@ export default function SettingsPage() {
 
       // Refresh status
       await loadStatus();
+      
+      showToast('Restore cancelled successfully', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel restore');
+      showToast(err instanceof Error ? err.message : 'Failed to cancel restore', 'error');
     }
   };
 
@@ -363,21 +388,9 @@ export default function SettingsPage() {
 
       {loading && <p>Loading profiles...</p>}
 
-      {error && (
-        <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-2 rounded mb-4">
-          {error}
-        </div>
-      )}
-
-      {saveMessage && (
-        <div className="bg-green-900/20 border border-green-500 text-green-400 px-4 py-2 rounded mb-4">
-          {saveMessage}
-        </div>
-      )}
-
-      {/* Global Configuration */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
-        <h2 className="text-xl font-semibold mb-4">Global Configuration</h2>
+      {/* Image Providers */}
+      <div className="bg-gray-900 rounded-lg p-6 mb-6">
+        <h2 className="text-xl font-semibold mb-4">Image Providers</h2>
         
         <div className="space-y-4">
           <div>
@@ -391,13 +404,13 @@ export default function SettingsPage() {
             <div className="relative">
               <input
                 type={showSteamGridApiKey ? "text" : "password"}
-                value={settings.steamGridApiKey || ''}
-                onChange={(e) => setSettings({ ...settings, steamGridApiKey: e.target.value })}
-                placeholder={settings.steamGridApiKeyConfigured ? "Enter new API key to replace existing" : "Enter your SteamGridDB API key"}
+                value={settings.steamgrid_api_key || ''}
+                onChange={(e) => handleSettingChange('steamgrid_api_key', e.target.value)}
+                placeholder={configured.steamgrid_api_key ? "Enter new API key" : "SteamGridDB API key"}
                 className="w-full px-4 py-2 pr-24 bg-gray-900 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                {settings.steamGridApiKeyConfigured && !settings.steamGridApiKey && (
+                {configured.steamgrid_api_key && !settings.steamgrid_api_key && (
                   <div className="flex items-center gap-1 text-green-400" title="API key is configured">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -405,7 +418,7 @@ export default function SettingsPage() {
                     <span className="text-xs font-medium">Configured</span>
                   </div>
                 )}
-                {settings.steamGridApiKey && (
+                {settings.steamgrid_api_key && (
                   <button
                     type="button"
                     onClick={() => setShowSteamGridApiKey(!showSteamGridApiKey)}
@@ -440,69 +453,40 @@ export default function SettingsPage() {
             </p>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Automatic Sync Scheduler
-              <span className="text-gray-400 font-normal ml-2">(Optional)</span>
-            </label>
-            <p className="text-sm text-gray-400 mb-3">
-              Automatically sync all profiles on a schedule. Configure when syncs should run using a cron expression.
-            </p>
-            
-            <div className="space-y-3">
-              <label className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  checked={settings.schedulerEnabled || false}
-                  onChange={(e) => setSettings({ ...settings, schedulerEnabled: e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-600 bg-gray-900 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
-                />
-                <span className="text-sm">Enable automatic sync scheduler</span>
-              </label>
-              
-              {settings.schedulerEnabled && (
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Cron Expression
-                  </label>
-                  <input
-                    type="text"
-                    value={settings.schedulerCron || '0 3 * * *'}
-                    onChange={(e) => setSettings({ ...settings, schedulerCron: e.target.value })}
-                    placeholder="0 3 * * *"
-                    className="w-full px-4 py-2 bg-gray-900 border border-gray-600 rounded focus:outline-none focus:border-blue-500 font-mono text-sm"
-                  />
-                  <p className="text-sm text-blue-400 mt-2">
-                    {getCronDescription(settings.schedulerCron || '0 3 * * *')}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Need help with cron expressions? Visit{' '}
-                    <a 
-                      href="https://crontab.guru" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-blue-400 hover:underline"
-                    >
-                      crontab.guru
-                    </a>
-                    {' '}for examples and explanations.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
           <button
-            onClick={handleSaveSettings}
+            onClick={handleImageProvidersSettingsSave}
             className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
           >
-            Save Settings
+            Save Image Settings
           </button>
         </div>
       </div>
 
+      {/* Settings Components */}
+      <div className="space-y-6 mb-6">
+        {/* Scheduler Settings */}
+        <SchedulerSettings
+          values={{
+            scheduler_enabled: settings.scheduler_enabled || 'false',
+            scheduler_cron: settings.scheduler_cron || '0 3 * * *'
+          }}
+          onChange={handleSettingChange}
+          onSave={handleSchedulerSettingsSave}
+        />
+
+        {/* Sync Performance Settings */}
+        <SyncSettings
+          values={{
+            sync_batch_size: settings.sync_batch_size || '10',
+            sync_image_concurrency: settings.sync_image_concurrency || '5'
+          }}
+          onChange={handleSettingChange}
+          onSave={handleSyncSettingsSave}
+        />
+      </div>
+
       {/* Backup & Restore Section */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+      <div className="bg-gray-900 rounded-lg p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">Backup & Restore</h2>
           <button
@@ -692,7 +676,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Profiles Section */}
-      <div className="mb-6">
+      <div className="bg-gray-900 rounded-lg p-6 mb-6">
         <h2 className="text-xl font-semibold mb-4">Profiles</h2>
 
         {!loading && profiles.length === 0 && (
@@ -711,13 +695,13 @@ export default function SettingsPage() {
           {profiles.map((profile) => (
             <div
               key={profile._id}
-              className="bg-gray-800 border border-gray-700 rounded-lg p-6"
+              className="bg-gray-800 rounded-lg p-6"
             >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <span
-                      className="px-3 py-1 rounded-full text-sm font-semibold"
+                      className="px-3 py-1 rounded-full text-sm font-semibold whitespace-nowrap"
                       style={{
                         backgroundColor: `${platformColors[profile.platform]}20`,
                         color: platformColors[profile.platform],
@@ -726,18 +710,18 @@ export default function SettingsPage() {
                     >
                       {platformNames[profile.platform]}
                     </span>
-                    <h3 className="text-xl font-semibold">{profile.displayName}</h3>
+                    <h3 className="text-xl font-semibold break-words">{profile.displayName}</h3>
                   </div>
-                  <p className="text-sm text-gray-400">Profile ID: {profile.profileId}</p>
+                  <p className="text-sm text-gray-400 break-all">Profile ID: {profile.profileId}</p>
                   <p className="text-xs text-gray-500 mt-2">
                     Added: {new Date(profile.createdAt).toLocaleDateString()}
                   </p>
                 </div>
                 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-shrink-0 sm:self-start">
                   <button
                     onClick={() => router.push(`/settings/edit/${profile._id}`)}
-                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
+                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition whitespace-nowrap"
                   >
                     Edit
                   </button>
@@ -745,13 +729,13 @@ export default function SettingsPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleDelete(profile._id)}
-                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium transition"
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium transition whitespace-nowrap"
                       >
                         Confirm
                       </button>
                       <button
                         onClick={() => setDeleteConfirm(null)}
-                        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
+                        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition whitespace-nowrap"
                       >
                         Cancel
                       </button>
@@ -759,7 +743,7 @@ export default function SettingsPage() {
                   ) : (
                     <button
                       onClick={() => setDeleteConfirm(profile._id)}
-                      className="px-4 py-2 bg-red-900/50 hover:bg-red-900/70 border border-red-500/50 rounded font-medium transition"
+                      className="px-4 py-2 bg-red-900/50 hover:bg-red-900/70 border border-red-500/50 rounded font-medium transition whitespace-nowrap"
                     >
                       Delete
                     </button>
@@ -771,14 +755,23 @@ export default function SettingsPage() {
               <ProfileSyncControls
                 profileId={profile._id}
                 platform={profile.platform}
-                displayName={profile.displayName}
                 lastSync={syncRuns[profile._id]}
                 onSyncComplete={loadSyncRuns}
+                onToast={showToast}
               />
             </div>
           ))}
         </div>
       </div>
+
+      {/* Toast Notification */}
+      {toast.visible && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={hideToast}
+        />
+      )}
     </div>
   );
 }

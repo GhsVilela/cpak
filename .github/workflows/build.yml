@@ -91,6 +91,15 @@ jobs:
           tags: cpak-frontend:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      
+      - name: Build unified Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: cpak:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   lint-backend:
     name: Lint Backend

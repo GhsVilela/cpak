@@ -1,56 +1,166 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { Settings } from '../../models/settings.js';
+import { configService } from '../../services/configService.js';
+import { SettingCategory } from '../../models/setting.js';
 import { logger } from '../../utils/logger.js';
+import { schedulerService } from '../../services/scheduler.js';
+import { z } from 'zod';
 
-interface UpdateSettingsBody {
-  steamGridApiKey?: string;
-}
+// Request validation schemas
+const updateSettingSchema = z.object({
+  value: z.string().min(1).max(2048),
+  category: z.nativeEnum(SettingCategory),
+});
 
-export async function getSettings(
+type UpdateSettingBody = z.infer<typeof updateSettingSchema>;
+
+/**
+ * GET /api/settings
+ * Get all settings (secret values are hidden)
+ */
+export async function getAllSettings(
   req: FastifyRequest,
   reply: FastifyReply
 ) {
   try {
-    let settings = await Settings.findById('global');
+    const settings = await configService.getAllSettings();
     
-    // Create default settings if none exist
-    if (!settings) {
-      settings = await Settings.create({ _id: 'global' });
-    }
+    // Omit value field for secret settings
+    const masked = settings.map(setting => {
+      const result: any = {
+        key: setting.key,
+        category: setting.category,
+        isSecret: setting.isSecret,
+      };
+      
+      // Only include value for non-secret settings
+      if (!setting.isSecret) {
+        result.value = setting.value;
+      }
+      
+      return result;
+    });
 
-    // toJSON is called automatically by reply.send
-    reply.send(settings);
+    reply.send({ settings: masked });
   } catch (error) {
-    logger.error({ error }, 'Failed to fetch settings');
+    logger.error({ error }, '[Settings] Failed to fetch settings');
     reply.status(500).send({ error: 'Internal server error' });
   }
 }
 
-export async function updateSettings(
-  req: FastifyRequest<{ Body: UpdateSettingsBody }>,
+/**
+ * GET /api/settings/:key
+ * Get a specific setting (secret values are hidden)
+ */
+export async function getSetting(
+  req: FastifyRequest<{ Params: { key: string } }>,
   reply: FastifyReply
 ) {
   try {
-    const updates = req.body;
+    const { key } = req.params;
 
-    // Ensure settings document exists
-    let settings = await Settings.findById('global');
-    if (!settings) {
-      settings = new Settings({ _id: 'global' });
+    if (!key || !/^[a-z_]+$/.test(key)) {
+      return reply.status(400).send({ error: 'Invalid setting key format' });
     }
 
-    // Update fields - only update if provided and not empty
-    if (updates.steamGridApiKey !== undefined && updates.steamGridApiKey.trim()) {
-      settings.steamGridApiKey = updates.steamGridApiKey;
+    const setting = await configService.getSettingForDisplay(key);
+    
+    if (!setting) {
+      // Return 404 if setting doesn't exist in database
+      // (It might still exist as env var or default, but we only expose database settings)
+      return reply.status(404).send({ error: 'Setting not found' });
     }
 
-    // Save triggers encryption via pre-save hook
-    await settings.save();
-
-    // Return sanitized response (toJSON hides encrypted key)
-    reply.send(settings);
+    reply.send(setting);
   } catch (error) {
-    logger.error({ error }, 'Failed to update settings');
+    logger.error({ error, key: req.params.key }, '[Settings] Failed to fetch setting');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/settings/:key
+ * Create or update a setting
+ */
+export async function updateSetting(
+  req: FastifyRequest<{ Params: { key: string }; Body: UpdateSettingBody }>,
+  reply: FastifyReply
+) {
+  try {
+    const { key } = req.params;
+
+    // Validate key format
+    if (!key || !/^[a-z_]+$/.test(key)) {
+      return reply.status(400).send({ error: 'Invalid setting key format (use lowercase with underscores)' });
+    }
+
+    // Validate body
+    const validation = updateSettingSchema.safeParse(req.body);
+    if (!validation.success) {
+      return reply.status(400).send({ 
+        error: 'Invalid request body', 
+        details: validation.error.issues 
+      });
+    }
+
+    const { value, category } = validation.data;
+
+    // Update or create setting
+    await configService.setSetting(key, value, category);
+
+    // Reload scheduler if scheduler settings were updated
+    if (key === 'scheduler_enabled' || key === 'scheduler_cron') {
+      await schedulerService.reload();
+      logger.info({ key, value }, '[Settings] Scheduler reloaded after settings update');
+    }
+
+    logger.info({ key, category }, '[Settings] Setting updated');
+
+    reply.send({ 
+      success: true, 
+      message: `Setting '${key}' updated successfully` 
+    });
+  } catch (error) {
+    logger.error({ error, key: req.params.key }, '[Settings] Failed to update setting');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * DELETE /api/settings/:key
+ * Delete a setting (falls back to env var or default)
+ */
+export async function deleteSetting(
+  req: FastifyRequest<{ Params: { key: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const { key } = req.params;
+
+    // Validate key format
+    if (!key || !/^[a-z_]+$/.test(key)) {
+      return reply.status(400).send({ error: 'Invalid setting key format' });
+    }
+
+    const deleted = await configService.deleteSetting(key);
+
+    if (!deleted) {
+      return reply.status(404).send({ error: 'Setting not found' });
+    }
+
+    // Reload scheduler if scheduler settings were deleted
+    if (key === 'scheduler_enabled' || key === 'scheduler_cron') {
+      await schedulerService.reload();
+      logger.info({ key }, '[Settings] Scheduler reloaded after settings deletion');
+    }
+
+    logger.info({ key }, '[Settings] Setting deleted');
+
+    reply.send({ 
+      success: true, 
+      message: `Setting '${key}' deleted successfully` 
+    });
+  } catch (error) {
+    logger.error({ error, key: req.params.key }, '[Settings] Failed to delete setting');
     reply.status(500).send({ error: 'Internal server error' });
   }
 }

@@ -1,170 +1,240 @@
-# cpak — Cross Platform Achievement Keeper
+# cpak - Cross Platform Achievement Keeper
 
-Self-hosted trophy hunter for Steam, Xbox, and PlayStation achievements.
+[![Build](https://img.shields.io/github/actions/workflow/status/ghsvilela/cpak/build.yml?branch=main&label=build)](https://github.com/ghsvilela/cpak/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/actions/workflow/status/ghsvilela/cpak/release.yml?label=release)](https://github.com/ghsvilela/cpak/actions/workflows/release.yml)
+[![Docker Hub](https://img.shields.io/docker/v/ghsvilela/cpak?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/ghsvilela/cpak)
+[![GitHub Container Registry](https://img.shields.io/badge/ghcr.io-cpak-blue?logo=github)](https://ghcr.io/ghsvilela/cpak)
+[![Docker Image Size](https://img.shields.io/docker/image-size/ghsvilela/cpak/latest?label=image%20size)](https://hub.docker.com/r/ghsvilela/cpak)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+Achievements are more than just a game feature, they're memories. CPAK is a self-hosted, cross-platform achievement keeper for Steam, Xbox, and PlayStation that lets you preserve your gaming memories locally, forever. Remember to backup regularly to keep them safe.
+
+> **Note on Development Approach**: This project leverages AI-assisted "vibe coding" with [Speckit](https://github.com/github/spec-kit) for spec-driven development. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
 
 ## Features
 
-- **Multi-Platform Support**: Track achievements from Steam, Xbox, and PlayStation (Steam MVP ready)
-- **Self-Hosted**: Run on your own infrastructure with Docker Compose
-- **100% Filter**: Default view shows only completed games
+- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation (Steam MVP ready)
+- **Self-Hosted**: Run on your own infrastructure with Docker
+- **Unified Container**: All-in-one image with web server, backend, frontend, and MongoDB
+- **UI-Based Configuration**: Configure API keys and all other settings through the web interface (no environment variables needed)
 - **Responsive Design**: Mobile-ready UI with Tailwind CSS
-- **Automatic Sync**: Daily scheduler updates your achievements
+- **Automatic Sync**: Scheduler to keep your achievements up to date
 - **Image Integration**: SteamGridDB support for game artwork
-
-## Prerequisites
-
-- Docker and Docker Compose
-- Steam API key (get from https://steamcommunity.com/dev/apikey)
-- (Optional) SteamGridDB API key for game images
+- **Backup and Restore**: Backups all profiles, games, achievements and images to a zip file
 
 ## Quick Start
 
-### Docker Deployment (Recommended)
+### Prerequisites
 
-1. **Clone the repository**:
+- Docker and Docker Compose installed
+
+### Deployment with Bundled Database (Recommended)
+
+The simplest way to get started is with the unified container that includes everything:
+
+1. **[Option 1] Start the container**:
    ```bash
-   git clone <repository-url>
-   cd cpak
+   docker run -d \
+     -p 8000:80 \
+     -v cpak_data:/app/data \
+     docker.io/ghsvilela/cpak:latest
    ```
 
-2. **Start the services**:
-   ```bash
-   docker-compose up -d
+2. **[Option 2] Start the container with docker compose**:
+   ```yaml
+   services:
+     cpak:
+       container_name: cpak
+       hostname: cpak
+       image: docker.io/ghsvilela/cpak:latest
+       ports:
+         - '8000:80'
+       restart: unless-stopped
+       volumes:
+         - cpak_data:/app/data
+   volumes:
+     cpak_data:
+       driver: local
    ```
-
-   This will:
-   - Build the Next.js frontend with Node 20 (static export to dist/)
-   - Build and start the Fastify backend API
-   - Start MongoDB database
-   - Start Caddy web server on port 8000
 
 3. **Access the application**:
    ```
-   Frontend: http://localhost:8000
-   Setup Wizard: http://localhost:8000/setup
-   API Health: http://localhost:8000/api/health
-   API Version: http://localhost:8000/api/version
+   http://localhost:8000
    ```
 
-4. **Complete setup wizard**:
-   - Navigate to http://localhost:8000/setup
-   - Enter your Steam API key and Steam ID
+4. **Complete setup**:
+   - Navigate to Settings page in the UI
+   - Add your first profile (Steam, Xbox or Playstation)
    - (Optional) Add SteamGridDB API key for game images
-   - Click "Create Profile & Sync" to start syncing your achievements
+   - Sync will start automatically after adding profile
 
-### Configuration
+### Deployment with External Database
 
-Environment variables can be set in `docker-compose.yml`:
+Using another MongoDB instance:
 
-```yaml
+1. **[Option 1] Start the container**:
+   ```bash
+   docker run -d \
+     -p 8000:80 \
+     -e EXTERNAL_DB=true \
+     -e MONGO_URI=mongodb://your-mongo-host:27017/cpak \
+     -v cpak_data:/app/data \
+     docker.io/ghsvilela/cpak:latest
+   ```
+
+2. **[Option 2] Start the container with docker compose**:
+   ```yaml
+   services:
+     cpak:
+       container_name: cpak
+       hostname: cpak
+       image: docker.io/ghsvilela/cpak:latest
+       ports:
+         - '8000:80'
+       environment:
+         - EXTERNAL_DB=true
+         - MONGO_URI=mongodb://your-user:your-pass@your-host:27017/cpak?authSource=admin
+       restart: unless-stopped
+       volumes:
+         - cpak_data:/app/data
+   volumes:
+     cpak_data:
+       driver: local
+   ```
+
+### Optional: Encryption for API Keys and Tokens
+
+By default, API keys and tokens are stored as **plain text** in the database. For enhanced security, set an encryption key:
+
+```bash
+# Generate a secure encryption key
+openssl rand -base64 32
+
+# Add to docker-compose file
 environment:
-  # API Configuration
-  - API_PORT=8080
-  - API_BASE_PATH=/api
-  - MONGO_URI=mongodb://mongo:27017
-  - MONGO_DB=cpak
-  - ALLOWED_ORIGINS=http://localhost:8000
-  
-  # Platform API Keys
-  - STEAM_API_KEY=${STEAM_API_KEY:-}
-  - STEAMGRID_API_KEY=${STEAMGRID_API_KEY:-}
-  - XBOX_CLIENT_ID=${XBOX_CLIENT_ID:-}
-  - XBOX_CLIENT_SECRET=${XBOX_CLIENT_SECRET:-}
-  - PLAYSTATION_CLIENT_ID=${PLAYSTATION_CLIENT_ID:-}
-  - PLAYSTATION_CLIENT_SECRET=${PLAYSTATION_CLIENT_SECRET:-}
-  
-  # Scheduler Configuration
-  - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-false}
-  - SCHEDULER_CRON=${SCHEDULER_CRON:-0 3 * * *}
-  
-  # Performance Tuning
-  - ICON_DOWNLOAD_CONCURRENCY=${ICON_DOWNLOAD_CONCURRENCY:-5}
-  - IMAGES_DIR=${IMAGES_DIR:-/app/data/images}
+  - ENCRYPTION_KEY=your-generated-key-here
 ```
 
-### Runtime Config (frontend/public/config.json)
+When `ENCRYPTION_KEY` is set, all credentials are encrypted using AES-256-GCM before storage. Without it, credentials are stored in plain text (suitable for testing/development or trusted environments).
 
-This file is automatically generated during build but can be customized for production:
+### Environment Variables (Container Configuration)
 
-```json
-{
-  "API_BASE_URL": "http://localhost:8000/api"
-}
+These variables configure the container infrastructure (not application settings):
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `ENCRYPTION_KEY` | Encryption key for secret settings (API keys, tokens) | Plain text storage | Optional (recommended) |
+| `EXTERNAL_DB` | Use external MongoDB | (empty = bundled) | No |
+| `MONGO_URI` | MongoDB connection (external mode) | `mongodb://mongo:27017/cpak` | External DB mode only |
+
+### Volume Configuration
+
+**Unified mode** (default):
+```yaml
+volumes:
+  - cpak_data:/app/data  # Contains database, images and backups
 ```
 
-### Development Setup
-
-If you want to develop locally without Docker:
-   ```bash
-   cd frontend
-   npm run build
-   ```
-
-5. **Start with Docker Compose**:
-   ```bash
-   docker-compose up -d
-   ```
-
-6. **Access the app**:
-   - Web UI: http://localhost:8000
-   - API: http://localhost:8000/api
-
-7. **Setup wizard**:
-   - Navigate to http://localhost:8000/setup
-   - Enter your Steam API key (get from https://steamcommunity.com/dev/apikey)
-   - Enter your Steam ID (find at https://steamid.io/)
-   - Click "Continue" to start initial sync
-
-## Development
-
-### Backend (Fastify)
-```bash
-cd backend
-npm run dev  # Starts on port 8080
+**Split volumes** (optional):
+```yaml
+volumes:
+  - cpak_db:/app/data/db
+  - cpak_images:/app/data/images
+  - cpak_backups:/app/data/backups
 ```
 
-### Frontend (Next.js)
-```bash
-cd frontend
-npm run dev  # Development server on port 3000
-npm run build  # Static export to dist/
+**External database mode**:
+```yaml
+volumes:
+  - cpak_images:/app/data/images  # Only images and backup, no database
+  - cpak_backups:/app/data/backups
+```
+
+**Bind mode with different ssds/hdds**:
+```yaml
+volumes:
+  - /mnt/fast-ssd/cpak-db:/app/data/db
+  - /mnt/large-storage-1/cpak-images:/app/data/images
+  - /mnt/large-storage-2/cpak-backups:/app/data/backups
 ```
 
 ## Architecture
 
-- **Frontend**: Next.js 14 (static export), TypeScript, Tailwind CSS
+**Unified Container**:
+- **Frontend**: Next.js 15 (standalone mode), TypeScript, Tailwind CSS, React 19
 - **Backend**: Fastify 5, Mongoose, Zod validation
-- **Database**: MongoDB 6 (Docker container)
-- **Proxy**: Caddy 2 (routes `/` → frontend, `/api` → backend)
+- **Database**: MongoDB 8.0 (bundled or external)
+- **Web Server**: Caddy 2 (reverse proxy)
+- **Process Manager**: supervisord (manages all services)
+
+**Container Image**:
+- Base: Debian slim (Node.js 20)
+- Size: ~300 MB (includes MongoDB + all dependencies)
+- Registries: `ghcr.io/ghsvilela/cpak` and `docker.io/ghsvilela/cpak`
+
+## Development
+
+### Local Development (Without Docker)
+
+**Backend**:
+```bash
+cd backend
+npm install
+npm run dev  # Starts on port 8080
+```
+
+**Frontend**:
+```bash
+cd frontend
+npm install
+npm run dev  # Development server on port 3000
+```
+
+**MongoDB**: 
+```bash
+docker run -d -p 27017:27017 --name mongo mongo:8
+```
+
+### Local Development (With Docker)
+
+```bash
+# Build container
+docker compose build
+
+# Test locally
+docker compose up -d
+```
 
 ## Project Structure
 
 ```
 cpak/
-├── backend/          # Fastify REST API
+├── backend/              # Fastify REST API
 │   ├── src/
-│   │   ├── api/      # Routes, middleware
-│   │   ├── models/   # Mongoose schemas
-│   │   ├── services/ # Business logic, adapters
-│   │   └── utils/    # Config, logging, DB
-│   ├── Dockerfile
+│   │   ├── api/          # Routes, middleware, server
+│   │   ├── models/       # Mongoose schemas
+│   │   ├── services/     # Business logic, sync adapters
+│   │   └── utils/        # Config, logging, DB, crypto
 │   └── package.json
-├── frontend/         # Next.js static frontend
-│   ├── app/          # Pages (setup, steam, xbox, playstation)
-│   ├── components/   # Reusable components
-│   ├── services/     # API client, config loader
-│   ├── public/       # Static assets, runtime config
+├── frontend/             # Next.js standalone frontend
+│   ├── app/              # Pages (setup, steam, xbox, playstation, settings)
+│   ├── components/       # Reusable UI components
+│   ├── services/         # API client, config loader
 │   └── package.json
-├── ops/              # Infrastructure
-│   └── Caddyfile     # Reverse proxy config
-└── docker-compose.yml
+├── config/
+│   ├── caddy/            # Caddyfile for reverse proxy
+│   └── supervisord/      # Process management config
+├── scripts/
+│   └── docker-entrypoint.sh  # Container startup orchestration
+├── Dockerfile                # Multi-stage unified container build
+└── docker-compose.yml        # Development: separate services
 ```
 
 ## API Endpoints
 
 ### System
-- `GET /health` - Health check
-- `GET /version` - API version
+- `GET /api/health` - Health check
+- `GET /api/version` - API version
 
 ### Profiles
 - `GET /api/profiles` - List all profiles
@@ -180,91 +250,34 @@ cpak/
 - `GET /api/games` - List games (supports `?platform=steam&profileId=&onlyCompleted=true&limit=50&offset=0`)
 - `GET /api/achievements` - List achievements (supports `?gameId=&profileId=`)
 
-### Settings
-- `GET /api/settings` - Get global settings
-- `PUT /api/settings` - Update global settings (scheduler, API keys)
+### Settings (UI Configuration)
+- `GET /api/settings` - Get all settings (secrets masked)
+- `GET /api/settings/:key` - Get specific setting
+- `PUT /api/settings/:key` - Update setting (auto-encrypts secrets)
+- `DELETE /api/settings/:key` - Delete setting
+
+**Setting Categories**:
+- `image_provider` - Image providers like SteamGridDB
+- `scheduler` - Automatic sync configuration
+- `sync` - Performance and concurrency settings
 
 ### Data Management
+- `POST /api/backup` - Start async backup (returns jobId)
+- `GET /api/backup/status` - Get backup/restore status
+- `GET /api/backup/download/:filename` - Download backup file
+- `POST /api/backup/restore` - Start async restore from uploaded file
+- `DELETE /api/backup/cancel/:jobId` - Cancel active backup
+- `DELETE /api/backup/restore/cancel/:jobId` - Cancel active restore
 - `GET /api/export` - Export all data as JSON
-- `POST /api/import` - Import data from JSON backup
-
-## Implementation Status
-
-### ✅ US1: First-Time Setup & Initial Sync (MVP - P1)
-- ✅ Setup wizard for Steam/Xbox/PlayStation credentials
-- ✅ Initial sync of games and achievements
-- ✅ Platform pages with 100% completion filter default
-- ✅ Profile privacy warnings and validation
-- ✅ Error handling and progress feedback
-
-### ✅ US2: Multi-Profile Management & Scheduling (P2)
-- ✅ Multiple profiles per platform
-- ✅ Daily automatic sync scheduler (configurable via UI)
-- ✅ Manual sync per profile
-- ✅ Rate limiting and concurrency control
-- ✅ Sync run history tracking
-
-### ✅ US3: Game Images & Themed Views (P3)
-- ✅ SteamGridDB integration for game artwork
-- ✅ Steam CDN fallback for grid images
-- ✅ Platform-themed UI colors (Steam/Xbox/PlayStation)
-- ✅ Responsive grid layouts (mobile-first)
-- ✅ Achievement icon downloads with progress tracking
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `API_PORT` | Backend port | `8080` | No |
-| `API_BASE_PATH` | API prefix | `/api` | No |
-| `MONGO_URI` | MongoDB connection | `mongodb://mongo:27017` | Yes |
-| `MONGO_DB` | Database name | `cpak` | Yes |
-| `ALLOWED_ORIGINS` | CORS origins | `http://localhost:8000` | Yes |
-| `STEAM_API_KEY` | Steam Web API key | - | For Steam sync |
-| `STEAMGRID_API_KEY` | SteamGridDB API key | - | For enhanced images |
-| `SCHEDULER_ENABLED` | Enable auto-sync | `false` | No |
-| `SCHEDULER_CRON` | Sync schedule | `0 3 * * *` | No |
-| `ICON_DOWNLOAD_CONCURRENCY` | Concurrent icon downloads | `5` | No |
-| `IMAGES_DIR` | Image storage path | `/app/data/images` | No |
-
-### Obtaining API Keys
-
-**Steam API Key**:
-1. Visit [https://steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey)
-2. Login with your Steam account
-3. Enter domain name (can be `localhost` for development)
-4. Copy the generated key
-
-**Steam ID**:
-1. Visit [https://steamid.io/](https://steamid.io/)
-2. Enter your Steam profile URL
-3. Copy your Steam ID 64 (17-digit number)
-
-**SteamGridDB API Key** (Optional):
-1. Visit [https://www.steamgriddb.com/](https://www.steamgriddb.com/)
-2. Create an account and login
-3. Go to Preferences → API
-4. Generate a new API key
-
-**Profile Privacy**:
-Your Steam profile must be set to **Public** for syncing to work:
-1. Visit [Privacy Settings](https://steamcommunity.com/my/edit/settings)
-2. Set "My profile" to Public
-3. Set "Game details" to Public
+- `POST /api/import` - Import data from JSON
 
 ## Contributing
 
-1. Follow the speckit workflow (see `.specify/scripts/`)
-2. Update tasks in `specs/001-cpak/tasks.md` as you go
-3. Ensure all tests pass before submitting
+1. Follow the speckit workflow (see `https://github.com/github/spec-kit`)
+2. Update tasks as you go
+3. Ensure all build/tests pass before submitting
 4. Follow constitution principles (see `.specify/memory/constitution.md`)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-For issues or questions, see the specification in `specs/001-cpak/spec.md`.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.

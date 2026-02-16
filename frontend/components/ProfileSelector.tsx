@@ -14,15 +14,18 @@ interface ProfileSelectorProps {
   platform: 'steam' | 'xbox' | 'playstation';
   selectedProfileId?: string;
   onSelectProfile: (profileId: string) => void;
+  onError?: (error: string) => void;
 }
 
 export default function ProfileSelector({
   platform,
   selectedProfileId,
   onSelectProfile,
+  onError,
 }: ProfileSelectorProps) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
 
   useEffect(() => {
     loadProfiles();
@@ -30,6 +33,7 @@ export default function ProfileSelector({
 
   const loadProfiles = async () => {
     setLoading(true);
+    setError('');
     try {
       const allProfiles = await apiClient.get<Profile[]>('/profiles');
       const platformProfiles = allProfiles.filter((p) => p.platform === platform);
@@ -41,6 +45,11 @@ export default function ProfileSelector({
       }
     } catch (error) {
       console.error('Failed to load profiles:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load profiles';
+      setError(errorMessage);
+      if (onError) {
+        onError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -48,6 +57,10 @@ export default function ProfileSelector({
 
   if (loading) {
     return <div className="text-gray-400 text-sm">Loading profiles...</div>;
+  }
+
+  if (error) {
+    return null; // Let parent handle error display
   }
 
   if (profiles.length === 0) {
