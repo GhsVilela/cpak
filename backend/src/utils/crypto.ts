@@ -26,8 +26,12 @@ function getEncryptionKey(): Buffer | null {
   const envKey = process.env.ENCRYPTION_KEY;
   
   if (envKey) {
-    // Derive key from environment variable
-    return crypto.scryptSync(envKey, 'cpak-salt', KEY_LENGTH);
+    // Derive a unique salt from the encryption key itself
+    // This ensures each deployment has a unique salt without additional storage
+    const salt = crypto.createHash('sha256').update(envKey).digest();
+    
+    // Use scrypt to derive a strong encryption key from the password + salt
+    return crypto.scryptSync(envKey, salt, KEY_LENGTH);
   }
   
   // No encryption key set - use plain text storage
