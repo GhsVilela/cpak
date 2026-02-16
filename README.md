@@ -1,7 +1,7 @@
 # cpak - Cross Platform Achievement Keeper
 
-[![Build](https://img.shields.io/github/actions/workflow/status/ghsvilela/cpak/build.yml?branch=main&label=build)](https://github.com/ghsvilela/cpak/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/actions/workflow/status/ghsvilela/cpak/release.yml?label=release)](https://github.com/ghsvilela/cpak/actions/workflows/release.yml)
+[![Build](https://github.com/ghsvilela/cpak/actions/workflows/build.yml/badge.svg)](https://github.com/ghsvilela/cpak/actions/workflows/build.yml)
+[![Release](https://github.com/ghsvilela/cpak/actions/workflows/release.yml/badge.svg)](https://github.com/ghsvilela/cpak/actions/workflows/release.yml)
 [![Docker Hub](https://img.shields.io/docker/v/ghsvilela/cpak?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/ghsvilela/cpak)
 [![GitHub Container Registry](https://img.shields.io/badge/ghcr.io-cpak-blue?logo=github)](https://ghcr.io/ghsvilela/cpak)
 [![Docker Image Size](https://img.shields.io/docker/image-size/ghsvilela/cpak/latest?label=image%20size)](https://hub.docker.com/r/ghsvilela/cpak)
