@@ -103,7 +103,7 @@ A user wants to configure application settings (API keys, sync schedules, direct
 - **FR-010**: System MUST handle database schema migrations automatically during version upgrades
 - **FR-011**: System MUST validate that data volumes are properly mounted and writable before accepting user requests
 - **FR-012**: Settings configured via UI MUST take precedence over environment variables when both are present (excluding essential deployment-time settings: database connection, encryption key, volume paths)
-- **FR-013**: System MUST organize data within single volume mode using clear subdirectories (e.g., /data/db for database, /data/images for application files)
+- **FR-013**: System MUST organize data within single volume mode using clear subdirectories (e.g., /app/data/db for database, /app/data/images for application files)
 
 ### Key Entities
 

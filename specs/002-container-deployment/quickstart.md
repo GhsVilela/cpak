@@ -96,7 +96,7 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     volumes:
       # Only images volume needed (database is external)
-      - cpak_images:/data/images
+      - cpak_images:/app/data/images
     ports:
       - "8000:80"
     restart: unless-stopped
@@ -127,7 +127,7 @@ services:
       - MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/cpak?retryWrites=true&w=majority
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     volumes:
-      - cpak_images:/data/images
+      - cpak_images:/app/data/images
     ports:
       - "8000:80"
 
@@ -149,9 +149,9 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     volumes:
       # Database on fast SSD
-      - cpak_db:/data/db
+      - cpak_db:/app/data/db
       # Images on slower bulk storage
-      - cpak_images:/data/images
+      - cpak_images:/app/data/images
     ports:
       - "8000:80"
     restart: unless-stopped
@@ -261,7 +261,7 @@ docker compose start
 **External Database Mode** (images only):
 ```bash
 # Backup images volume
-docker run --rm -v cpak_images:/data/images -v $(pwd):/backup ubuntu tar czf /backup/cpak-images-$(date +%Y%m%d).tar.gz /data/images
+docker run --rm -v cpak_images:/app/data/images -v $(pwd):/backup ubuntu tar czf /backup/cpak-images-$(date +%Y%m%d).tar.gz /app/data/images
 
 # Backup MongoDB separately using mongodump
 docker exec cpak-mongo mongodump --out /tmp/backup
@@ -337,7 +337,7 @@ docker compose logs cpak
 docker exec cpak ps aux | grep mongod
 
 # Check database directory permissions
-docker exec cpak ls -la /data/db
+docker exec cpak ls -la /app/data/db
 ```
 
 **External mode**:

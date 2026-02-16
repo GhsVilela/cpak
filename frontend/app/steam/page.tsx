@@ -58,6 +58,10 @@ function SteamPageContent() {
     router.push(`/steam?profileId=${profileId}`, { scroll: false });
   };
 
+  const handleProfileError = (errorMessage: string) => {
+    setError(errorMessage);
+  };
+
   const handleItemsPerPageChange = async (newItemsPerPage: number) => {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1);
@@ -107,6 +111,7 @@ function SteamPageContent() {
             platform="steam"
             selectedProfileId={selectedProfileId}
             onSelectProfile={handleProfileChange}
+            onError={handleProfileError}
           />
         </div>
         <div className="flex items-center gap-4 flex-wrap">

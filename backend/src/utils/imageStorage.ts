@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { logger } from './logger.js';
 
-const IMAGES_BASE_DIR = process.env.IMAGES_DIR || '/data/images';
+const IMAGES_BASE_DIR = process.env.IMAGES_DIR || '/app/data/images';
 
 export class ImageStorage {
   /**

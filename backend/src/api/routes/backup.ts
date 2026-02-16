@@ -13,8 +13,8 @@ import { createReadStream, createWriteStream } from 'fs';
 import { Extract } from 'unzipper';
 import { readdir } from 'fs/promises';
 
-const IMAGES_DIR = process.env.IMAGES_DIR || '/data/images';
-const BACKUP_TEMP_DIR = process.env.BACKUP_DIR || '/data/backups';
+const IMAGES_DIR = process.env.IMAGES_DIR || '/app/data/images';
+const BACKUP_TEMP_DIR = process.env.BACKUP_DIR || '/app/data/backups';
 
 // In-memory progress tracking
 interface BackupProgress {
