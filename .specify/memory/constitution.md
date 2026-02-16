@@ -74,9 +74,9 @@ The unified container MUST support flexible volume configurations: single unifie
 ### IV. Security with Encrypted Settings
 Traffic MUST be served over HTTP internally within the container with external HTTPS termination handled by user's infrastructure or optional TLS configuration. CORS MUST be explicitly configured to restrict origins to known hosts. Secrets MUST NOT be hardcoded or passed via environment variables (except deployment-time `ENCRYPTION_KEY`).
 
-Application secrets (API keys, OAuth tokens) MUST be stored encrypted in the MongoDB `settings` collection using AES-256-GCM encryption. The encryption key MUST be provided via the `ENCRYPTION_KEY` environment variable at deployment time; if not provided, the system MUST use a default key with explicit warnings about reduced security. Encryption keys MUST NOT be configurable via the web UI.
+Application secrets (API keys, OAuth tokens) MUST be stored in the MongoDB `settings` collection. If `ENCRYPTION_KEY` environment variable is provided at deployment time, secrets MUST be encrypted using AES-256-GCM encryption. If `ENCRYPTION_KEY` is not provided, secrets MUST be stored as plain text in the database. Encryption keys MUST NOT be configurable via the web UI.
 
-**Rationale**: Database-backed encrypted settings provide secure secret storage without requiring external secret management systems. Deployment-time encryption key ensures secrets are protected at rest while maintaining self-hosting simplicity.
+**Rationale**: Database-backed settings provide secret storage without requiring external secret management systems. Optional encryption via deployment-time key allows users to choose between simplicity (plain text) and security (encrypted) based on their threat model and deployment environment.
 
 ### V. Observability & Operations
 The backend MUST log structured events to stdout/stderr (JSON or key-value). Health and readiness endpoints MUST be present. Basic request logging SHOULD be enabled at the reverse proxy. Metrics MAY be exposed (e.g., `/metrics`) but are not required.
@@ -135,7 +135,7 @@ The container image MUST be built via multi-stage Docker build with target size 
 
 Environment variables are LIMITED to deployment infrastructure configuration:
 
-- `ENCRYPTION_KEY` (optional): AES-256 encryption key for settings database secrets. If not provided, system uses default key with security warnings. Format: 64-character hex string.
+- `ENCRYPTION_KEY` (optional): AES-256 encryption key for settings database secrets. If provided, credentials are encrypted. If not provided, credentials are stored as plain text. Format: 64-character hex string. Generate with: `openssl rand -base64 32`
 - `EXTERNAL_DB` (optional): Boolean flag (`true`/`false`, default `false`). When `true`, disables bundled MongoDB and requires `MONGO_URI`.
 - `MONGO_URI` (conditional): MongoDB connection string, required when `EXTERNAL_DB=true`. Default (bundled mode): `mongodb://localhost:27017/cpak`.
 
@@ -323,10 +323,10 @@ volumes:
 
 ### Privacy & Security
 - MUST avoid transmitting user data to third parties beyond platform APIs and image providers explicitly configured.
-- MUST store credentials encrypted using AES-256-GCM with the deployment-time `ENCRYPTION_KEY`.
+- If `ENCRYPTION_KEY` is set: MUST store credentials encrypted using AES-256-GCM. If not set: credentials stored as plain text.
 - MUST NOT log secrets (API keys, tokens, encryption keys) in application logs.
 - MUST use HTTPS for all external API calls to platform providers.
-- SHOULD recommend users set strong `ENCRYPTION_KEY` in deployment documentation.
+- SHOULD recommend users set `ENCRYPTION_KEY` for production deployments in documentation.
 
 ## Governance
 
