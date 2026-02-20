@@ -13,6 +13,7 @@ export interface IBackupMetadata extends Document {
     profiles?: number;
     games?: number;
     achievements?: number;
+    settings?: number;
     images?: number;
   };
 }
@@ -52,6 +53,7 @@ const backupMetadataSchema = new Schema<IBackupMetadata>(
       profiles: Number,
       games: Number,
       achievements: Number,
+      settings: Number,
       images: Number
     }
   },

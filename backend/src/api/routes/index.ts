@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { systemRoutes } from './system.js';
 import { getProfiles, getProfileById, createProfile, updateProfile, deleteProfile } from './profiles.js';
-import { triggerSync } from './sync.js';
+import { triggerSync, getSyncStatus, cancelSync } from './sync.js';
 import { getGames, getGameById } from './games.js';
 import { getAchievements } from './achievements.js';
 import { registerIconRoutes } from './icons.js';
@@ -9,10 +9,14 @@ import { syncRunsRoutes } from './syncRuns.js';
 import { getAllSettings, getSetting, updateSetting, deleteSetting } from './settings.js';
 import { exportData, importData } from './exportImport.js';
 import { startBackup, getBackupProgress, downloadBackup, startRestore, getRestoreProgress, getStatus, cancelBackup, cancelRestore } from './backup.js';
+import progressRoutes from './progress.js';
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Register system routes at root
   await fastify.register(systemRoutes);
+
+  // Progress SSE routes (Server-Sent Events for real-time updates)
+  await fastify.register(progressRoutes);
 
   // Profiles API
   fastify.get('/profiles', getProfiles);
@@ -22,7 +26,9 @@ export async function registerRoutes(fastify: FastifyInstance) {
   fastify.delete('/profiles/:id', deleteProfile);
 
   // Sync API
+  fastify.get('/sync/status', getSyncStatus);
   fastify.post('/sync/:platform', triggerSync);
+  fastify.delete('/sync/cancel/:operationId', cancelSync);
   
   // Sync Runs API
   await fastify.register(syncRunsRoutes, { prefix: '/sync' });

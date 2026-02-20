@@ -1,7 +1,10 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { Profile, IProfile } from '../../models/profile.js';
+import { SyncOperation } from '../../models/syncOperation.js';
+import { SyncRun } from '../../models/syncRun.js';
 import { syncService } from '../../services/syncService.js';
 import { logger } from '../../utils/logger.js';
+import { markSyncAsCancelled } from '../../services/syncCancellation.js';
 
 interface SyncParams {
   platform: 'steam' | 'xbox' | 'playstation';
@@ -33,8 +36,9 @@ export async function triggerSync(
       }
 
       logger.info({ platform, profileId: profile.profileId, _id: profileId }, 'Starting sync for profile');
-      syncService.syncProfile(profile).catch((error) => {
-        logger.error({ error, platform, profileId: profile.profileId }, 'Sync failed');
+      // Fire and forget - errors are already logged in syncService
+      syncService.syncProfile(profile).catch(() => {
+        // Error already logged with full details in syncService
       });
 
       return reply.send({ message: 'Sync started', platform, profileId: profile.profileId });
@@ -48,8 +52,9 @@ export async function triggerSync(
 
     logger.info({ platform, count: profiles.length }, 'Starting sync for all profiles');
     profiles.forEach((profile) => {
-      syncService.syncProfile(profile).catch((error) => {
-        logger.error({ error, platform, profileId: profile._id }, 'Sync failed');
+      // Fire and forget - errors are already logged in syncService
+      syncService.syncProfile(profile).catch(() => {
+        // Error already logged with full details in syncService
       });
     });
 
@@ -57,5 +62,150 @@ export async function triggerSync(
   } catch (error) {
     logger.error({ error }, 'Failed to trigger sync');
     reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * Get sync status for a profile
+ */
+export async function getSyncStatus(
+  req: FastifyRequest<{ Querystring: { profileId?: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const { profileId } = req.query;
+
+    let result: any = {};
+
+    // If profileId specified, get status for that profile
+    if (profileId) {
+      // Find active sync operation
+      const activeSyncOp = await SyncOperation.findOne({
+        profileId,
+        status: { $in: ['pending', 'running'] }
+      }).sort({ startedAt: -1 });
+
+      if (activeSyncOp) {
+        // Calculate progress based on sync phase
+        let progress = 0;
+        let message = 'Preparing sync...';
+
+        if (activeSyncOp.totalGames > 0) {
+          // Phase 1: Fetching achievements from Steam API (0-33% progress)
+          if (activeSyncOp.gamesCompleted < activeSyncOp.totalGames) {
+            const fetchProgress = Math.floor((activeSyncOp.gamesCompleted / activeSyncOp.totalGames) * 33);
+            progress = fetchProgress;
+            message = `Fetching achievements... (${activeSyncOp.gamesCompleted}/${activeSyncOp.totalGames})`;
+          }
+          // Phase 2: Downloading game images (33-50% progress)
+          else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted === 0) {
+            progress = 33;
+            message = `Downloading game images... (${activeSyncOp.gamesCompleted} games)`;
+          }
+          // Phase 3: Downloading achievement icons (50-100% progress)
+          else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted < activeSyncOp.iconDownloadsPending) {
+            const iconProgress = Math.floor((activeSyncOp.iconDownloadsCompleted / activeSyncOp.iconDownloadsPending) * 67);
+            progress = 33 + iconProgress;
+            message = `Downloading achievement icons... (${activeSyncOp.iconDownloadsCompleted}/${activeSyncOp.iconDownloadsPending})`;
+          }
+          // Phase 4: Finalizing
+          else {
+            progress = 100;
+            message = 'Finalizing sync...';
+          }
+        }
+
+        result.current = {
+          operationId: activeSyncOp._id.toString(),
+          status: activeSyncOp.status,
+          progress,
+          message
+        };
+      }
+
+      // Get last completed sync run
+      const lastSync = await SyncRun.findOne({
+        profileId,
+        status: { $in: ['success', 'failed'] }
+      }).sort({ completedAt: -1 });
+
+      if (lastSync) {
+        result.lastCompleted = {
+          completedAt: lastSync.completedAt.toISOString(),
+          status: lastSync.status,
+          error: lastSync.error
+        };
+      }
+    } else {
+      // Get status for all profiles
+      const allActiveSyncs = await SyncOperation.find({
+        status: { $in: ['pending', 'running'] }
+      }).populate('profileId', 'platform displayName');
+
+      result.activeSyncs = allActiveSyncs.map(op => ({
+        operationId: op._id.toString(),
+        profileId: op.profileId,
+        platform: op.platform,
+        status: op.status,
+        startedAt: op.startedAt.toISOString()
+      }));
+    }
+
+    reply.send(result);
+  } catch (error) {
+    logger.error({ error }, 'Failed to get sync status');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * Cancel sync operation
+ */
+export async function cancelSync(
+  req: FastifyRequest<{ Params: { operationId: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const { operationId } = req.params;
+    
+    // Find the SyncOperation in MongoDB
+    const syncOp = await SyncOperation.findById(operationId);
+    
+    if (!syncOp) {
+      return reply.status(404).send({ error: 'Sync operation not found' });
+    }
+
+    if (syncOp.status === 'completed' || syncOp.status === 'failed' || syncOp.status === 'cancelled') {
+      return reply.status(400).send({ error: 'Sync operation already finished' });
+    }
+
+    // Mark operation as cancelled
+    markSyncAsCancelled(operationId);
+    
+    // Update SyncOperation status and record error
+    syncOp.status = 'cancelled';
+    syncOp.completedAt = new Date();
+    syncOp.syncErrors.push({
+      gameId: 'N/A',
+      message: 'Sync cancelled by user',
+      timestamp: new Date(),
+    });
+    await syncOp.save();
+
+    // Record cancelled sync run
+    await SyncRun.create({
+      profileId: syncOp.profileId,
+      platform: syncOp.platform,
+      startedAt: syncOp.startedAt,
+      completedAt: new Date(),
+      status: 'failed',
+      error: 'Cancelled by user',
+    });
+
+    logger.info({ operationId, profileId: syncOp.profileId }, '[Sync] Operation cancelled by user');
+    reply.send({ message: 'Sync cancelled' });
+  } catch (error) {
+    logger.error({ error }, '[Sync] Failed to cancel operation');
+    reply.status(500).send({ error: 'Failed to cancel sync operation' });
   }
 }

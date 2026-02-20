@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
+import Toast from '../../components/Toast';
 
 interface Game {
   _id: string;
@@ -28,6 +29,20 @@ interface GamesResponse {
   };
 }
 
+interface SyncStatus {
+  current?: {
+    operationId: string;
+    status: string;
+    progress: number;
+    message: string;
+  };
+  lastCompleted?: {
+    completedAt: string;
+    status: 'success' | 'failed';
+    error?: string;
+  };
+}
+
 function SteamPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -41,20 +56,46 @@ function SteamPageContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(100);
   const [reloadTrigger, setReloadTrigger] = useState(0);
-  // Initialize from URL immediately, not in useEffect
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(
     searchParams.get('profileId') || undefined
   );
+  
+  // Sync status and polling
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncPollInterval, setSyncPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const lastSyncNotified = useRef<string | null>(null);
+  
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+    setToast({ message, type });
+  };
 
   useEffect(() => {
     if (selectedProfileId) {
       loadGames();
+      loadSyncStatus();
     }
   }, [onlyCompleted, selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger]);
 
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (syncPollInterval) {
+        clearInterval(syncPollInterval);
+      }
+    };
+  }, [syncPollInterval]);
+
   const handleProfileChange = (profileId: string) => {
+    // Stop any existing polling
+    if (syncPollInterval) {
+      clearInterval(syncPollInterval);
+      setSyncPollInterval(null);
+    }
+    
     setSelectedProfileId(profileId);
-    // Update URL to include profileId
     router.push(`/steam?profileId=${profileId}`, { scroll: false });
   };
 
@@ -102,18 +143,175 @@ function SteamPageContent() {
     }
   };
 
+  // Load sync status from server
+  const loadSyncStatus = async () => {
+    if (!selectedProfileId) return null;
+    
+    try {
+      const response = await fetch(`/api/sync/status?profileId=${selectedProfileId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setSyncStatus(data);
+        
+        // If there's an active sync, start polling
+        if (data.current && !syncPollInterval) {
+          startSyncPolling();
+        }
+        
+        return data;
+      }
+    } catch (err) {
+      console.error('Failed to load sync status:', err);
+    }
+    return null;
+  };
+
+  // Start polling for sync status
+  const startSyncPolling = () => {
+    // Clear existing interval if any
+    if (syncPollInterval) {
+      clearInterval(syncPollInterval);
+    }
+
+    const interval = setInterval(async () => {
+      const status = await loadSyncStatus();
+      
+      // Stop polling when sync completes or fails
+      if (!status?.current) {
+        clearInterval(interval);
+        setSyncPollInterval(null);
+        
+        // Only show toast if this is a new completed sync
+        if (status?.lastCompleted?.completedAt) {
+          const completedAt = status.lastCompleted.completedAt;
+          if (completedAt !== lastSyncNotified.current) {
+            if (status.lastCompleted.status === 'success') {
+              showToast('Sync completed successfully!', 'success');
+            } else {
+              showToast(`Sync failed: ${status.lastCompleted.error || 'Unknown error'}`, 'error');
+            }
+            lastSyncNotified.current = completedAt;
+            // Reload games after sync completes
+            setReloadTrigger((prev) => prev + 1);
+          }
+        }
+      }
+    }, 1000); // Poll every 1 second
+    
+    setSyncPollInterval(interval);
+  };
+
+  // Format relative time
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  // Cancel sync
+  const cancelSync = async () => {
+    if (!syncStatus?.current?.operationId) return;
+    
+    try {
+      await apiClient.delete(`/sync/cancel/${syncStatus.current.operationId}`);
+      showToast('Sync cancelled', 'success');
+      // Stop polling
+      if (syncPollInterval) {
+        clearInterval(syncPollInterval);
+        setSyncPollInterval(null);
+      }
+      // Reload status
+      await loadSyncStatus();
+    } catch (err) {
+      showToast('Failed to cancel sync', 'error');
+    }
+  };
+
+  // Trigger sync
+  const triggerSync = async () => {
+    if (!selectedProfileId) return;
+    
+    try {
+      await apiClient.post(`/sync/steam?profileId=${selectedProfileId}`, {});
+      showToast('Sync started', 'success');
+      // Start polling for progress
+      await loadSyncStatus();
+    } catch (err) {
+      showToast('Failed to start sync', 'error');
+    }
+  };
+
   return (
     <div>
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-3xl font-bold text-[var(--steam-accent)]">Steam Games</h1>
-          <ProfileSelector
-            platform="steam"
-            selectedProfileId={selectedProfileId}
-            onSelectProfile={handleProfileChange}
-            onError={handleProfileError}
-          />
+          <div className="flex items-center gap-4">
+            <ProfileSelector
+              platform="steam"
+              selectedProfileId={selectedProfileId}
+              onSelectProfile={handleProfileChange}
+              onError={handleProfileError}
+            />
+            {selectedProfileId && !syncStatus?.current && (
+              <button
+                onClick={triggerSync}
+                className="px-4 py-2 bg-[var(--steam-accent)] hover:bg-[#1a7fc1] rounded font-medium text-sm transition whitespace-nowrap"
+              >
+                Sync Now
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Sync Status Banner */}
+        {selectedProfileId && syncStatus?.current && (
+          <div className="mb-4 p-3 bg-blue-900/20 border border-blue-500/30 rounded">
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span className="text-blue-400 font-medium">{syncStatus.current.message}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-blue-400 font-bold">{syncStatus.current.progress}%</span>
+                <button
+                  onClick={cancelSync}
+                  className="text-sm px-3 py-1.5 bg-red-600/20 hover:bg-red-600/40 border border-red-500/50 rounded text-red-400 transition font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+            <div className="w-full bg-gray-700 rounded-full h-2">
+              <div 
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${syncStatus.current.progress}%` }}
+              ></div>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Sync in progress. This page will automatically update when complete.
+            </p>
+          </div>
+        )}
+
+        {/* Last Sync Info */}
+        {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
+          <div className="mb-4 text-sm text-gray-400">
+            Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
+            {syncStatus.lastCompleted.status === 'success' ? (
+              <span className="text-green-400 ml-2">✓</span>
+            ) : (
+              <span className="text-red-400 ml-2">✗</span>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center gap-4 flex-wrap">
           <label className="flex items-center gap-2">
             <input
@@ -223,6 +421,15 @@ function SteamPageContent() {
           games={games} 
           loading={loading}
           emptyMessage={onlyCompleted ? 'No 100% completed games. Try disabling the filter.' : 'No games found.'}
+        />
+      )}
+
+      {/* Toast notifications */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
         />
       )}
     </div>
