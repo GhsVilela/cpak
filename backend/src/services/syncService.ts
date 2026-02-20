@@ -2,21 +2,48 @@ import { Profile, IProfile } from '../models/profile.js';
 import { Game } from '../models/game.js';
 import { Achievement } from '../models/achievement.js';
 import { SyncRun } from '../models/syncRun.js';
+import { SyncOperation } from '../models/syncOperation.js';
 import { createSteamAdapter } from './adapters/steam.js';
 import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
 import { logger } from '../utils/logger.js';
 import { imageStorage } from '../utils/imageStorage.js';
 import pLimit from 'p-limit';
 import { configService } from './configService.js';
+import { performanceMonitor } from './performanceMonitor.js';
+import { markSyncAsCompleted } from './syncCancellation.js';
 
 class SyncService {
   async syncProfile(profile: IProfile): Promise<void> {
     const startTime = new Date();
     logger.info({ platform: profile.platform, profileId: profile.profileId }, 'Starting sync');
 
+    // T030: Create SyncOperation record at sync start
+    const syncOperation = await SyncOperation.create({
+      profileId: profile._id,
+      platform: profile.platform as 'steam' | 'xbox' | 'playstation',
+      status: 'running',
+      startedAt: startTime,
+      totalGames: 0,
+      gamesCompleted: 0,
+      gamesFailed: 0,
+      totalAchievements: 0,
+      achievementsSynced: 0,
+      iconDownloadsPending: 0,
+      iconDownloadsCompleted: 0,
+      iconDownloadsFailed: 0,
+      errors: [],
+      adaptiveParams: {
+        batchSize: parseInt(await configService.getSetting('sync_batch_size') || '10', 10),
+        concurrency: parseInt(await configService.getSetting('sync_image_concurrency') || '5', 10),
+        delay: 250, // Initial throttle delay
+      },
+    });
+
+    logger.info({ syncOperationId: syncOperation._id }, 'SyncOperation created');
+
     try {
       if (profile.platform === 'steam') {
-        await this.syncSteam(profile);
+        await this.syncSteam(profile, syncOperation);
       } else if (profile.platform === 'xbox') {
         logger.warn({ profileId: profile.profileId }, 'Xbox sync not yet implemented');
         throw new Error('Xbox sync not implemented');
@@ -24,6 +51,11 @@ class SyncService {
         logger.warn({ profileId: profile.profileId }, 'PlayStation sync not yet implemented');
         throw new Error('PlayStation sync not implemented');
       }
+
+      // T033: Mark SyncOperation as completed with final statistics
+      syncOperation.status = 'completed';
+      syncOperation.completedAt = new Date();
+      await syncOperation.save();
 
       // Record successful sync
       await SyncRun.create({
@@ -34,7 +66,14 @@ class SyncService {
         status: 'success',
       });
 
-      logger.info({ platform: profile.platform, profileId: profile.profileId }, 'Sync completed');
+      logger.info({ 
+        platform: profile.platform, 
+        profileId: profile.profileId,
+        syncOperationId: syncOperation._id,
+      }, 'Sync completed');
+      
+      // Clean up cancellation tracking
+      markSyncAsCompleted(syncOperation._id.toString());
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
@@ -42,8 +81,14 @@ class SyncService {
         error: errorMessage,
         stack: errorStack,
         platform: profile.platform, 
-        profileId: profile.profileId 
+        profileId: profile.profileId,
+        syncOperationId: syncOperation._id,
       }, 'Sync failed');
+
+      // T033: Mark SyncOperation as failed
+      syncOperation.status = 'failed';
+      syncOperation.completedAt = new Date();
+      await syncOperation.save();
 
       // Record failed sync
       await SyncRun.create({
@@ -55,11 +100,14 @@ class SyncService {
         error: errorMessage,
       });
 
+      // Clean up cancellation tracking
+      markSyncAsCompleted(syncOperation._id.toString());
+
       throw error;
     }
   }
 
-  private async syncSteam(profile: IProfile): Promise<void> {
+  private async syncSteam(profile: IProfile, syncOperation: any): Promise<void> {
     // Get decrypted credentials
     const credentials = profile.getDecryptedCredentials();
     
@@ -69,7 +117,10 @@ class SyncService {
     
     // Fetch and update display name from Steam API (source of truth)
     try {
-      const playerSummary = await steamAdapter.getPlayerSummary(profile.profileId);
+      const playerSummary = await performanceMonitor.measureApiCall(
+        'steam.getPlayerSummary',
+        async () => steamAdapter.getPlayerSummary(profile.profileId)
+      );
       if (playerSummary?.personaname && playerSummary.personaname !== profile.displayName) {
         profile.displayName = playerSummary.personaname;
         await Profile.findByIdAndUpdate(profile._id, { displayName: playerSummary.personaname });
@@ -79,7 +130,29 @@ class SyncService {
       logger.warn({ error, profileId: profile.profileId }, 'Failed to fetch Steam display name');
     }
 
-    const result = await steamAdapter.syncGamesAndAchievements(profile.profileId);
+    const result = await steamAdapter.syncGamesAndAchievements(profile.profileId, syncOperation);
+
+    // T031: Update SyncOperation with final counts
+    syncOperation.totalGames = result.games.length;
+    syncOperation.totalAchievements = result.achievements.length;
+    syncOperation.iconDownloadsPending = result.achievements.length * 2; // icon + iconGray
+    
+    // T032: Update adaptive parameters from steam adapter
+    if (result.adaptiveStats) {
+      syncOperation.adaptiveParams = {
+        batchSize: result.adaptiveStats.finalBatchSize,
+        concurrency: result.adaptiveStats.finalConcurrency,
+        delay: result.adaptiveStats.finalDelay,
+      };
+    }
+    await syncOperation.save();
+
+    logger.info({
+      syncOperationId: syncOperation._id,
+      totalGames: result.games.length,
+      totalAchievements: result.achievements.length,
+      adaptiveParams: syncOperation.adaptiveParams,
+    }, 'Sync data fetched, beginning database updates');
 
     // Check if SteamGridDB API key is configured
     const steamGridDBAdapter = await createSteamGridDBAdapter();
@@ -95,6 +168,7 @@ class SyncService {
 
     // Download game images in parallel batches
     const gameImagePromises: Promise<{ appId: number; imagePath?: string }>[] = [];
+    let gameImagesCompleted = 0;
 
     for (const game of result.games) {
       const promise = limit(async () => {
@@ -209,37 +283,65 @@ class SyncService {
     }
 
     // Wait for ALL game image downloads to complete
+    logger.info({ total: gameImagePromises.length, syncOperationId: syncOperation._id }, 'Starting game image downloads');
+    
     const gameImageResults = await Promise.all(gameImagePromises);
     const gameImageMap = new Map(gameImageResults.map((r) => [r.appId, r.imagePath]));
+    
+    logger.info({ 
+      total: gameImagePromises.length,
+      syncOperationId: syncOperation._id,
+    }, 'All game images downloaded');
 
-    // Upsert games with downloaded images
-    await Promise.all(
-      result.games.map((game) => {
-        const updateData: any = {
-          platform: 'steam',
-          title: game.name,
-          achievementsTotal: game.totalAchievements,
-          achievementsUnlocked: game.earnedAchievements,
-          completionPercent:
-            game.totalAchievements > 0
-              ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
-              : 0,
-          lastSyncedAt: new Date(),
-        };
+    // Upsert games with downloaded images (with performance monitoring)
+    await performanceMonitor.measureDbQuery(
+      'syncService.upsertGames',
+      async () => {
+        return Promise.all(
+          result.games.map((game) => {
+            const updateData: any = {
+              platform: 'steam',
+              title: game.name,
+              achievementsTotal: game.totalAchievements,
+              achievementsUnlocked: game.earnedAchievements,
+              completionPercent:
+                game.totalAchievements > 0
+                  ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
+                  : 0,
+              lastSyncedAt: new Date(),
+            };
 
-        // Only update imagePath if we successfully downloaded an image
-        const imagePath = gameImageMap.get(game.appId);
-        if (imagePath) {
-          updateData.imagePath = imagePath;
-        }
+            // Only update imagePath if we successfully downloaded an image
+            const imagePath = gameImageMap.get(game.appId);
+            if (imagePath) {
+              updateData.imagePath = imagePath;
+            }
 
-        return Game.findOneAndUpdate(
-          { profileId: profile._id, gameId: game.appId.toString() },
-          { $set: updateData },
-          { upsert: true, new: true }
+            return Game.findOneAndUpdate(
+              { profileId: profile._id, gameId: game.appId.toString() },
+              { $set: updateData },
+              { upsert: true, new: true }
+            ).catch((error) => {
+              // T034: Capture game-level errors
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              syncOperation.syncErrors.push({
+                gameId: game.appId.toString(),
+                message: `Failed to upsert game: ${errorMessage}`,
+                timestamp: new Date(),
+              });
+              syncOperation.gamesFailed++;
+              logger.error({ error, gameId: game.appId }, 'Failed to upsert game');
+              return null;
+            });
+          })
         );
-      })
+      }
     );
+
+    logger.info({
+      syncOperationId: syncOperation._id,
+      gamesProcessed: result.games.length,
+    }, 'Games upserted to database');
 
     // Group achievements by game and download icons in parallel
     const achievementsByGame = new Map<string, typeof result.achievements>();
@@ -326,73 +428,236 @@ class SyncService {
     }
 
     // Process all achievement icon downloads with progress logging
-    logger.info({ total: achievementIconPromises.length }, 'Starting achievement icon downloads');
+    logger.info({ total: achievementIconPromises.length, syncOperationId: syncOperation._id }, 'Starting achievement icon downloads');
     
     let completed = 0;
+    let failed = 0;
     const progressPromises = achievementIconPromises.map(async (promise) => {
-      const result = await promise;
-      completed++;
-      if (completed % 1000 === 0) {
-        logger.info({ completed, total: achievementIconPromises.length, progress: `${Math.round((completed / achievementIconPromises.length) * 100)}%` }, 'Achievement icon download progress');
+      try {
+        const result = await promise;
+        completed++;
+        
+        // T031: Update icon download progress
+        syncOperation.iconDownloadsCompleted++;
+        
+        if (completed % 1000 === 0) {
+          await syncOperation.save();
+          logger.info({ 
+            completed, 
+            total: achievementIconPromises.length, 
+            progress: `${Math.round((completed / achievementIconPromises.length) * 100)}%`,
+            syncOperationId: syncOperation._id,
+          }, 'Achievement icon download progress');
+        }
+        return result;
+      } catch (error) {
+        failed++;
+        syncOperation.iconDownloadsFailed++;
+        logger.warn({ error }, 'Achievement icon download failed');
+        throw error;
       }
-      return result;
     });
     
-    const achievementIconResults = await Promise.all(progressPromises);
+    const achievementIconResults = await Promise.all(progressPromises.map(p => p.catch(e => null)));
     const achievementIconMap = new Map(
-      achievementIconResults.map((r) => [`${r.appId}:${r.achievementId}`, { iconPath: r.iconPath, iconGrayPath: r.iconGrayPath }])
+      achievementIconResults
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .map((r) => [`${r.appId}:${r.achievementId}`, { iconPath: r.iconPath, iconGrayPath: r.iconGrayPath }])
     );
+
+    // Final save of icon download stats
+    await syncOperation.save();
 
     logger.info(
       { 
         totalAchievements: result.achievements.length,
         iconMapSize: achievementIconMap.size,
-        sampleIcons: Array.from(achievementIconMap.entries()).slice(0, 3)
+        iconsCompleted: completed,
+        iconsFailed: failed,
+        syncOperationId: syncOperation._id
       }, 
       'Achievement icon download completed'
     );
 
-    // Upsert achievements with downloaded icons
-    const achievementUpserts: Promise<any>[] = [];
-
-    for (const achievement of result.achievements) {
-      const game = await Game.findOne({
-        profileId: profile._id,
-        gameId: achievement.appId.toString(),
-      });
-      if (!game) continue;
-
-      const icons = achievementIconMap.get(`${achievement.appId}:${achievement.achievementId}`);
-
-      // Build update object, only including iconPath fields if they have values
-      const updateFields: any = {
-        platform: 'steam',
-        profileId: profile._id,
-        name: achievement.name,
-        description: achievement.description,
-        unlockedAt: achievement.unlocked ? achievement.unlockTime : undefined,
-      };
-
-      if (icons?.iconPath) {
-        updateFields.iconPath = icons.iconPath;
-      }
-
-      if (icons?.iconGrayPath) {
-        updateFields.iconGrayPath = icons.iconGrayPath;
-      }
-
-      achievementUpserts.push(
-        Achievement.findOneAndUpdate(
-          { gameId: game._id, achievementId: achievement.achievementId },
-          {
-            $set: updateFields,
-          },
-          { upsert: true, new: true }
-        )
+    // PERFORMANCE FIX: Pre-fetch all games into a Map to avoid 26k+ sequential queries
+    logger.info({ syncOperationId: syncOperation._id }, 'Pre-fetching all games for achievement upsert');
+    
+    let gameIdToMongoId: Map<string, any>;
+    try {
+      const allGames = await performanceMonitor.measureDbQuery(
+        'syncService.fetchAllGames',
+        async () => Game.find({ profileId: profile._id }).select('_id gameId').lean()
       );
+      
+      // Create gameId -> _id mapping
+      gameIdToMongoId = new Map<string, any>();
+      for (const game of allGames) {
+        gameIdToMongoId.set(game.gameId, game._id);
+      }
+      
+      logger.info({ 
+        gamesLoaded: allGames.length,
+        syncOperationId: syncOperation._id,
+      }, 'Games pre-fetched successfully');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error({ 
+        error: errorMessage,
+        syncOperationId: syncOperation._id,
+      }, 'Failed to pre-fetch games for achievement upsert');
+      
+      syncOperation.syncErrors.push({
+        gameId: 'prefetch',
+        message: `Failed to pre-fetch games: ${errorMessage}`,
+        timestamp: new Date(),
+      });
+      syncOperation.status = 'failed';
+      await syncOperation.save();
+      throw error;
     }
 
-    await Promise.all(achievementUpserts);
+    // Upsert achievements in batches using bulkWrite for better performance
+    logger.info({ 
+      totalAchievements: result.achievements.length,
+      syncOperationId: syncOperation._id,
+    }, 'Starting achievement upsert with batched operations');
+    
+    let achievementsUpserted = 0;
+    let achievementsSkipped = 0;
+    let achievementErrors = 0;
+    const batchSize = 500; // Process 500 achievements at a time (reduced for memory safety)
+    
+    try {
+      for (let i = 0; i < result.achievements.length; i += batchSize) {
+        const batch = result.achievements.slice(i, i + batchSize);
+        
+        // Build bulk write operations
+        const bulkOps: any[] = [];
+        
+        for (const achievement of batch) {
+          const gameMongoId = gameIdToMongoId.get(achievement.appId.toString());
+          
+          if (!gameMongoId) {
+            achievementsSkipped++;
+            logger.debug({ 
+              appId: achievement.appId, 
+              achievementId: achievement.achievementId 
+            }, 'Skipping achievement - game not found');
+            continue;
+          }
+
+          const icons = achievementIconMap.get(`${achievement.appId}:${achievement.achievementId}`);
+
+          // Build update object, only including iconPath fields if they have values
+          const updateFields: any = {
+            platform: 'steam',
+            profileId: profile._id,
+            name: achievement.name,
+            description: achievement.description,
+            unlockedAt: achievement.unlocked ? achievement.unlockTime : undefined,
+          };
+
+          if (icons?.iconPath) {
+            updateFields.iconPath = icons.iconPath;
+          }
+
+          if (icons?.iconGrayPath) {
+            updateFields.iconGrayPath = icons.iconGrayPath;
+          }
+
+          bulkOps.push({
+            updateOne: {
+              filter: { 
+                profileId: profile._id,
+                gameId: gameMongoId, 
+                achievementId: achievement.achievementId 
+              },
+              update: { $set: updateFields },
+              upsert: true,
+            },
+          });
+        }
+        
+        // Execute batch if we have operations
+        if (bulkOps.length > 0) {
+          try {
+            await performanceMonitor.measureDbQuery(
+              `syncService.bulkUpsertAchievements.batch${Math.floor(i / batchSize)}`,
+              async () => Achievement.bulkWrite(bulkOps, { ordered: false })
+            );
+            
+            achievementsUpserted += bulkOps.length;
+            
+            // T031: Update achievements synced count after each batch (but only save every 5 batches to reduce I/O)
+            syncOperation.achievementsSynced = achievementsUpserted;
+            if (Math.floor(i / batchSize) % 5 === 0 || i + batchSize >= result.achievements.length) {
+              await syncOperation.save();
+            }
+            
+            logger.info({
+              achievementsUpserted,
+              achievementsSkipped,
+              total: result.achievements.length,
+              progress: `${Math.round((achievementsUpserted / result.achievements.length) * 100)}%`,
+              syncOperationId: syncOperation._id,
+            }, 'Achievement upsert progress');
+          } catch (error) {
+            achievementErrors++;
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error({ 
+              error: errorMessage, 
+              batchStart: i,
+              batchSize: bulkOps.length,
+              syncOperationId: syncOperation._id,
+            }, 'Failed to upsert achievement batch');
+            
+            // T034: Track batch errors (avoid bloating syncOperation document)
+            if (syncOperation.syncErrors.length < 100) { // Limit error array size
+              syncOperation.syncErrors.push({
+                gameId: 'batch',
+                message: `Batch upsert failed at index ${i}: ${errorMessage}`,
+                timestamp: new Date(),
+              });
+            }
+          }
+        }
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error({ 
+        error: errorMessage,
+        achievementsUpserted,
+        achievementsSkipped,
+        achievementErrors,
+        syncOperationId: syncOperation._id,
+      }, 'Critical error during achievement upsert');
+      
+      syncOperation.syncErrors.push({
+        gameId: 'upsert-phase',
+        message: `Achievement upsert phase failed: ${errorMessage}`,
+        timestamp: new Date(),
+      });
+      syncOperation.status = 'failed';
+      await syncOperation.save();
+      
+      throw error;
+    }
+
+    // T031: Final update of achievements synced
+    await syncOperation.save();
+
+    logger.info({
+      syncOperationId: syncOperation._id,
+      achievementsSynced: achievementsUpserted,
+      achievementsSkipped,
+      achievementErrors,
+      totalExpected: result.achievements.length,
+      errors: syncOperation.syncErrors.length,
+    }, 'Achievement upserts completed');
+    
+    // Clear large data structures to free memory
+    achievementIconMap.clear();
+    gameIdToMongoId.clear();
   }
 }
 

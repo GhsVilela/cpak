@@ -2,6 +2,11 @@ import { config } from '../../utils/config.js';
 import { logger } from '../../utils/logger.js';
 import { rateLimiter } from '../rateLimiter.js';
 import { configService } from '../configService.js';
+import { AdaptiveBatchController } from '../adaptiveBatchController.js';
+import { AdaptiveThrottler } from '../adaptiveThrottler.js';
+import { AdaptiveConcurrencyController } from '../adaptiveConcurrencyController.js';
+import { performanceMonitor } from '../performanceMonitor.js';
+import { SyncOperation } from '../../models/syncOperation.js';
 
 interface SteamGame {
   appid: number;
@@ -124,7 +129,7 @@ export class SteamAdapter {
     );
   }
 
-  async syncGamesAndAchievements(steamId: string): Promise<{
+  async syncGamesAndAchievements(steamId: string, syncOperation?: any): Promise<{
     games: Array<{
       appId: number;
       name: string;
@@ -143,9 +148,25 @@ export class SteamAdapter {
       icon?: string;
       iconGray?: string;
     }>;
+    adaptiveStats?: {
+      finalBatchSize: number;
+      finalConcurrency: number;
+      finalDelay: number;
+    };
   }> {
-    const games = await this.getOwnedGames(steamId);
+    // Fetch owned games with performance monitoring
+    const games = await performanceMonitor.measureApiCall(
+      'steam.getOwnedGames',
+      async () => this.getOwnedGames(steamId)
+    );
     logger.info({ steamId, totalGames: games.length }, 'Fetched owned games from Steam');
+    
+    // Set total games count immediately for progress tracking
+    if (syncOperation) {
+      syncOperation.totalGames = games.length;
+      await syncOperation.save();
+      logger.info({ syncOperationId: syncOperation._id, totalGames: games.length }, 'Set totalGames for progress tracking');
+    }
     
     const result: {
       games: Array<{
@@ -168,77 +189,111 @@ export class SteamAdapter {
       }>;
     } = { games: [], achievements: [] };
 
-    // Process games in batches for better performance
+    // Initialize adaptive controllers with user-configured maximums
     const batchSizeStr = await configService.getSetting('sync_batch_size');
-    const batchSize = parseInt(batchSizeStr || '10', 10);
+    const userMaxBatchSize = parseInt(batchSizeStr || '10', 10);
+    const batchController = new AdaptiveBatchController(userMaxBatchSize);
+    const throttler = new AdaptiveThrottler();
+    
+    const concurrencyStr = await configService.getSetting('sync_image_concurrency');
+    const userMaxConcurrency = parseInt(concurrencyStr || '5', 10);
+    const concurrencyController = new AdaptiveConcurrencyController(userMaxConcurrency);
+    
+    logger.info({
+      userMaxBatchSize,
+      userMaxConcurrency,
+    }, 'Adaptive controllers initialized with user settings');
+
     let processedCount = 0;
 
-    for (let i = 0; i < games.length; i += batchSize) {
-      const batch = games.slice(i, i + batchSize);
+    // Process games in adaptive batches
+    for (let i = 0; i < games.length;) {
+      const currentBatchSize = batchController.getBatchSize();
+      const batch = games.slice(i, i + currentBatchSize);
       
-      // Process batch in parallel
-      const batchResults = await Promise.all(
-        batch.map(async (game) => {
-          try {
-            // Fetch achievements and schema in parallel
-            const [playerAchievements, gameSchema] = await Promise.all([
-              this.getPlayerAchievements(steamId, game.appid),
-              this.getGameSchema(game.appid),
-            ]);
+      const batchStart = Date.now();
+      
+      // Process batch with performance monitoring
+      const batchResults = await performanceMonitor.measureBatchOperation(
+        'steam.processBatch',
+        currentBatchSize,
+        async () => {
+          return Promise.all(
+            batch.map(async (game) => {
+              try {
+                // Fetch achievements and schema with performance monitoring and adaptive concurrency
+                const [playerAchievements, gameSchema] = await Promise.all([
+                  concurrencyController.execute(async () => 
+                    performanceMonitor.measureApiCall(
+                      `steam.getPlayerAchievements:${game.appid}`,
+                      async () => this.getPlayerAchievements(steamId, game.appid)
+                    )
+                  ),
+                  concurrencyController.execute(async () => 
+                    performanceMonitor.measureApiCall(
+                      `steam.getGameSchema:${game.appid}`,
+                      async () => this.getGameSchema(game.appid)
+                    )
+                  ),
+                ]);
 
-            const totalAchievements = gameSchema?.availableGameStats?.achievements?.length || 0;
-            const earnedAchievements = playerAchievements.filter((a) => a.achieved === 1).length;
+                const totalAchievements = gameSchema?.availableGameStats?.achievements?.length || 0;
+                const earnedAchievements = playerAchievements.filter((a) => a.achieved === 1).length;
 
-            // Only include games that have achievements AND user has unlocked at least one
-            if (totalAchievements === 0 || earnedAchievements === 0) {
-              return null;
-            }
+                // Only include games that have achievements AND user has unlocked at least one
+                if (totalAchievements === 0 || earnedAchievements === 0) {
+                  return null;
+                }
 
-            logger.info({ 
-              appId: game.appid, 
-              name: game.name, 
-              totalAchievements, 
-              earnedAchievements 
-            }, 'Found game with unlocked achievements');
+                logger.debug({ 
+                  appId: game.appid, 
+                  name: game.name, 
+                  totalAchievements, 
+                  earnedAchievements 
+                }, 'Found game with unlocked achievements');
 
-            const gameData = {
-              appId: game.appid,
-              name: game.name,
-              playtimeMinutes: game.playtime_forever,
-              totalAchievements,
-              earnedAchievements,
-              iconHash: game.img_icon_url,
-            };
+                const gameData = {
+                  appId: game.appid,
+                  name: game.name,
+                  playtimeMinutes: game.playtime_forever,
+                  totalAchievements,
+                  earnedAchievements,
+                  iconHash: game.img_icon_url,
+                };
 
-            // Map achievements with metadata from schema
-            const schemaMap = new Map(
-              gameSchema?.availableGameStats?.achievements?.map((a) => [a.name, a]) || []
-            );
+                // Map achievements with metadata from schema
+                const schemaMap = new Map(
+                  gameSchema?.availableGameStats?.achievements?.map((a) => [a.name, a]) || []
+                );
 
-            const achievementsData = playerAchievements.map((achievement) => {
-              const metadata = schemaMap.get(achievement.apiname);
-              return {
-                appId: game.appid,
-                achievementId: achievement.apiname,
-                name: metadata?.displayName || achievement.name || achievement.apiname,
-                description: metadata?.description || achievement.description || '',
-                unlocked: achievement.achieved === 1,
-                unlockTime: achievement.unlocktime ? new Date(achievement.unlocktime * 1000) : undefined,
-                icon: metadata?.icon,
-                iconGray: metadata?.icongray,
-              };
-            });
+                const achievementsData = playerAchievements.map((achievement) => {
+                  const metadata = schemaMap.get(achievement.apiname);
+                  return {
+                    appId: game.appid,
+                    achievementId: achievement.apiname,
+                    name: metadata?.displayName || achievement.name || achievement.apiname,
+                    description: metadata?.description || achievement.description || '',
+                    unlocked: achievement.achieved === 1,
+                    unlockTime: achievement.unlocktime ? new Date(achievement.unlocktime * 1000) : undefined,
+                    icon: metadata?.icon,
+                    iconGray: metadata?.icongray,
+                  };
+                });
 
-            return { game: gameData, achievements: achievementsData };
-          } catch (error) {
-            logger.warn({ error, appId: game.appid, name: game.name }, 'Failed to process game');
-            return null;
-          }
-        })
+                return { game: gameData, achievements: achievementsData };
+              } catch (error) {
+                logger.warn({ error, appId: game.appid, name: game.name }, 'Failed to process game');
+                return null;
+              }
+            })
+          );
+        }
       );
 
+      const batchDuration = Date.now() - batchStart;
+      
       // Collect results
-      for (const batchResult of batchResults) {
+      for (const batchResult of batchResults.result) {
         if (batchResult) {
           result.games.push(batchResult.game);
           result.achievements.push(...batchResult.achievements);
@@ -246,15 +301,68 @@ export class SteamAdapter {
       }
 
       processedCount += batch.length;
-      logger.info({ processed: processedCount, total: games.length }, 'Batch processing progress');
+      i += currentBatchSize;
+      
+      // Update sync operation progress and check for cancellation
+      if (syncOperation) {
+        // Reload from database to check if cancelled
+        const currentOp = await SyncOperation.findById(syncOperation._id);
+        if (currentOp && (currentOp.status === 'cancelled' || currentOp.status === 'failed')) {
+          logger.info({ syncOperationId: syncOperation._id }, 'Sync operation cancelled, stopping');
+          throw new Error('Sync cancelled by user');
+        }
+        
+        syncOperation.gamesCompleted = processedCount;
+        // Save every 3 batches or on last batch for more frequent updates
+        if (processedCount % (currentBatchSize * 3) === 0 || i >= games.length) {
+          await syncOperation.save();
+          logger.debug({ 
+            syncOperationId: syncOperation._id,
+            processed: processedCount,
+            total: games.length,
+            progress: `${Math.round((processedCount / games.length) * 100)}%`,
+          }, 'Updated sync progress');
+        }
+      }
+      
+      // Log adaptive controller stats
+      const batchStats = batchController.getStats();
+      const concurrencyStats = concurrencyController.getStats();
+      logger.info({ 
+        processed: processedCount, 
+        total: games.length,
+        batchSize: currentBatchSize,
+        batchDuration,
+        concurrency: concurrencyStats.currentConcurrency,
+        avgResponseTime: batchStats.averageResponseTime,
+      }, 'Batch processing progress with adaptive parameters');
 
-      // Rate limiting: Small delay between batches
-      if (i + batchSize < games.length) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+      // Adjust batch size based on performance
+      batchController.adjustBatchSize(batchDuration);
+
+      // Adaptive throttling between batches
+      if (i < games.length) {
+        await throttler.throttle(batchDuration);
       }
     }
+    
+    // Log final adaptive parameters
+    const finalStats = {
+      finalBatchSize: batchController.getBatchSize(),
+      finalConcurrency: concurrencyController.getConcurrency(),
+      finalDelay: throttler.getCurrentDelay(),
+    };
+    
+    logger.info({
+      ...finalStats,
+      totalGames: result.games.length,
+      totalAchievements: result.achievements.length,
+    }, 'Sync completed with final adaptive parameters');
 
-    return result;
+    return {
+      ...result,
+      adaptiveStats: finalStats,
+    };
   }
 
   /**

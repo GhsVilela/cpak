@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSyncControls from '../../components/ProfileSyncControls';
 import SchedulerSettings from '../../components/SchedulerSettings';
 import SyncSettings from '../../components/SyncSettings';
 import Toast from '../../components/Toast';
+import BackupProgressModal from '../../components/BackupProgressModal';
+import RestoreProgressModal from '../../components/RestoreProgressModal';
+import { ProgressPayload, CompletePayload, ErrorPayload } from '../../services/sseClient';
 
 interface Profile {
   _id: string;
@@ -89,12 +92,48 @@ export default function SettingsPage() {
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
   const [restoreStatus, setRestoreStatus] = useState<RestoreStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
+  
+  // Polling interval refs
+  const [backupPollInterval, setBackupPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const [restorePollInterval, setRestorePollInterval] = useState<NodeJS.Timeout | null>(null);
+  
+  // Track last notified job IDs to prevent duplicate toasts (using refs for immediate updates)
+  const lastBackupNotified = useRef<string | null>(null);
+  const lastRestoreNotified = useRef<string | null>(null);
+
+  // T065-T066: Progress modal state
+  const [showBackupProgress, setShowBackupProgress] = useState(false);
+  const [showRestoreProgress, setShowRestoreProgress] = useState(false);
+  const [backupProgress, setBackupProgress] = useState<ProgressPayload | undefined>();
+  const [restoreProgress, setRestoreProgress] = useState<ProgressPayload | undefined>();
 
   useEffect(() => {
     loadProfiles();
     loadSyncRuns();
     loadSettings();
-    loadStatus();
+    loadStatus().then((statusData) => {
+      // If there's an active backup, start polling
+      if (statusData?.backup?.current && !backupPollInterval) {
+        console.log('[Settings] Found active backup on mount, starting poll');
+        startBackupPolling();
+      }
+      
+      // If there's an active restore, start polling
+      if (statusData?.restore?.current && !restorePollInterval) {
+        console.log('[Settings] Found active restore on mount, starting poll');
+        startRestorePolling();
+      }
+    });
+
+    // Cleanup polling on unmount
+    return () => {
+      if (backupPollInterval) {
+        clearInterval(backupPollInterval);
+      }
+      if (restorePollInterval) {
+        clearInterval(restorePollInterval);
+      }
+    };
   }, []);
 
   const loadProfiles = async () => {
@@ -223,15 +262,78 @@ export default function SettingsPage() {
         const data = await response.json();
         setBackupStatus(data.backup);
         setRestoreStatus(data.restore);
+        return data; // Return status data for use in useEffect
       }
     } catch (err) {
       console.error('Failed to load backup/restore status:', err);
     } finally {
       setStatusLoading(false);
     }
+    return null;
   };
 
-  // Start new backup
+  // Start polling for backup status
+  const startBackupPolling = () => {
+    // Clear existing interval if any
+    if (backupPollInterval) {
+      clearInterval(backupPollInterval);
+    }
+
+    // Use faster polling (1 second) for better progress visibility
+    const interval = setInterval(async () => {
+      const status = await loadStatus();
+      
+      // Stop polling when backup completes or fails
+      if (!status?.backup?.current) {
+        clearInterval(interval);
+        setBackupPollInterval(null);
+        
+        // Only show toast if this is a new completed job
+        if (status?.backup?.ready && status?.backup?.lastCompleted?.jobId) {
+          const jobId = status.backup.lastCompleted.jobId;
+          if (jobId !== lastBackupNotified.current) {
+            showToast('Backup completed successfully!', 'success');
+            lastBackupNotified.current = jobId;
+          }
+        }
+      }
+    }, 1000); // Poll every 1 second for better progress tracking
+    
+    setBackupPollInterval(interval);
+  };
+
+  // Start polling for restore status
+  const startRestorePolling = () => {
+    // Clear existing interval if any
+    if (restorePollInterval) {
+      clearInterval(restorePollInterval);
+    }
+
+    // Use faster polling (1 second) for better progress visibility
+    const interval = setInterval(async () => {
+      const status = await loadStatus();
+      
+      // Stop polling when restore completes or fails
+      if (!status?.restore?.current) {
+        clearInterval(interval);
+        setRestorePollInterval(null);
+        
+        // Only show toast if this is a new completed job
+        if (status?.restore?.lastCompleted?.completedAt) {
+          const completedAt = status.restore.lastCompleted.completedAt;
+          if (completedAt !== lastRestoreNotified.current) {
+            showToast('Restore completed successfully!', 'success');
+            lastRestoreNotified.current = completedAt;
+            loadProfiles(); // Reload profiles after restore
+          }
+        }
+      }
+    }, 1000); // Poll every 1 second for better progress tracking
+    
+    setRestorePollInterval(interval);
+  };
+
+  // T065: Start new backup (async, no modal)
   const handleCreateBackup = async () => {
     try {
       const response = await fetch('/api/backup/start', {
@@ -243,25 +345,80 @@ export default function SettingsPage() {
       const { jobId } = await response.json();
       console.log('Backup started:', jobId);
       
-      // Immediately refresh status
+      showToast('Backup started successfully', 'success');
+      
+      // Poll status to update the card
       await loadStatus();
       
-      showToast('Backup started successfully', 'success');
+      // Start polling using shared function
+      startBackupPolling();
+      
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to start backup', 'error');
     }
   };
 
-  // Download ready backup
+  // Download ready backup with progress tracking
   const handleDownloadBackup = async () => {
     if (!backupStatus?.lastCompleted?.jobId) return;
     
     try {
       const jobId = backupStatus.lastCompleted.jobId;
-      const downloadResponse = await fetch(`/api/backup/download/${jobId}`);
-      if (!downloadResponse.ok) throw new Error('Failed to download backup');
       
-      const blob = await downloadResponse.blob();
+      // Show progress modal
+      setShowBackupProgress(true);
+      setBackupProgress({
+        status: 'downloading',
+        progress: {
+          current: 0,
+          total: 100,
+          percentage: 0
+        },
+        currentStep: 'Downloading backup file...',
+        details: {}
+      });
+      
+      // Use XMLHttpRequest for real download progress tracking (same as restore upload)
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.responseType = 'blob';
+        
+        // Track download progress
+        xhr.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percentage = Math.round((e.loaded / e.total) * 100);
+            setBackupProgress({
+              status: 'downloading',
+              progress: {
+                current: e.loaded,
+                total: e.total,
+                percentage: percentage
+              },
+              currentStep: 'Downloading backup file...',
+              details: {
+                fileSize: e.total
+              }
+            });
+          }
+        });
+        
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(xhr.response as Blob);
+          } else {
+            reject(new Error('Failed to download backup'));
+          }
+        });
+        
+        xhr.addEventListener('error', () => {
+          reject(new Error('Download failed'));
+        });
+        
+        xhr.open('GET', `/api/backup/download/${jobId}`);
+        xhr.send();
+      });
+      
+      // Trigger download
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -271,45 +428,132 @@ export default function SettingsPage() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       
+      // Download complete - update modal
+      setBackupProgress({
+        status: 'downloading',
+        progress: {
+          current: blob.size,
+          total: blob.size,
+          percentage: 100
+        },
+        currentStep: 'Download complete!',
+        details: {
+          fileSize: blob.size
+        }
+      });
+      
+      // Close modal after brief delay, then show toast
+      setTimeout(() => {
+        setShowBackupProgress(false);
+        showToast('Backup downloaded successfully', 'success');
+      }, 1000);
+      
       // Refresh status to show download timestamp
       await loadStatus();
-      
-      showToast('Backup downloaded successfully', 'success');
     } catch (err) {
+      setShowBackupProgress(false);
       showToast(err instanceof Error ? err.message : 'Failed to download backup', 'error');
     }
   };
 
-  // Start restore
+  // T066: Start restore - show modal only for upload progress
   const handleRestoreBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    // Show progress modal only for upload
+    setShowRestoreProgress(true);
+    setRestoreProgress({
+      status: 'uploading',
+      progress: {
+        current: 0,
+        total: file.size,
+        percentage: 0
+      },
+      currentStep: 'Uploading backup file...',
+      details: {
+        fileSize: file.size
+      }
+    });
 
     try {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('/api/backup/restore/start', {
-        method: 'POST',
-        body: formData,
+      // Use XMLHttpRequest for real upload progress tracking
+      const jobId = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        // Track upload progress
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percentage = Math.round((e.loaded / e.total) * 100);
+            setRestoreProgress({
+              status: 'uploading',
+              progress: {
+                current: e.loaded,
+                total: e.total,
+                percentage: percentage
+              },
+              currentStep: 'Uploading backup file...',
+              details: {
+                fileSize: file.size
+              }
+            });
+          }
+        });
+        
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              resolve(response.jobId);
+            } catch (err) {
+              reject(new Error('Invalid response from server'));
+            }
+          } else {
+            reject(new Error(`Failed to start restore: ${xhr.responseText}`));
+          }
+        });
+        
+        xhr.addEventListener('error', () => {
+          reject(new Error('Upload failed'));
+        });
+        
+        xhr.open('POST', '/api/backup/restore/start');
+        xhr.send(formData);
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to start restore: ${errorText}`);
-      }
-      
-      const { jobId } = await response.json();
       console.log('Restore started:', jobId);
       
-      // Immediately refresh status
+      // Upload complete - close modal
+      setRestoreProgress({
+        status: 'uploading',
+        progress: {
+          current: file.size,
+          total: file.size,
+          percentage: 100
+        },
+        currentStep: 'Upload complete, starting restore...',
+        details: {
+          fileSize: file.size
+        }
+      });
+      
+      // Close modal after brief delay, then show toast
+      setTimeout(() => {
+        setShowRestoreProgress(false);
+        showToast('File uploaded, restore started', 'success');
+      }, 1000);
+      
+      // Poll status to update the card
       await loadStatus();
       
-      showToast('Restore started successfully', 'success');
+      // Start polling using shared function
+      startRestorePolling();
       
-      // Reload profiles after a delay to show restored data
-      setTimeout(() => loadProfiles(), 30000); // Reload after 30 seconds
     } catch (err) {
+      setShowRestoreProgress(false);
       showToast(err instanceof Error ? err.message : 'Failed to start restore', 'error');
     } finally {
       event.target.value = '';
@@ -322,6 +566,13 @@ export default function SettingsPage() {
 
     try {
       const jobId = backupStatus.current.jobId;
+      
+      // Stop polling before cancelling to prevent race condition with completion toast
+      if (backupPollInterval) {
+        clearInterval(backupPollInterval);
+        setBackupPollInterval(null);
+      }
+      
       const response = await fetch(`/api/backup/cancel/${jobId}`, {
         method: 'DELETE'
       });
@@ -343,6 +594,13 @@ export default function SettingsPage() {
 
     try {
       const jobId = restoreStatus.current.jobId;
+      
+      // Stop polling before cancelling to prevent race condition with completion toast
+      if (restorePollInterval) {
+        clearInterval(restorePollInterval);
+        setRestorePollInterval(null);
+      }
+      
       const response = await fetch(`/api/backup/restore/cancel/${jobId}`, {
         method: 'DELETE'
       });
@@ -487,25 +745,8 @@ export default function SettingsPage() {
 
       {/* Backup & Restore Section */}
       <div className="bg-gray-900 rounded-lg p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4">
           <h2 className="text-xl font-semibold">Backup & Restore</h2>
-          <button
-            onClick={loadStatus}
-            disabled={statusLoading}
-            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 rounded text-sm font-medium transition flex items-center gap-2"
-          >
-            {statusLoading ? (
-              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-              </svg>
-            )}
-            Check Status
-          </button>
         </div>
         
         <div className="space-y-4">
@@ -530,7 +771,7 @@ export default function SettingsPage() {
                   ></div>
                 </div>
                 <div className="flex items-center justify-between mt-2">
-                  <p className="text-xs text-gray-400">Backup is running in the background. You can check back later or refresh the status.</p>
+                  <p className="text-xs text-gray-400">Running in the background, you can leave this page and check back later. Progress is updated automatically.</p>
                   <button
                     onClick={handleCancelBackup}
                     className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition flex items-center gap-1"
@@ -617,7 +858,7 @@ export default function SettingsPage() {
                   ></div>
                 </div>
                 <div className="flex items-center justify-between mt-2">
-                  <p className="text-xs text-gray-400">Restore is running in the background. You can check back later or refresh the status.</p>
+                  <p className="text-xs text-gray-400">Running in the background, you can leave this page and check back later. Progress is updated automatically.</p>
                   <button
                     onClick={handleCancelRestore}
                     className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition flex items-center gap-1"
@@ -642,7 +883,7 @@ export default function SettingsPage() {
                 </div>
                 {restoreStatus.lastCompleted.metadata && (
                   <p className="text-xs text-gray-400 ml-7">
-                    Restored {restoreStatus.lastCompleted.metadata.profiles || 0} profiles, {restoreStatus.lastCompleted.metadata.games || 0} games, {restoreStatus.lastCompleted.metadata.achievements || 0} achievements and {restoreStatus.lastCompleted.metadata.images || 0} images
+                    Restored {restoreStatus.lastCompleted.metadata.settings || 0} settings, {restoreStatus.lastCompleted.metadata.profiles || 0} profiles, {restoreStatus.lastCompleted.metadata.games || 0} games, {restoreStatus.lastCompleted.metadata.achievements || 0} achievements, and {restoreStatus.lastCompleted.metadata.images || 0} images
                   </p>
                 )}
               </div>
@@ -772,6 +1013,24 @@ export default function SettingsPage() {
           onClose={hideToast}
         />
       )}
+
+      {/* T065: Backup Progress Modal */}
+      <BackupProgressModal
+        isOpen={showBackupProgress}
+        onClose={() => {
+          setShowBackupProgress(false);
+        }}
+        currentProgress={backupProgress}
+      />
+
+      {/* T066: Restore Progress Modal */}
+      <RestoreProgressModal
+        isOpen={showRestoreProgress}
+        onClose={() => {
+          setShowRestoreProgress(false);
+        }}
+        currentProgress={restoreProgress}
+      />
     </div>
   );
 }

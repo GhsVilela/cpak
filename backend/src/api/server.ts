@@ -6,6 +6,8 @@ import { connectDB } from '../utils/db.js';
 import { registerRoutes } from './routes/index.js';
 import { schedulerService } from '../services/scheduler.js';
 import { configService } from '../services/configService.js';
+import { migrateAchievementIndexes } from '../migrations/add-achievement-indexes.js';
+import { migrateGameIndexes } from '../migrations/add-game-indexes.js';
 
 const fastify = Fastify({
   logger: {
@@ -34,6 +36,17 @@ await fastify.register(multipart, {
 
 // Connect to MongoDB
 await connectDB();
+
+// Run database migrations
+fastify.log.info('Running database migrations...');
+try {
+  await migrateAchievementIndexes();
+  await migrateGameIndexes();
+  fastify.log.info('✓ Database migrations completed successfully');
+} catch (error) {
+  fastify.log.error({ error }, '✗ Database migration failed');
+  throw error;
+}
 
 // Initialize default settings (if not already in database)
 await configService.initializeDefaults();
