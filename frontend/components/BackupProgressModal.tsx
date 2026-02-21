@@ -22,6 +22,19 @@ export default function BackupProgressModal({
   const [elapsedTime, setElapsedTime] = useState(0);
   const [startTime, setStartTime] = useState<number | null>(null);
 
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen]);
+
   // Track elapsed time - don't reset on complete
   useEffect(() => {
     if (!isOpen) {
@@ -64,8 +77,14 @@ export default function BackupProgressModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-800 rounded-lg shadow-2xl max-w-lg w-full">
+    <div 
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && e.preventDefault()}
+    >
+      <div 
+        className="bg-gray-800 rounded-lg shadow-2xl max-w-lg w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-700">
           <h2 className="text-xl font-bold text-white">Download Backup</h2>
