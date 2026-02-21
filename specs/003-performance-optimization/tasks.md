@@ -27,13 +27,9 @@ created: "2026-02-19"
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Project initialization and dependency configuration
+**Purpose**: Project initialization
 
 - [X] T001 Verify project structure matches plan.md file layout
-- [X] T002 [P] Add Vitest dependencies to backend/package.json: `vitest`, `@vitest/ui`, `mongodb-memory-server`
-- [X] T003 [P] Add Playwright dependencies to frontend/package.json: `@playwright/test`
-- [X] T004 [P] Create vitest.config.ts in backend/ with ESM configuration
-- [X] T005 [P] Create playwright.config.ts in frontend/ with SSE test support
 
 **Checkpoint**: Setup complete - foundational work can begin
 
@@ -47,35 +43,35 @@ created: "2026-02-19"
 
 ### Database Performance (Phase 1 from quickstart.md - 30 minutes)
 
-- [X] T006 Create migration script backend/src/migrations/add-achievement-indexes.ts with compound index (profileId, gameId, achievementId)
-- [X] T007 [P] Create migration script backend/src/migrations/add-game-indexes.ts with index (profileId, platform)
-- [X] T008 Integrate migrations into backend/src/api/server.ts startup sequence
-- [X] T009 Add index verification logging to backend/src/utils/logger.ts
+- [X] T002 Create migration script backend/src/migrations/add-achievement-indexes.ts with compound index (profileId, gameId, achievementId)
+- [X] T003 [P] Create migration script backend/src/migrations/add-game-indexes.ts with index (profileId, platform)
+- [X] T004 Integrate migrations into backend/src/api/server.ts startup sequence
+- [X] T005 Add index verification logging to backend/src/utils/logger.ts
 
 ### Performance Monitoring Infrastructure
 
-- [X] T010 Create backend/src/services/performanceMonitor.ts with threshold tracking for DB queries, API calls, batch operations
-- [X] T011 Add performance metrics types to backend/src/services/performanceMonitor.ts: SlowQueryEvent, ApiResponseEvent, BatchMetrics
+- [X] T006 Create backend/src/services/performanceMonitor.ts with threshold tracking for DB queries, API calls, batch operations
+- [X] T007 Add performance metrics types to backend/src/services/performanceMonitor.ts: SlowQueryEvent, ApiResponseEvent, BatchMetrics
 
 ### Adaptive Control Algorithms (Phase 2 from quickstart.md - 2-3 hours)
 
-- [X] T012 [P] Create backend/src/services/adaptiveBatchController.ts implementing feedback-controlled batch sizing algorithm
-- [X] T013 [P] Create backend/src/services/adaptiveThrottler.ts implementing 250-500ms adaptive delay based on response times
-- [X] T014 [P] Create backend/src/services/adaptiveConcurrencyController.ts using p-limit with adaptive maximum based on API performance
+- [X] T008 [P] Create backend/src/services/adaptiveBatchController.ts implementing feedback-controlled batch sizing algorithm
+- [X] T009 [P] Create backend/src/services/adaptiveThrottler.ts implementing 250-500ms adaptive delay based on response times
+- [X] T010 [P] Create backend/src/services/adaptiveConcurrencyController.ts using p-limit with adaptive maximum based on API performance
 
 ### Core Tracking Models
 
-- [X] T015 [P] Create backend/src/models/syncOperation.ts schema with indexes on (profileId, createdAt) and (status, startedAt)
-- [X] T016 [P] Create backend/src/models/gameSyncStatus.ts schema with indexes on (syncOperationId, status) and (profileId, gameId)
-- [X] T017 [X] Create backend/src/models/backupJob.ts schema with indexes on (status, createdAt) and TTL on expiresAt
-- [X] T018 [P] Create backend/src/models/restoreJob.ts schema with index on (status, createdAt)
+- [X] T011 [P] Create backend/src/models/syncOperation.ts schema with indexes on (profileId, createdAt) and (status, startedAt)
+- [X] T012 [P] Create backend/src/models/gameSyncStatus.ts schema with indexes on (syncOperationId, status) and (profileId, gameId)
+- [X] T013 [X] Create backend/src/models/backupJob.ts schema with indexes on (status, createdAt) and TTL on expiresAt
+- [X] T014 [P] Create backend/src/models/restoreJob.ts schema with index on (status, createdAt)
 
 ### Progress Service Foundation
 
-- [X] T019 Create backend/src/services/progressService.ts with SSE connection management, broadcast methods, and heartbeat mechanism
-- [X] T020 Add progress event types to backend/src/services/progressService.ts: ProgressEvent, CompleteEvent, ErrorEvent, HeartbeatEvent
-- [X] T021 Create backend/src/api/routes/progress.ts with SSE endpoints: GET /api/progress/sync/:operationId, /api/progress/backup/:jobId, /api/progress/restore/:jobId
-- [X] T022 Register progress routes in backend/src/api/routes/index.ts
+- [X] T015 Create backend/src/services/progressService.ts with SSE connection management, broadcast methods, and heartbeat mechanism
+- [X] T016 Add progress event types to backend/src/services/progressService.ts: ProgressEvent, CompleteEvent, ErrorEvent, HeartbeatEvent
+- [X] T017 Create backend/src/api/routes/progress.ts with SSE endpoints: GET /api/progress/sync/:operationId, /api/progress/backup/:jobId, /api/progress/restore/:jobId
+- [X] T018 Register progress routes in backend/src/api/routes/index.ts
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -101,30 +97,30 @@ created: "2026-02-19"
 
 #### Database Layer
 
-- [X] T023 [US1] Modify backend/src/models/achievement.ts to add compound index (profileId, gameId, achievementId) in schema definition
-- [X] T024 [US1] Modify backend/src/models/game.ts to add compound index (profileId, platform) in schema definition
+- [X] T019 [US1] Modify backend/src/models/achievement.ts to add compound index (profileId, gameId, achievementId) in schema definition
+- [X] T020 [US1] Modify backend/src/models/game.ts to add compound index (profileId, platform) in schema definition
 
 #### Service Layer - Sync Integration
 
-- [X] T025 [US1] Modify backend/src/services/steam.ts to integrate AdaptiveBatchController for achievement fetching from Steam API
-- [X] T026 [US1] Modify backend/src/services/steam.ts to integrate AdaptiveThrottler for delays between API batches
-- [X] T027 [US1] Modify backend/src/services/steam.ts to integrate AdaptiveConcurrencyController for icon download parallelism using p-limit
-- [X] T028 [US1] Add performance monitoring to backend/src/services/steam.ts: wrap Steam API calls with performanceMonitor.measureApiCall()
-- [X] T029 [US1] Add performance monitoring to backend/src/services/steam.ts: wrap MongoDB queries with performanceMonitor.measureDbQuery()
+- [X] T021 [US1] Modify backend/src/services/steam.ts to integrate AdaptiveBatchController for achievement fetching from Steam API
+- [X] T022 [US1] Modify backend/src/services/steam.ts to integrate AdaptiveThrottler for delays between API batches
+- [X] T023 [US1] Modify backend/src/services/steam.ts to integrate AdaptiveConcurrencyController for icon download parallelism using p-limit
+- [X] T024 [US1] Add performance monitoring to backend/src/services/steam.ts: wrap Steam API calls with performanceMonitor.measureApiCall()
+- [X] T025 [US1] Add performance monitoring to backend/src/services/steam.ts: wrap MongoDB queries with performanceMonitor.measureDbQuery()
 
 #### Sync Orchestration
 
-- [X] T030 [US1] Modify backend/src/services/syncService.ts to create SyncOperation record at sync start with initial adaptive parameters
-- [X] T031 [US1] Modify backend/src/services/syncService.ts to update SyncOperation progress fields (gamesCompleted, achievementsSynced, iconDownloads) during sync
-- [X] T032 [US1] Modify backend/src/services/syncService.ts to persist adaptive parameter adjustments to SyncOperation.adaptiveParams
-- [X] T033 [US1] Modify backend/src/services/syncService.ts to mark SyncOperation as completed/failed with final statistics
-- [X] T034 [US1] Add error handling to backend/src/services/syncService.ts: capture game-level errors to SyncOperation.errors array
+- [X] T026 [US1] Modify backend/src/services/syncService.ts to create SyncOperation record at sync start with initial adaptive parameters
+- [X] T027 [US1] Modify backend/src/services/syncService.ts to update SyncOperation progress fields (gamesCompleted, achievementsSynced, iconDownloads) during sync
+- [X] T028 [US1] Modify backend/src/services/syncService.ts to persist adaptive parameter adjustments to SyncOperation.adaptiveParams
+- [X] T029 [US1] Modify backend/src/services/syncService.ts to mark SyncOperation as completed/failed with final statistics
+- [X] T030 [US1] Add error handling to backend/src/services/syncService.ts: capture game-level errors to SyncOperation.errors array
 
 #### Backwards Compatibility
 
-- [X] T035 [US1] Modify backend/src/services/configService.ts to load sync_batch_size and sync_image_concurrency settings as adaptive maximums
-- [X] T036 [US1] Add validation to backend/src/services/adaptiveBatchController.ts to ensure current batch never exceeds user-configured maximum
-- [X] T037 [US1] Add validation to backend/src/services/adaptiveConcurrencyController.ts to ensure concurrency never exceeds user-configured maximum
+- [X] T031 [US1] Modify backend/src/services/configService.ts to load sync_batch_size and sync_image_concurrency settings as adaptive maximums
+- [X] T032 [US1] Add validation to backend/src/services/adaptiveBatchController.ts to ensure current batch never exceeds user-configured maximum
+- [X] T033 [US1] Add validation to backend/src/services/adaptiveConcurrencyController.ts to ensure concurrency never exceeds user-configured maximum
 
 **Checkpoint**: Achievement sync now performs efficiently without API unresponsiveness. User Story 1 should be fully functional and testable independently.
 
@@ -154,26 +150,26 @@ created: "2026-02-19"
 
 #### Backup Progress Integration
 
-- [X] T038 [P] [US2] Modify backend/src/api/routes/backup.ts POST /api/backup to create BackupJob record at operation start
-- [X] T039 [US2] Modify backend/src/api/routes/backup.ts to call progressService.broadcastProgress() during collection export loop
-- [X] T040 [US2] Modify backend/src/api/routes/backup.ts to update BackupJob fields (collectionsProcessed, recordsProcessed, fileSize) as backup proceeds
-- [X] T041 [US2] Modify backend/src/api/routes/backup.ts to broadcast complete event when backup file is ready with download path
-- [X] T042 [US2] Modify backend/src/api/routes/backup.ts to broadcast error event on backup failure with error details
+- [X] T034 [P] [US2] Modify backend/src/api/routes/backup.ts POST /api/backup to create BackupJob record at operation start
+- [X] T035 [US2] Modify backend/src/api/routes/backup.ts to call progressService.broadcastProgress() during collection export loop
+- [X] T036 [US2] Modify backend/src/api/routes/backup.ts to update BackupJob fields (collectionsProcessed, recordsProcessed, fileSize) as backup proceeds
+- [X] T037 [US2] Modify backend/src/api/routes/backup.ts to broadcast complete event when backup file is ready with download path
+- [X] T038 [US2] Modify backend/src/api/routes/backup.ts to broadcast error event on backup failure with error details
 
 #### Restore Progress Integration
 
-- [X] T043 [P] [US2] Modify backend/src/api/routes/backup.ts POST /api/restore to create RestoreJob record at operation start
-- [X] T044 [US2] Modify backend/src/api/routes/backup.ts to broadcast progress during file upload phase (status: 'uploading')
-- [X] T045 [US2] Modify backend/src/api/routes/backup.ts to broadcast progress during extraction phase (status: 'extracting')
-- [X] T046 [US2] Modify backend/src/api/routes/backup.ts to broadcast progress during database restoration loop (status: 'restoring')
-- [X] T047 [US2] Modify backend/src/api/routes/backup.ts to update RestoreJob fields (collectionsRestored, recordsRestored, imagesRestored) during restore
-- [X] T048 [US2] Modify backend/src/api/routes/backup.ts to broadcast complete event when restore finishes with summary statistics
-- [X] T049 [US2] Modify backend/src/api/routes/backup.ts to capture warnings (e.g., duplicate records skipped) in RestoreJob.warnings array
+- [X] T039 [P] [US2] Modify backend/src/api/routes/backup.ts POST /api/restore to create RestoreJob record at operation start
+- [X] T040 [US2] Modify backend/src/api/routes/backup.ts to broadcast progress during file upload phase (status: 'uploading')
+- [X] T041 [US2] Modify backend/src/api/routes/backup.ts to broadcast progress during extraction phase (status: 'extracting')
+- [X] T042 [US2] Modify backend/src/api/routes/backup.ts to broadcast progress during database restoration loop (status: 'restoring')
+- [X] T043 [US2] Modify backend/src/api/routes/backup.ts to update RestoreJob fields (collectionsRestored, recordsRestored, imagesRestored) during restore
+- [X] T044 [US2] Modify backend/src/api/routes/backup.ts to broadcast complete event when restore finishes with summary statistics
+- [X] T045 [US2] Modify backend/src/api/routes/backup.ts to capture warnings (e.g., duplicate records skipped) in RestoreJob.warnings array
 
 #### Cleanup & Lifecycle
 
-- [X] T050 [US2] Add TTL cleanup job to backend/src/services/scheduler.ts to expire BackupJob records after 24 hours
-- [X] T051 [US2] Add orphaned RestoreJob cleanup to backend/src/services/scheduler.ts to remove records older than 7 days
+- [X] T046 [US2] Add TTL cleanup job to backend/src/services/scheduler.ts to expire BackupJob records after 24 hours
+- [X] T047 [US2] Add orphaned RestoreJob cleanup to backend/src/services/scheduler.ts to remove records older than 7 days
 
 **Checkpoint**: Backup and restore operations now provide real-time progress feedback. User Story 2 should work independently from User Story 1.
 
@@ -207,36 +203,36 @@ created: "2026-02-19"
 
 #### Frontend SSE Client
 
-- [X] T052 [P] [US3] Create frontend/services/sseClient.ts with EventSource management, automatic reconnection with exponential backoff, and error handling
-- [X] T053 [P] [US3] Add progress event parsing to frontend/services/sseClient.ts: handle progress, complete, error, heartbeat event types
+- [X] T048 [P] [US3] Create frontend/services/sseClient.ts with EventSource management, automatic reconnection with exponential backoff, and error handling
+- [X] T049 [P] [US3] Add progress event parsing to frontend/services/sseClient.ts: handle progress, complete, error, heartbeat event types
 
 #### UI Components - Sync Progress
 
-- [X] T054 [P] [US3] Create frontend/components/ProgressIndicator.tsx generic component with progress bar, percentage display, and status text
-- [X] T055 [P] [US3] Create frontend/components/SyncProgressPanel.tsx displaying overall sync progress with games/achievements/icons counters
-- [X] T056 [US3] Add adaptive parameters display to frontend/components/SyncProgressPanel.tsx: show current batch size and concurrency values
-- [X] T057 [US3] Add estimated time remaining to frontend/components/SyncProgressPanel.tsx: format seconds as human-readable time
-- [X] T058 [US3] Add per-game status list to frontend/components/SyncProgressPanel.tsx: show completed/syncing/failed games with icons
+- [X] T050 [P] [US3] Create frontend/components/ProgressIndicator.tsx generic component with progress bar, percentage display, and status text
+- [X] T051 [P] [US3] Create frontend/components/SyncProgressPanel.tsx displaying overall sync progress with games/achievements/icons counters
+- [X] T052 [US3] Add adaptive parameters display to frontend/components/SyncProgressPanel.tsx: show current batch size and concurrency values
+- [X] T053 [US3] Add estimated time remaining to frontend/components/SyncProgressPanel.tsx: format seconds as human-readable time
+- [X] T054 [US3] Add per-game status list to frontend/components/SyncProgressPanel.tsx: show completed/syncing/failed games with icons
 
 #### UI Components - Backup/Restore Progress
 
-- [X] T059 [P] [US3] Create frontend/components/BackupProgressModal.tsx showing backup creation phases (preparing, compressing, ready) with progress bar
-- [X] T060 [P] [US3] Create frontend/components/RestoreProgressModal.tsx showing restore phases (uploading, extracting, validating, restoring) with progress bar
-- [X] T061 [US3] Add file size display to frontend/components/BackupProgressModal.tsx: format bytes as human-readable (MB/GB)
-- [X] T062 [US3] Add collections/records counters to frontend/components/RestoreProgressModal.tsx
+- [X] T055 [P] [US3] Create frontend/components/BackupProgressModal.tsx showing backup creation phases (preparing, compressing, ready) with progress bar
+- [X] T056 [P] [US3] Create frontend/components/RestoreProgressModal.tsx showing restore phases (uploading, extracting, validating, restoring) with progress bar
+- [X] T057 [US3] Add file size display to frontend/components/BackupProgressModal.tsx: format bytes as human-readable (MB/GB)
+- [X] T058 [US3] Add collections/records counters to frontend/components/RestoreProgressModal.tsx
 
 #### Page Integration
 
-- [X] T063 [US3] Modify frontend/app/steam/page.tsx to integrate SyncProgressPanel: show modal on sync start, establish SSE connection
-- [X] T064 [US3] Modify frontend/app/steam/page.tsx to close SyncProgressPanel on sync completion or error with toast notification
-- [X] T065 [US3] Modify frontend/app/settings/page.tsx to integrate BackupProgressModal: show modal on backup creation with SSE connection
-- [X] T066 [US3] Modify frontend/app/settings/page.tsx to integrate RestoreProgressModal: show modal on restore upload with SSE connection
+- [X] T059 [US3] Modify frontend/app/steam/page.tsx to integrate SyncProgressPanel: show modal on sync start, establish SSE connection
+- [X] T060 [US3] Modify frontend/app/steam/page.tsx to close SyncProgressPanel on sync completion or error with toast notification
+- [X] T061 [US3] Modify frontend/app/settings/page.tsx to integrate BackupProgressModal: show modal on backup creation with SSE connection
+- [X] T062 [US3] Modify frontend/app/settings/page.tsx to integrate RestoreProgressModal: show modal on restore upload with SSE connection
 
 #### Error Handling
 
-- [X] T067 [US3] Add SSE error handling to frontend/services/sseClient.ts: display user-friendly error messages in modal
-- [X] T068 [US3] Add SSE disconnection handling to frontend/services/sseClient.ts: show "Connection lost, reconnecting..." message
-- [X] T069 [US3] Modify frontend/components/Toast.tsx to handle error events from SSE: display error code and message
+- [X] T063 [US3] Add SSE error handling to frontend/services/sseClient.ts: display user-friendly error messages in modal
+- [X] T064 [US3] Add SSE disconnection handling to frontend/services/sseClient.ts: show "Connection lost, reconnecting..." message
+- [X] T065 [US3] Modify frontend/components/Toast.tsx to handle error events from SSE: display error code and message
 
 **Checkpoint**: All user stories should now be independently functional. Users have full visibility into sync, backup, and restore operations with real-time progress feedback.
 
@@ -246,14 +242,14 @@ created: "2026-02-19"
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [X] T070 [P] Update specs/003-performance-optimization/README.md with implementation summary and architectural decisions
-- [X] T071 [P] Add performance logging documentation to backend/src/utils/logger.ts: document slow query patterns and thresholds
-- [X] T072 Code review backend/src/services/syncService.ts for cleanup: remove debug logging, optimize error handling
-- [X] T073 Code review frontend/components for consistency: ensure all progress components use shared ProgressIndicator styling
-- [X] T074 [P] Add MongoDB query performance validation script to backend/src/scripts/: verify indexes eliminate COLLSCAN
-- [X] T075 Security review of SSE implementation: validate connection limits, prevent memory leaks from orphaned connections
-- [X] T076 Run quickstart.md validation steps: verify all 4 implementation phases work as documented
-- [X] T077 [P] Update .github/agents/copilot-instructions.md with adaptive algorithm patterns and SSE implementation notes
+- [X] T066 [P] Update specs/003-performance-optimization/README.md with implementation summary and architectural decisions
+- [X] T067 [P] Add performance logging documentation to backend/src/utils/logger.ts: document slow query patterns and thresholds
+- [X] T068 Code review backend/src/services/syncService.ts for cleanup: remove debug logging, optimize error handling
+- [X] T069 Code review frontend/components for consistency: ensure all progress components use shared ProgressIndicator styling
+- [X] T070 [P] Add MongoDB query performance validation script to backend/src/scripts/: verify indexes eliminate COLLSCAN
+- [X] T071 Security review of SSE implementation: validate connection limits, prevent memory leaks from orphaned connections
+- [X] T072 Run quickstart.md validation steps: verify all 4 implementation phases work as documented
+- [X] T073 [P] Update .github/agents/copilot-instructions.md with adaptive algorithm patterns and SSE implementation notes
 
 ---
 

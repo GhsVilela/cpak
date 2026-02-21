@@ -16,7 +16,6 @@ Optimize system performance for large-scale achievement synchronization and back
 **Language/Version**: TypeScript 5.x with Node.js 20+ (Next.js 15+, Fastify 5+)  
 **Primary Dependencies**: Next.js 15 (frontend), Fastify 5 (backend), MongoDB 8 (database), node-cron, p-limit (concurrency control)  
 **Storage**: MongoDB 8+ with collections: profiles, games, achievements, settings, sync_runs, backupMetadata  
-**Testing**: Vitest (unit/integration tests), Playwright (E2E tests)  
 **Target Platform**: Unified Docker container (Linux x86_64/arm64) with supervisord managing multiple processes  
 **Project Type**: Web application (Next.js frontend + Fastify backend)  
 **Performance Goals**: API response <2s during sync for 1,000 game libraries, DB queries <500ms (p95), handle 50,000 achievements without unresponsiveness  
@@ -89,14 +88,6 @@ backend/
 │   │       └── progress.ts          # [NEW] SSE endpoint: GET /api/progress/:operationId
 │   └── migrations/
 │       └── add-achievement-indexes.ts  # [NEW] Create compound indexes on achievements collection
-└── tests/
-    ├── unit/
-    │   ├── adaptiveBatching.test.ts    # [NEW] Test adaptive batch size logic
-    │   ├── performanceMonitor.test.ts  # [NEW] Test metrics tracking and threshold detection
-    │   └── progressService.test.ts     # [NEW] Test SSE broadcasting
-    └── integration/
-        ├── syncPerformance.test.ts     # [NEW] End-to-end sync with 1000+ games
-        └── backupProgress.test.ts      # [NEW] Backup/restore with progress tracking
 
 frontend/
 ├── app/

@@ -24,18 +24,7 @@ Before starting implementation:
    cd ../frontend && npm install
    ```
 
-2. **Development Dependencies** (add if needed):
-   ```bash
-   # Backend
-   cd backend
-   npm install --save-dev mongodb-memory-server vitest @vitest/ui
-   
-   # Frontend  
-   cd frontend
-   npm install --save-dev @playwright/test
-   ```
-
-3. **Local MongoDB**: Ensure MongoDB is running locally or via Docker:
+2. **Local MongoDB**: Ensure MongoDB is running locally or via Docker:
    ```bash
    docker run -d -p 27017:27017 --name cpak-mongo mongo:8
    ```
@@ -693,29 +682,6 @@ export function SyncStatus({ syncOperationId }: { syncOperationId: string }) {
 
 ---
 
-## Testing Checklist
-
-### Unit Tests (Vitest):
-```bash
-cd backend
-npx vitest tests/unit/adaptiveBatchController.test.ts
-npx vitest tests/unit/adaptiveThrottler.test.ts
-npx vitest tests/unit/adaptiveConcurrencyController.test .ts
-```
-
-### Integration Tests:
-```bash
-npx vitest tests/integration/syncPerformance.test.ts
-```
-
-### E2E Tests (Playwright):
-```bash
-cd frontend
-npx playwright test tests/e2e/sync-progress.spec.ts
-```
-
----
-
 ## Verification
 
 ### 1. Database Index Verification:
@@ -766,11 +732,10 @@ After implementation, verify:
 ## Next Steps
 
 After completing implementation:
-1. Run full test suite
+1. Verify performance targets are met
 2. Deploy to staging environment
 3. Monitor metrics for 24-48 hours
 4. Gradually roll out to production users
-5. Proceed to `/speckit.tasks` for task breakdown
 
 ---
 
