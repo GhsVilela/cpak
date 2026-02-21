@@ -9,14 +9,10 @@ import { syncRunsRoutes } from './syncRuns.js';
 import { getAllSettings, getSetting, updateSetting, deleteSetting } from './settings.js';
 import { exportData, importData } from './exportImport.js';
 import { startBackup, getBackupProgress, downloadBackup, startRestore, getRestoreProgress, getStatus, cancelBackup, cancelRestore } from './backup.js';
-import progressRoutes from './progress.js';
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Register system routes at root
   await fastify.register(systemRoutes);
-
-  // Progress SSE routes (Server-Sent Events for real-time updates)
-  await fastify.register(progressRoutes);
 
   // Profiles API
   fastify.get('/profiles', getProfiles);

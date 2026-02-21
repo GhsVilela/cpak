@@ -246,14 +246,14 @@ created: "2026-02-19"
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T070 [P] Update specs/003-performance-optimization/README.md with implementation summary and architectural decisions
-- [ ] T071 [P] Add performance logging documentation to backend/src/utils/logger.ts: document slow query patterns and thresholds
-- [ ] T072 Code review backend/src/services/syncService.ts for cleanup: remove debug logging, optimize error handling
-- [ ] T073 Code review frontend/components for consistency: ensure all progress components use shared ProgressIndicator styling
-- [ ] T074 [P] Add MongoDB query performance validation script to backend/src/scripts/: verify indexes eliminate COLLSCAN
-- [ ] T075 Security review of SSE implementation: validate connection limits, prevent memory leaks from orphaned connections
-- [ ] T076 Run quickstart.md validation steps: verify all 4 implementation phases work as documented
-- [ ] T077 [P] Update .github/agents/copilot-instructions.md with adaptive algorithm patterns and SSE implementation notes
+- [X] T070 [P] Update specs/003-performance-optimization/README.md with implementation summary and architectural decisions
+- [X] T071 [P] Add performance logging documentation to backend/src/utils/logger.ts: document slow query patterns and thresholds
+- [X] T072 Code review backend/src/services/syncService.ts for cleanup: remove debug logging, optimize error handling
+- [X] T073 Code review frontend/components for consistency: ensure all progress components use shared ProgressIndicator styling
+- [X] T074 [P] Add MongoDB query performance validation script to backend/src/scripts/: verify indexes eliminate COLLSCAN
+- [X] T075 Security review of SSE implementation: validate connection limits, prevent memory leaks from orphaned connections
+- [X] T076 Run quickstart.md validation steps: verify all 4 implementation phases work as documented
+- [X] T077 [P] Update .github/agents/copilot-instructions.md with adaptive algorithm patterns and SSE implementation notes
 
 ---
 

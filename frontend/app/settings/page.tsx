@@ -9,7 +9,7 @@ import SyncSettings from '../../components/SyncSettings';
 import Toast from '../../components/Toast';
 import BackupProgressModal from '../../components/BackupProgressModal';
 import RestoreProgressModal from '../../components/RestoreProgressModal';
-import { ProgressPayload, CompletePayload, ErrorPayload } from '../../services/sseClient';
+import { ProgressPayload } from '../../components/ProgressIndicator';
 
 interface Profile {
   _id: string;
