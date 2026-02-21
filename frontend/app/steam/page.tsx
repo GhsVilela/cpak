@@ -305,8 +305,14 @@ function SteamPageContent() {
     try {
       await apiClient.post(`/sync/steam?profileId=${selectedProfileId}`, {});
       showToast('Sync started', 'success');
-      // Start polling for progress
-      await loadSyncStatus();
+      
+      // Start polling immediately (don't wait for status check)
+      startSyncPolling();
+      
+      // Load initial status (with small delay to allow backend to create the operation)
+      setTimeout(async () => {
+        await loadSyncStatus();
+      }, 500);
     } catch (err) {
       showToast('Failed to start sync', 'error');
     }

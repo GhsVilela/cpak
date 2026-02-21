@@ -87,7 +87,7 @@ export default function ProfileSyncControls({
           onClick={handleSync}
           disabled={syncing || disabled}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition text-sm whitespace-nowrap flex-shrink-0 w-full sm:w-auto"
-          title={disabled ? 'Sync disabled during backup/restore operations' : ''}
+          title={disabled ? 'Sync disabled during backup/restore operations or when another sync is in progress' : ''}
         >
           {syncing ? 'Syncing...' : 'Sync Now'}
         </button>

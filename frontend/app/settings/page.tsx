@@ -97,9 +97,17 @@ export default function SettingsPage() {
   const [backupPollInterval, setBackupPollInterval] = useState<NodeJS.Timeout | null>(null);
   const [restorePollInterval, setRestorePollInterval] = useState<NodeJS.Timeout | null>(null);
   
+  // Sync status tracking (check if any sync is in progress)
+  const [anySyncInProgress, setAnySyncInProgress] = useState(false);
+  const [syncPollInterval, setSyncPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const [profileSyncStatus, setProfileSyncStatus] = useState<Record<string, boolean>>({});
+  
   // Track last notified job IDs to prevent duplicate toasts (using refs for immediate updates)
   const lastBackupNotified = useRef<string | null>(null);
-  const lastRestoreNotified = useRef<string | null>(null);
+  const lastRestoreCompletedNotified = useRef<string | null>(null);
+  const lastRestoreFailedNotified = useRef<string | null>(null);
+  const currentRestoreJobId = useRef<string | null>(null);
+  const restoreInitiatedAt = useRef<Date | null>(null);
 
   // T065-T066: Progress modal state
   const [showBackupProgress, setShowBackupProgress] = useState(false);
@@ -133,8 +141,18 @@ export default function SettingsPage() {
       if (restorePollInterval) {
         clearInterval(restorePollInterval);
       }
+      if (syncPollInterval) {
+        clearInterval(syncPollInterval);
+      }
     };
   }, []);
+  
+  // Check sync status after profiles are loaded
+  useEffect(() => {
+    if (profiles.length > 0) {
+      checkAnySyncInProgress();
+    }
+  }, [profiles.length]);
 
   const loadProfiles = async () => {
     setLoading(true);
@@ -254,6 +272,56 @@ export default function SettingsPage() {
   };
 
   // Load backup/restore status from server
+  // Check if any profile has an active sync
+  const checkAnySyncInProgress = async () => {
+    try {
+      let hasActiveSync = false;
+      const profileSyncMap: Record<string, boolean> = {};
+      
+      // Check sync status for each profile
+      for (const profile of profiles) {
+        const response = await fetch(`/api/sync/status?profileId=${profile._id}`);
+        if (response.ok) {
+          const data = await response.json();
+          const isProfileSyncing = !!data.current;
+          profileSyncMap[profile._id] = isProfileSyncing;
+          
+          if (isProfileSyncing) {
+            hasActiveSync = true;
+          }
+        } else {
+          profileSyncMap[profile._id] = false;
+        }
+      }
+      
+      setProfileSyncStatus(profileSyncMap);
+      setAnySyncInProgress(hasActiveSync);
+      
+      // Start polling if sync found, stop if not (let startSyncPolling handle existing intervals)
+      if (hasActiveSync) {
+        startSyncPolling();
+      } else if (syncPollInterval) {
+        clearInterval(syncPollInterval);
+        setSyncPollInterval(null);
+      }
+    } catch (err) {
+      console.error('Failed to check sync status:', err);
+    }
+  };
+  
+  // Start polling for sync status
+  const startSyncPolling = () => {
+    if (syncPollInterval) {
+      clearInterval(syncPollInterval);
+    }
+    
+    const interval = setInterval(async () => {
+      await checkAnySyncInProgress();
+    }, 2000); // Poll every 2 seconds
+    
+    setSyncPollInterval(interval);
+  };
+
   const loadStatus = async () => {
     setStatusLoading(true);
     try {
@@ -315,18 +383,70 @@ export default function SettingsPage() {
       
       // Stop polling when restore completes or fails
       if (!status?.restore?.current) {
-        clearInterval(interval);
-        setRestorePollInterval(null);
+        console.log('[Settings] Restore polling: no current restore. Checking for completion/failure...');
+        console.log('[Settings] Current job ID:', currentRestoreJobId.current);
+        console.log('[Settings] Initiated at:', restoreInitiatedAt.current);
         
-        // Only show toast if this is a new completed job
-        if (status?.restore?.lastCompleted?.completedAt) {
+        // Check if restore completed successfully
+        // Only show success if this completion happened AFTER we initiated the restore
+        if (status?.restore?.lastCompleted?.completedAt && restoreInitiatedAt.current) {
           const completedAt = status.restore.lastCompleted.completedAt;
-          if (completedAt !== lastRestoreNotified.current) {
+          const completedDate = new Date(completedAt);
+          
+          console.log('[Settings] Checking lastCompleted:', completedAt, 'vs initiated:', restoreInitiatedAt.current);
+          console.log('[Settings] Completed date:', completedDate, 'Initiated date:', restoreInitiatedAt.current);
+          console.log('[Settings] Completed >= Initiated?', completedDate >= restoreInitiatedAt.current);
+          
+          // Only show success if completed after we initiated AND we haven't notified about this completion
+          if (completedDate >= restoreInitiatedAt.current && completedAt !== lastRestoreCompletedNotified.current) {
+            console.log('[Settings] Restore completed successfully:', completedAt);
             showToast('Restore completed successfully!', 'success');
-            lastRestoreNotified.current = completedAt;
+            lastRestoreCompletedNotified.current = completedAt;
+            currentRestoreJobId.current = null;
+            restoreInitiatedAt.current = null;
             loadProfiles(); // Reload profiles after restore
+            clearInterval(interval);
+            setRestorePollInterval(null);
+            return;
           }
         }
+        
+        // Check if restore failed
+        // Only show failure if this is our job OR the failure happened after we initiated
+        if (status?.restore?.lastFailed && restoreInitiatedAt.current) {
+          const failedJobId = status.restore.lastFailed.jobId;
+          const failedDate = new Date(status.restore.lastFailed.createdAt);
+          
+          console.log('[Settings] Checking lastFailed:', failedJobId, 'created at:', status.restore.lastFailed.createdAt);
+          console.log('[Settings] Failed date:', failedDate, 'Initiated date:', restoreInitiatedAt.current);
+          console.log('[Settings] Is our job?', failedJobId === currentRestoreJobId.current);
+          console.log('[Settings] Failed >= Initiated?', failedDate >= restoreInitiatedAt.current);
+          
+          // Show error if this is our job OR the failure happened after we initiated
+          const isOurJob = failedJobId === currentRestoreJobId.current;
+          const failedAfterInit = failedDate >= restoreInitiatedAt.current;
+          
+          if ((isOurJob || failedAfterInit) && failedJobId !== lastRestoreFailedNotified.current) {
+            console.log('[Settings] Restore failed:', failedJobId, status.restore.lastFailed.error);
+            showToast(`Restore failed: ${status.restore.lastFailed.error || 'Invalid backup file'}`, 'error');
+            lastRestoreFailedNotified.current = failedJobId;
+            currentRestoreJobId.current = null;
+            restoreInitiatedAt.current = null;
+            clearInterval(interval);
+            setRestorePollInterval(null);
+            return;
+          }
+        }
+        
+        // If we've shown neither success nor failure but polling stopped, clear the refs
+        if (currentRestoreJobId.current || restoreInitiatedAt.current) {
+          console.log('[Settings] Restore no longer active, but no completion or failure detected within time window. Clearing refs.');
+          currentRestoreJobId.current = null;
+          restoreInitiatedAt.current = null;
+        }
+        
+        clearInterval(interval);
+        setRestorePollInterval(null);
       }
     }, 1000); // Poll every 1 second for better progress tracking
     
@@ -512,7 +632,13 @@ export default function SettingsPage() {
               reject(new Error('Invalid response from server'));
             }
           } else {
-            reject(new Error(`Failed to start restore: ${xhr.responseText}`));
+            // Parse error response from backend
+            try {
+              const errorResponse = JSON.parse(xhr.responseText);
+              reject(new Error(errorResponse.error || `Failed to start restore (${xhr.status})`));
+            } catch (err) {
+              reject(new Error(`Failed to start restore: ${xhr.responseText || xhr.status}`));
+            }
           }
         });
         
@@ -526,6 +652,12 @@ export default function SettingsPage() {
 
       console.log('Restore started:', jobId);
       
+      // Track this restore operation
+      currentRestoreJobId.current = jobId;
+      restoreInitiatedAt.current = new Date();
+      
+      console.log('[Settings] Restore initiated - Job ID:', jobId, 'at:', restoreInitiatedAt.current);
+      
       // Upload complete - close modal
       setRestoreProgress({
         status: 'uploading',
@@ -534,27 +666,32 @@ export default function SettingsPage() {
           total: file.size,
           percentage: 100
         },
-        currentStep: 'Upload complete, starting restore...',
+        currentStep: 'Upload complete, validating backup...',
         details: {
           fileSize: file.size
         }
       });
       
-      // Close modal after brief delay, then show toast
+      // Close modal after brief delay, then show info toast
       setTimeout(() => {
         setShowRestoreProgress(false);
-        showToast('File uploaded, restore started', 'success');
+        showToast('Validating backup file...', 'info');
       }, 1000);
       
-      // Poll status to update the card
-      await loadStatus();
-      
-      // Start polling using shared function
+      // Start polling immediately (don't wait for loadStatus)
       startRestorePolling();
+      
+      // Also trigger an immediate status check in background
+      loadStatus().catch(err => {
+        console.error('[Settings] Failed to load status after restore initiation:', err);
+      });
       
     } catch (err) {
       setShowRestoreProgress(false);
       showToast(err instanceof Error ? err.message : 'Failed to start restore', 'error');
+      // Clear tracking refs on error
+      currentRestoreJobId.current = null;
+      restoreInitiatedAt.current = null;
     } finally {
       event.target.value = '';
     }
@@ -600,6 +737,10 @@ export default function SettingsPage() {
         clearInterval(restorePollInterval);
         setRestorePollInterval(null);
       }
+      
+      // Clear restore tracking refs
+      currentRestoreJobId.current = null;
+      restoreInitiatedAt.current = null;
       
       const response = await fetch(`/api/backup/restore/cancel/${jobId}`, {
         method: 'DELETE'
@@ -804,8 +945,9 @@ export default function SettingsPage() {
                 )}
                 <button
                   onClick={handleDownloadBackup}
-                  disabled={!!restoreStatus?.current}
+                  disabled={!!restoreStatus?.current || anySyncInProgress}
                   className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition flex items-center gap-2"
+                  title={anySyncInProgress ? 'Download disabled during sync operations' : ''}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -826,8 +968,9 @@ export default function SettingsPage() {
             {!backupStatus?.current && (
               <button
                 onClick={handleCreateBackup}
-                disabled={!!backupStatus?.current || !!restoreStatus?.current}
+                disabled={!!backupStatus?.current || !!restoreStatus?.current || anySyncInProgress}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition flex items-center gap-2"
+                title={anySyncInProgress ? 'Backup disabled during sync operations' : ''}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -892,16 +1035,16 @@ export default function SettingsPage() {
             {/* Upload button */}
             {!restoreStatus?.current && (
               <div className="flex items-center gap-3">
-                <label className={`px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded font-medium transition flex items-center gap-2 ${(backupStatus?.current || restoreStatus?.current) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                <label className={`px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded font-medium transition flex items-center gap-2 ${(backupStatus?.current || restoreStatus?.current || anySyncInProgress) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`} title={anySyncInProgress ? 'Restore disabled during sync operations' : ''}>
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                   </svg>
                   Upload Backup File
                   <input
                     type="file"
-                    accept=".zip"
+                    accept=".zip,application/zip,application/x-zip,application/x-zip-compressed"
                     onChange={handleRestoreBackup}
-                    disabled={!!backupStatus?.current || !!restoreStatus?.current}
+                    disabled={!!backupStatus?.current || !!restoreStatus?.current || anySyncInProgress}
                     className="hidden"
                   />
                 </label>
@@ -997,9 +1140,15 @@ export default function SettingsPage() {
                 profileId={profile._id}
                 platform={profile.platform}
                 lastSync={syncRuns[profile._id]}
-                onSyncComplete={loadSyncRuns}
+                onSyncComplete={() => {
+                  loadSyncRuns();
+                  // Immediately check sync status to disable button
+                  setTimeout(() => {
+                    checkAnySyncInProgress();
+                  }, 500);
+                }}
                 onToast={showToast}
-                disabled={!!backupStatus?.current || !!restoreStatus?.current}
+                disabled={!!backupStatus?.current || !!restoreStatus?.current || !!profileSyncStatus[profile._id]}
               />
             </div>
           ))}
