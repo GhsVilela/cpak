@@ -23,7 +23,7 @@ Optimize system performance for large-scale achievement synchronization and back
 **Scale/Scope**: 1,000 games per profile, 50,000 achievements (25,000 regular + 25,000 gray icons), multiple concurrent users, support for external MongoDB instances
 
 **Existing Implementation Notes**:
-- User-configurable settings already exist: `sync_batch_size` (default: 10), `sync_image_concurrency` (default: 5)
+- User-configurable settings already exist: `sync_batch_size` (default: 20), `sync_concurrency` (default: 10)
 - Settings stored in MongoDB `settings` collection managed by `configService`
 - Current sync logic in `backend/src/services/adapters/steam.ts` uses batch processing
 - Backup/restore in `backend/src/api/routes/backup.ts` has hardcoded BATCH_SIZE of 100
@@ -38,7 +38,7 @@ Optimize system performance for large-scale achievement synchronization and back
 **Status**: PASS - No changes to unified container architecture. Performance optimizations are internal to existing Next.js and Fastify services.
 
 ### ✅ Principle II: REST Backend with Database-Backed Settings  
-**Status**: PASS - Extends existing REST API with progress tracking endpoints. Adaptive logic respects existing database-backed settings (`sync_batch_size`, `sync_image_concurrency`) while adding intelligent overrides. No new environment variables required.
+**Status**: PASS - Extends existing REST API with progress tracking endpoints. Adaptive logic respects existing database-backed settings (`sync_batch_size`, `sync_concurrency`) while adding intelligent overrides. No new environment variables required.
 
 ### ✅ Principle III: Self-Hosting via Unified Container
 **Status**: PASS - All optimizations work within unified container. MongoDB index creation handled via migration scripts. No additional services or dependencies required.

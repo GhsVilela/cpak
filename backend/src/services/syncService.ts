@@ -33,8 +33,8 @@ class SyncService {
       iconDownloadsFailed: 0,
       errors: [],
       adaptiveParams: {
-        batchSize: parseInt(await configService.getSetting('sync_batch_size') || '10', 10),
-        concurrency: parseInt(await configService.getSetting('sync_image_concurrency') || '5', 10),
+        batchSize: parseInt(await configService.getSetting('sync_batch_size') || '20', 20),
+        concurrency: parseInt(await configService.getSetting('sync_concurrency') || '10', 10),
         delay: 250, // Initial throttle delay
       },
     });
@@ -51,6 +51,9 @@ class SyncService {
         logger.warn({ profileId: profile.profileId }, 'PlayStation sync not yet implemented');
         throw new Error('PlayStation sync not implemented');
       }
+
+      // Allow users to see 100% completion in UI before status changes
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       // T033: Mark SyncOperation as completed with final statistics
       syncOperation.status = 'completed';
@@ -160,7 +163,7 @@ class SyncService {
     
     // Get image download concurrency from settings (database > env > default)
     let imageConcurrency = 5; // default
-    const concurrencySetting = await configService.getSetting('sync_image_concurrency');
+    const concurrencySetting = await configService.getSetting('sync_concurrency');
     imageConcurrency = concurrencySetting ? parseInt(concurrencySetting, 10) : 5;
 
     // Create concurrency limiter for all image downloads (game covers and achievement icons)
@@ -168,7 +171,6 @@ class SyncService {
 
     // Download game images in parallel batches
     const gameImagePromises: Promise<{ appId: number; imagePath?: string }>[] = [];
-    let gameImagesCompleted = 0;
 
     for (const game of result.games) {
       const promise = limit(async () => {

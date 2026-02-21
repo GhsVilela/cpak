@@ -197,7 +197,7 @@ await Achievement.collection.createIndex(
 
 ### Decision: p-limit with dynamic limit adjustment
 
-**Current State**: User configures `sync_image_concurrency` (default: 5)
+**Current State**: User configures `sync_concurrency` (default: 10)
 
 **Enhancement Pattern**:
 ```typescript
@@ -376,7 +376,7 @@ class PerformanceMonitor {
 
 ### Implementation Checklist:
 - ✅ Read `sync_batch_size` from settings database (existing)
-- ✅ Read `sync_image_concurrency` from settings database (existing)  
+- ✅ Read `sync_concurrency` from settings database (existing)  
 - ✅ Use configured values as maximum bounds for adaptive algorithms
 - ✅ Start adaptive controllers at user's configured values
 - ✅ Only reduce below configured values when performance degrades
@@ -399,7 +399,7 @@ class PerformanceMonitor {
 
 {
   label: "Image Download Concurrency",
-  key: "sync_image_concurrency", 
+  key: "sync_concurrency", 
   default: 5,
   helpText: "Maximum concurrent image downloads. System will automatically reduce this if API becomes unresponsive.",
   type: "number",

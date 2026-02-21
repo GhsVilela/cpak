@@ -23,6 +23,10 @@ jobs:
         id: prerelease
         run: |
           TAG="${{ github.ref_name }}"
+          # Strip 'v' prefix for Docker tag (v1.2.3 -> 1.2.3)
+          VERSION="${TAG#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          
           if [[ "$TAG" =~ -(alpha|beta|rc) ]]; then
             echo "is_prerelease=true" >> $GITHUB_OUTPUT
             echo "Pre-release detected: $TAG"
@@ -96,12 +100,12 @@ jobs:
             
             **Docker Hub:**
             ```bash
-            docker pull docker.io/ghsvilela/cpak:${{ github.ref_name }}
+            docker pull docker.io/ghsvilela/cpak:${{ steps.prerelease.outputs.version }}
             ```
             
             **GitHub Container Registry:**
             ```bash
-            docker pull ghcr.io/ghsvilela/cpak:${{ github.ref_name }}
+            docker pull ghcr.io/ghsvilela/cpak:${{ steps.prerelease.outputs.version }}
             ```
             
             ## Quick Start
@@ -110,7 +114,7 @@ jobs:
             docker run -d \
               -p 8000:80 \
               -v cpak_data:/data \
-              docker.io/ghsvilela/cpak:${{ github.ref_name }}
+              docker.io/ghsvilela/cpak:${{ steps.prerelease.outputs.version }}
             ```
             
             Access at: http://localhost:8000
