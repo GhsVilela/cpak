@@ -122,13 +122,11 @@ export default function SettingsPage() {
     loadStatus().then((statusData) => {
       // If there's an active backup, start polling
       if (statusData?.backup?.current && !backupPollInterval) {
-        console.log('[Settings] Found active backup on mount, starting poll');
         startBackupPolling();
       }
       
       // If there's an active restore, start polling
       if (statusData?.restore?.current && !restorePollInterval) {
-        console.log('[Settings] Found active restore on mount, starting poll');
         startRestorePolling();
       }
     });
@@ -383,23 +381,14 @@ export default function SettingsPage() {
       
       // Stop polling when restore completes or fails
       if (!status?.restore?.current) {
-        console.log('[Settings] Restore polling: no current restore. Checking for completion/failure...');
-        console.log('[Settings] Current job ID:', currentRestoreJobId.current);
-        console.log('[Settings] Initiated at:', restoreInitiatedAt.current);
-        
         // Check if restore completed successfully
         // Only show success if this completion happened AFTER we initiated the restore
         if (status?.restore?.lastCompleted?.completedAt && restoreInitiatedAt.current) {
           const completedAt = status.restore.lastCompleted.completedAt;
           const completedDate = new Date(completedAt);
           
-          console.log('[Settings] Checking lastCompleted:', completedAt, 'vs initiated:', restoreInitiatedAt.current);
-          console.log('[Settings] Completed date:', completedDate, 'Initiated date:', restoreInitiatedAt.current);
-          console.log('[Settings] Completed >= Initiated?', completedDate >= restoreInitiatedAt.current);
-          
           // Only show success if completed after we initiated AND we haven't notified about this completion
           if (completedDate >= restoreInitiatedAt.current && completedAt !== lastRestoreCompletedNotified.current) {
-            console.log('[Settings] Restore completed successfully:', completedAt);
             showToast('Restore completed successfully!', 'success');
             lastRestoreCompletedNotified.current = completedAt;
             currentRestoreJobId.current = null;
@@ -417,17 +406,11 @@ export default function SettingsPage() {
           const failedJobId = status.restore.lastFailed.jobId;
           const failedDate = new Date(status.restore.lastFailed.createdAt);
           
-          console.log('[Settings] Checking lastFailed:', failedJobId, 'created at:', status.restore.lastFailed.createdAt);
-          console.log('[Settings] Failed date:', failedDate, 'Initiated date:', restoreInitiatedAt.current);
-          console.log('[Settings] Is our job?', failedJobId === currentRestoreJobId.current);
-          console.log('[Settings] Failed >= Initiated?', failedDate >= restoreInitiatedAt.current);
-          
           // Show error if this is our job OR the failure happened after we initiated
           const isOurJob = failedJobId === currentRestoreJobId.current;
           const failedAfterInit = failedDate >= restoreInitiatedAt.current;
           
           if ((isOurJob || failedAfterInit) && failedJobId !== lastRestoreFailedNotified.current) {
-            console.log('[Settings] Restore failed:', failedJobId, status.restore.lastFailed.error);
             showToast(`Restore failed: ${status.restore.lastFailed.error || 'Invalid backup file'}`, 'error');
             lastRestoreFailedNotified.current = failedJobId;
             currentRestoreJobId.current = null;
@@ -440,7 +423,6 @@ export default function SettingsPage() {
         
         // If we've shown neither success nor failure but polling stopped, clear the refs
         if (currentRestoreJobId.current || restoreInitiatedAt.current) {
-          console.log('[Settings] Restore no longer active, but no completion or failure detected within time window. Clearing refs.');
           currentRestoreJobId.current = null;
           restoreInitiatedAt.current = null;
         }
@@ -463,8 +445,6 @@ export default function SettingsPage() {
       if (!response.ok) throw new Error('Failed to start backup');
       
       const { jobId } = await response.json();
-      console.log('Backup started:', jobId);
-      
       showToast('Backup started successfully', 'success');
       
       // Poll status to update the card
@@ -650,13 +630,9 @@ export default function SettingsPage() {
         xhr.send(formData);
       });
 
-      console.log('Restore started:', jobId);
-      
       // Track this restore operation
       currentRestoreJobId.current = jobId;
       restoreInitiatedAt.current = new Date();
-      
-      console.log('[Settings] Restore initiated - Job ID:', jobId, 'at:', restoreInitiatedAt.current);
       
       // Upload complete - close modal
       setRestoreProgress({
@@ -682,8 +658,8 @@ export default function SettingsPage() {
       startRestorePolling();
       
       // Also trigger an immediate status check in background
-      loadStatus().catch(err => {
-        console.error('[Settings] Failed to load status after restore initiation:', err);
+      loadStatus().catch(() => {
+        // Status will be loaded by polling, ignore error
       });
       
     } catch (err) {
@@ -1113,7 +1089,9 @@ export default function SettingsPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleDelete(profile._id)}
-                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium transition whitespace-nowrap"
+                        disabled={!!backupStatus?.current || !!restoreStatus?.current || !!profileSyncStatus[profile._id]}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition whitespace-nowrap"
+                        title={backupStatus?.current || restoreStatus?.current || profileSyncStatus[profile._id] ? 'Cannot delete profile during backup/restore or sync operations' : ''}
                       >
                         Confirm
                       </button>
@@ -1127,7 +1105,9 @@ export default function SettingsPage() {
                   ) : (
                     <button
                       onClick={() => setDeleteConfirm(profile._id)}
-                      className="px-4 py-2 bg-red-900/50 hover:bg-red-900/70 border border-red-500/50 rounded font-medium transition whitespace-nowrap"
+                      disabled={!!backupStatus?.current || !!restoreStatus?.current || !!profileSyncStatus[profile._id]}
+                      className="px-4 py-2 bg-red-900/50 hover:bg-red-900/70 disabled:bg-gray-600 disabled:cursor-not-allowed border border-red-500/50 disabled:border-gray-500 rounded font-medium transition whitespace-nowrap"
+                      title={backupStatus?.current || restoreStatus?.current || profileSyncStatus[profile._id] ? 'Cannot delete profile during backup/restore or sync operations' : ''}
                     >
                       Delete
                     </button>
