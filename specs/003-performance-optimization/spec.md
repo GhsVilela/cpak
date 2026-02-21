@@ -9,7 +9,7 @@
 
 ### Session 2026-02-19
 
-- Q: For real-time progress updates (backup/restore operations, sync status), the system needs a mechanism to push updates from server to client with minimal latency. → A: Server-Sent Events (SSE) - Server pushes progress updates to client over HTTP EventSource
+- Q: For real-time progress updates (backup/restore operations, sync status), the system needs a mechanism to push updates from server to client with minimal latency. → A: Polling-based progress tracking - Client polls REST endpoints at 1-2 second intervals for current operation status
 - Q: The spec mentions processing achievements in batches to prevent overload, but doesn't specify how batch size should be determined when even the "lowest values" still cause issues. → A: Adaptive batching - Dynamically adjust batch size based on API response times and system load
 - Q: FR-002 states the system must limit concurrent achievement icon downloads, but doesn't specify the concurrency limit. With potentially 50,000 icons to download, this number significantly impacts both performance and completion time. → A: User-configurable with adaptive override - Respect user's configured limit from settings, but automatically reduce concurrency when causing performance degradation
 - Q: FR-003 requires indexed database queries to avoid collection scans, but the MongoDB slow query log shows COLLSCAN on achievement queries with gameId and achievementId. The spec doesn't specify which fields need indexing. → A: Compound index on profileId + gameId + achievementId
@@ -109,7 +109,7 @@ As a user viewing my game library, I need to see sync progress indicators so tha
 - **FR-009**: System MUST track and report restore upload progress (bytes received out of total expected)
 - **FR-010**: System MUST track and report restore processing progress (database inserts, file copies)
 - **FR-011**: System MUST update progress information at intervals of 2 seconds or less
-- **FR-011a**: System MUST deliver progress updates to client using Server-Sent Events (SSE) to enable server-push without polling overhead
+- **FR-011a**: System MUST provide REST API endpoints that return current operation status for client polling (sync status, backup status, restore status)
 - **FR-012**: System MUST calculate and display estimated time remaining based on current transfer rate
 - **FR-013**: System MUST allow users to cancel in-progress backup/restore operations
 - **FR-014**: System MUST prevent users from starting conflicting operations (e.g., cannot start restore while backup is in progress)
@@ -117,7 +117,7 @@ As a user viewing my game library, I need to see sync progress indicators so tha
 #### Sync Progress Visibility
 - **FR-015**: System MUST display sync status for each game on the game home page (pending, in progress, completed, error)
 - **FR-016**: System MUST show granular progress for games currently being synced (e.g., achievement count progress)
-- **FR-017**: System MUST update sync progress indicators in real-time using Server-Sent Events without requiring page refresh
+- **FR-017**: System MUST update sync progress indicators in real-time by polling status endpoint at 1-2 second intervals without requiring manual page refresh
 - **FR-018**: System MUST display timestamp of last successful sync for each game
 - **FR-019**: System MUST provide visual indication when sync operations encounter errors with option to retry
 

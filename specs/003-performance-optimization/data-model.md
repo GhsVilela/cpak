@@ -60,7 +60,7 @@ interface ISyncOperation {
 - Create when sync starts
 - Update progress fields as sync proceeds
 - Mark completed/failed when finished
-- Query for SSE progress broadcasting
+- Query for progress status polling
 
 ---
 
@@ -193,7 +193,7 @@ interface IRestoreJob {
 
 ### 5. ProgressUpdate (Transient)
 
-Generic entity for real-time progress updates. Not persisted to database - exists only for SSE broadcasting.
+Generic entity for real-time progress updates. Not persisted to database - exists only cached in-memory for polling.
 
 **Storage**: In-memory (progressService)
 
@@ -217,7 +217,7 @@ interface IProgressUpdate {
 
 **Operations**:
 - Created in-memory during operations
-- Broadcast via SSE to connected clients
+- Retrieved via status endpoints when polled
 - Not persisted (ephemeral)
 
 ---
@@ -375,7 +375,7 @@ interface ISetting {
    - Update `GameSyncStatus` (status: 'syncing', achievementsSynced++)
    - Find/update `Achievement` records (uses new compound index)
    - Update `SyncOperation` aggregate counts
-   - Broadcast `ProgressUpdate` via SSE
+   - Update progress state in progressService for polling
 4. Complete → Update `SyncOperation` (status: 'completed')
 
 ### Backup Operation Flow:
