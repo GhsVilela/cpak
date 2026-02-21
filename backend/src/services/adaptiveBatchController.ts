@@ -7,18 +7,18 @@ import { logger } from '../utils/logger.js';
  * Starts at user-configured maximum and dynamically adjusts based on response times.
  * 
  * Algorithm:
- * - If avg response time > 750ms (1.5x target): Reduce batch size by 20%
- * - If avg response time < 250ms (0.5x target): Increase batch size by 10%
+ * - If avg response time > 1000ms (2x target): Reduce batch size by 25%
+ * - If avg response time < 350ms (0.7x target): Increase batch size by 15%
  * - Never exceed user-configured maximum (backwards compatible)
  * - Never go below minimum of 5 items
  * 
- * Target: 500ms average response time
+ * Target: 500ms average response time (balanced between speed and reliability)
  */
 export class AdaptiveBatchController {
   private currentBatchSize: number;
   private readonly minBatchSize = 5;
   private readonly maxBatchSize: number;
-  private readonly targetResponseTime = 500; // ms
+  private readonly targetResponseTime = 500; // ms - balanced target
   private recentResponseTimes: number[] = [];
   private readonly windowSize = 5; // Track last 5 responses
   
@@ -54,33 +54,33 @@ export class AdaptiveBatchController {
     const previousBatchSize = this.currentBatchSize;
     
     // Adjust batch size based on performance
-    if (avgResponseTime > this.targetResponseTime * 1.5) {
-      // Performance degrading: reduce batch size by 20%
+    if (avgResponseTime > this.targetResponseTime * 2) {
+      // Performance degrading: reduce batch size by 25% (aggressive response to slowdowns)
       this.currentBatchSize = Math.max(
         this.minBatchSize,
-        Math.floor(this.currentBatchSize * 0.8)
+        Math.floor(this.currentBatchSize * 0.75)
       );
       
       if (this.currentBatchSize !== previousBatchSize) {
         logger.info({
           avgResponseTime,
-          threshold: this.targetResponseTime * 1.5,
+          threshold: this.targetResponseTime * 2,
           previousBatchSize,
           newBatchSize: this.currentBatchSize,
           action: 'decreased',
         }, 'Batch size adjusted due to slow response times');
       }
-    } else if (avgResponseTime < this.targetResponseTime * 0.5 && this.currentBatchSize < this.maxBatchSize) {
-      // Performing well: increase batch size by 10%
+    } else if (avgResponseTime < this.targetResponseTime * 0.7 && this.currentBatchSize < this.maxBatchSize) {
+      // Performing well: increase batch size by 15% (conservative growth)
       this.currentBatchSize = Math.min(
         this.maxBatchSize,
-        Math.ceil(this.currentBatchSize * 1.1)
+        Math.ceil(this.currentBatchSize * 1.15)
       );
       
       if (this.currentBatchSize !== previousBatchSize) {
         logger.info({
           avgResponseTime,
-          threshold: this.targetResponseTime * 0.5,
+          threshold: this.targetResponseTime * 0.7,
           previousBatchSize,
           newBatchSize: this.currentBatchSize,
           action: 'increased',

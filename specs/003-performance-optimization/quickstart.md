@@ -435,7 +435,7 @@ Modify icon download function in `backend/src/services/adapters/steam.ts`:
 import { AdaptiveConcurrencyController } from '../adaptiveConcurrencyController.js';
 
 // In sync method
-const userConcurrency = parseInt(await configService.getSetting('sync_image_concurrency') || '5', 10);
+const userConcurrency = parseInt(await configService.getSetting('sync_concurrency') || '10', 10);
 const concurrencyController = new AdaptiveConcurrencyController(userConcurrency);
 
 // Download icons with adaptive concurrency

@@ -7,14 +7,14 @@ import { logger } from '../utils/logger.js';
  * Adjusts delay duration based on recent response times.
  * 
  * Algorithm:
- * - Base delay range: 250-500ms
- * - If last response > 750ms: Use longer delay (500ms)
- * - If last response < 250ms: Use shorter delay (250ms)
+ * - Base delay range: 100-400ms (reduced for better performance)
+ * - If last response > 1000ms: Use longer delay (400ms)
+ * - If last response < 300ms: Use shorter delay (100ms)
  * - Gradual adjustment based on response time trends
  */
 export class AdaptiveThrottler {
-  private readonly minDelay = 250; // ms
-  private readonly maxDelay = 500; // ms
+  private readonly minDelay = 100; // ms - reduced from 250ms for faster syncs
+  private readonly maxDelay = 400; // ms - reduced from 500ms
   private currentDelay: number;
   
   constructor() {
@@ -35,17 +35,17 @@ export class AdaptiveThrottler {
   calculateDelay(lastResponseTime: number): number {
     const previousDelay = this.currentDelay;
     
-    if (lastResponseTime > 750) {
+    if (lastResponseTime > 1000) {
       // Response was slow: increase delay to give system time to recover
       this.currentDelay = this.maxDelay;
-    } else if (lastResponseTime < 250) {
+    } else if (lastResponseTime < 300) {
       // Response was fast: decrease delay to maintain throughput
       this.currentDelay = this.minDelay;
     } else {
       // Response time in acceptable range: interpolate delay
       // Linear interpolation between minDelay and maxDelay based on response time
-      // 250ms -> minDelay, 750ms -> maxDelay
-      const normalizedTime = (lastResponseTime - 250) / (750 - 250);
+      // 300ms -> minDelay, 1000ms -> maxDelay
+      const normalizedTime = (lastResponseTime - 300) / (1000 - 300);
       this.currentDelay = Math.round(
         this.minDelay + (this.maxDelay - this.minDelay) * normalizedTime
       );

@@ -35,7 +35,7 @@ interface SettingsState {
   scheduler_cron?: string;
   // Sync
   sync_batch_size?: string;
-  sync_image_concurrency?: string;
+  sync_concurrency?: string;
 }
 
 interface ConfiguredState {
@@ -228,8 +228,8 @@ export default function SettingsPage() {
       if (settings.sync_batch_size !== undefined) {
         await apiClient.updateSetting('sync_batch_size', settings.sync_batch_size, 'sync');
       }
-      if (settings.sync_image_concurrency !== undefined) {
-        await apiClient.updateSetting('sync_image_concurrency', settings.sync_image_concurrency, 'sync');
+      if (settings.sync_concurrency !== undefined) {
+        await apiClient.updateSetting('sync_concurrency', settings.sync_concurrency, 'sync');
       }
 
       showToast('Sync settings saved successfully!', 'success');
@@ -735,8 +735,8 @@ export default function SettingsPage() {
         {/* Sync Performance Settings */}
         <SyncSettings
           values={{
-            sync_batch_size: settings.sync_batch_size || '10',
-            sync_image_concurrency: settings.sync_image_concurrency || '5'
+            sync_batch_size: settings.sync_batch_size || '20',
+            sync_concurrency: settings.sync_concurrency || '10'
           }}
           onChange={handleSettingChange}
           onSave={handleSyncSettingsSave}

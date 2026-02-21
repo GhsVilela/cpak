@@ -1,4 +1,3 @@
-import { config } from '../../utils/config.js';
 import { logger } from '../../utils/logger.js';
 import { rateLimiter } from '../rateLimiter.js';
 import { configService } from '../configService.js';
@@ -195,7 +194,7 @@ export class SteamAdapter {
     const batchController = new AdaptiveBatchController(userMaxBatchSize);
     const throttler = new AdaptiveThrottler();
     
-    const concurrencyStr = await configService.getSetting('sync_image_concurrency');
+    const concurrencyStr = await configService.getSetting('sync_concurrency');
     const userMaxConcurrency = parseInt(concurrencyStr || '5', 10);
     const concurrencyController = new AdaptiveConcurrencyController(userMaxConcurrency);
     
@@ -312,17 +311,21 @@ export class SteamAdapter {
           throw new Error('Sync cancelled by user');
         }
         
+        // Atomic update after every batch for real-time progress tracking
+        // This ensures the most up-to-date progress is visible to users via polling
+        await SyncOperation.findByIdAndUpdate(syncOperation._id, {
+          gamesCompleted: processedCount
+        });
+        
+        // Update in-memory copy for accurate final stats
         syncOperation.gamesCompleted = processedCount;
-        // Save every 3 batches or on last batch for more frequent updates
-        if (processedCount % (currentBatchSize * 3) === 0 || i >= games.length) {
-          await syncOperation.save();
-          logger.debug({ 
-            syncOperationId: syncOperation._id,
-            processed: processedCount,
-            total: games.length,
-            progress: `${Math.round((processedCount / games.length) * 100)}%`,
-          }, 'Updated sync progress');
-        }
+        
+        logger.debug({ 
+          syncOperationId: syncOperation._id,
+          processed: processedCount,
+          total: games.length,
+          progress: `${Math.round((processedCount / games.length) * 100)}%`,
+        }, 'Updated sync progress');
       }
       
       // Log adaptive controller stats

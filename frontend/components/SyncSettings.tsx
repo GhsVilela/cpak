@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 export interface SyncSetting {
   sync_batch_size?: string;
-  sync_image_concurrency?: string;
+  sync_concurrency?: string;
 }
 
 interface SyncSettingsProps {
@@ -28,16 +28,16 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
   const handlePresetClick = (batchSize: string, concurrency: string) => {
     // Update both values - parent uses functional setState so both updates will apply correctly
     onChange('sync_batch_size', batchSize);
-    onChange('sync_image_concurrency', concurrency);
+    onChange('sync_concurrency', concurrency);
   };
 
   const batchSize = parseInt(values.sync_batch_size || '20');
-  const imageConcurrency = parseInt(values.sync_image_concurrency || '10');
+  const concurrency = parseInt(values.sync_concurrency || '10');
 
   // Determine which preset is currently active
-  const isConservative = batchSize === 10 && imageConcurrency === 5;
-  const isBalanced = batchSize === 20 && imageConcurrency === 10;
-  const isAggressive = batchSize === 30 && imageConcurrency === 15;
+  const isConservative = batchSize === 10 && concurrency === 5;
+  const isBalanced = batchSize === 20 && concurrency === 10;
+  const isAggressive = batchSize === 30 && concurrency === 15;
 
   return (
     <div className="bg-gray-900 rounded-lg p-6 space-y-6">
@@ -76,27 +76,27 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
           </p>
         </div>
 
-        {/* Image Concurrency */}
+        {/* Concurrency */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-gray-300">Image Download Concurrency</label>
-            <span className="text-sm font-mono text-blue-400">{imageConcurrency}</span>
+            <label className="text-sm font-medium text-gray-300">Parallel Operations Concurrency</label>
+            <span className="text-sm font-mono text-blue-400">{concurrency}</span>
           </div>
           <input
             type="range"
             min="1"
-            max="20"
+            max="30"
             step="1"
-            value={imageConcurrency}
-            onChange={(e) => onChange('sync_image_concurrency', e.target.value)}
+            value={concurrency}
+            onChange={(e) => onChange('sync_concurrency', e.target.value)}
             className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
           />
           <div className="flex justify-between text-xs text-gray-500">
             <span>1 (slower)</span>
-            <span>20 (faster)</span>
+            <span>30 (faster)</span>
           </div>
           <p className="text-xs text-gray-500">
-            Number of images (game covers and achievement icons) to download simultaneously. Higher values use more bandwidth.
+            Number of parallel operations (API calls, image downloads) to execute simultaneously. Higher values use more bandwidth and memory.
           </p>
         </div>
 
@@ -109,8 +109,8 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
             <div className="space-y-2">
               <p className="text-sm text-gray-300 font-medium">Performance Tips:</p>
               <ul className="text-xs text-gray-400 space-y-1 list-disc list-inside">
-                <li>For slow connections or limited bandwidth, use lower image concurrency (1-5)</li>
-                <li>For fast connections, increase image concurrency (10-20) for faster syncs</li>
+                <li>For slow connections or limited bandwidth, use lower concurrency (1-5)</li>
+                <li>For fast connections, increase concurrency (10-30) for faster syncs</li>
                 <li>Batch size affects memory usage during sync - lower values use less memory</li>
                 <li>Default values (batch: 20, concurrency: 10) work well for most deployments</li>
               </ul>
@@ -129,7 +129,7 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
           >
             <p className="text-sm font-medium text-gray-300">Conservative</p>
             <p className="text-xs text-gray-500 mt-1">Low resource usage</p>
-            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 10, Image Concurrent: 5</p>
+            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 10, Concurrency: 5</p>
           </button>
 
           <button
@@ -144,7 +144,7 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
               <span className="ml-2 text-xs text-blue-400">(Default)</span>
             </p>
             <p className="text-xs text-gray-500 mt-1">Good for most setups</p>
-            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 20, Image Concurrent: 10</p>
+            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 20, Concurrency: 10</p>
           </button>
 
           <button
@@ -156,7 +156,7 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
           >
             <p className="text-sm font-medium text-gray-300">Aggressive</p>
             <p className="text-xs text-gray-500 mt-1">Fast sync, high resources</p>
-            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 30, Image Concurrent: 15</p>
+            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 30, Concurrency: 15</p>
           </button>
         </div>
       </div>

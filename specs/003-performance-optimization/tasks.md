@@ -82,7 +82,7 @@ created: "2026-02-19"
 **Goal**: Eliminate API unresponsiveness and slow queries during achievement sync operations for large libraries (600+ games, 50k+ achievements) while respecting user-configured batch size and concurrency settings
 
 **Independent Test**: 
-1. Configure sync_batch_size=50, sync_image_concurrency=10 in settings
+1. Configure sync_batch_size=50, sync_concurrency=10 in settings
 2. Trigger full sync for profile with 100+ games
 3. Verify: API remains responsive (<2s), queries complete <500ms, adaptive algorithms reduce batch/concurrency when needed, original settings respected as maximum
 
@@ -118,7 +118,7 @@ created: "2026-02-19"
 
 #### Backwards Compatibility
 
-- [X] T031 [US1] Modify backend/src/services/configService.ts to load sync_batch_size and sync_image_concurrency settings as adaptive maximums
+- [X] T031 [US1] Modify backend/src/services/configService.ts to load sync_batch_size and sync_concurrency settings as adaptive maximums
 - [X] T032 [US1] Add validation to backend/src/services/adaptiveBatchController.ts to ensure current batch never exceeds user-configured maximum
 - [X] T033 [US1] Add validation to backend/src/services/adaptiveConcurrencyController.ts to ensure concurrency never exceeds user-configured maximum
 
