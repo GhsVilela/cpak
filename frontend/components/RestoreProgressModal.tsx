@@ -6,8 +6,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import ProgressIndicator from './ProgressIndicator';
-import { ProgressPayload, CompletePayload } from '@/services/sseClient';
+import ProgressIndicator, { ProgressPayload } from './ProgressIndicator';
 
 interface RestoreProgressModalProps {
   isOpen: boolean;

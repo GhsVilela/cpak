@@ -5,6 +5,22 @@
 
 'use client';
 
+/**
+ * Progress payload interface for tracking operation progress
+ * Shared across backup, restore, and sync operations
+ */
+export interface ProgressPayload {
+  progress: {
+    current: number;
+    total: number;
+    percentage: number;
+  };
+  currentStep?: string;
+  details?: Record<string, any>;
+  status?: string;
+  estimatedTimeRemaining?: number;
+}
+
 interface ProgressIndicatorProps {
   current: number;
   total: number;

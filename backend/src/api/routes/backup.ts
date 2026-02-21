@@ -6,7 +6,6 @@ import { Setting } from '../../models/setting.js';
 import { BackupMetadata } from '../../models/backupMetadata.js';
 import { BackupJob } from '../../models/backupJob.js';
 import { RestoreJob } from '../../models/restoreJob.js';
-import { progressService } from '../../services/progressService.js';
 import { logger } from '../../utils/logger.js';
 import archiver from 'archiver';
 import fs from 'fs';
@@ -358,20 +357,6 @@ async function createBackupInBackground(jobId: string) {
     // T039: Step 1: Fetch data from database (preparing phase)
     backupJob.status = 'preparing';
     await backupJob.save();
-    
-    progressService.broadcastProgress(jobId, {
-      status: 'preparing',
-      progress: {
-        current: 0,
-        total: 4,
-        percentage: 0
-      },
-      currentStep: 'Fetching data from database...',
-      details: {
-        collectionsProcessed: 0,
-        totalCollections: 4
-      }
-    });
 
     const [profiles, games, achievements, settings] = await Promise.all([
       Profile.find().lean(),
@@ -396,22 +381,6 @@ async function createBackupInBackground(jobId: string) {
       settings
     };
 
-    progressService.broadcastProgress(jobId, {
-      status: 'preparing',
-      progress: {
-        current: 4,
-        total: 4,
-        percentage: 100
-      },
-      currentStep: 'Data fetched, preparing archive...',
-      details: {
-        collectionsProcessed: 4,
-        totalCollections: 4,
-        recordsProcessed: totalRecords,
-        totalRecords
-      }
-    });
-
     // Check for cancellation
     if (cancelledJobs.has(jobId)) {
       logger.info({ jobId }, '[Backup] Job cancelled before archiving');
@@ -435,22 +404,6 @@ async function createBackupInBackground(jobId: string) {
     backupJob.metadata = { totalFiles };
     backupJob.fileSize = 0; // Will be used to track processed files
     await backupJob.save();
-
-    progressService.broadcastProgress(jobId, {
-      status: 'compressing',
-      progress: {
-        current: 0,
-        total: 100,
-        percentage: 0
-      },
-      currentStep: totalImages > 0 ? `Adding files to archive... (0/${totalFiles} files)` : 'Creating backup archive...',
-      details: {
-        collectionsProcessed: 4,
-        totalCollections: 4,
-        recordsProcessed: totalRecords,
-        totalRecords
-      }
-    });
 
     // Create backup directory if needed
     if (!fs.existsSync(BACKUP_TEMP_DIR)) {
@@ -557,19 +510,6 @@ async function createBackupInBackground(jobId: string) {
     backupJob.completedAt = new Date();
     await backupJob.save();
 
-    progressService.broadcastComplete(jobId, {
-      status: 'completed',
-      summary: {
-        collectionsProcessed: 4,
-        totalCollections: 4,
-        recordsProcessed: totalRecords,
-        totalRecords,
-        fileSize: backupJob.fileSize,
-        filePath: backupFilePath
-      },
-      message: 'Backup ready for download'
-    });
-
     // Update metadata (legacy compatibility)
     await BackupMetadata.findOneAndUpdate(
       { jobId },
@@ -617,14 +557,6 @@ async function createBackupInBackground(jobId: string) {
       if (cancelledJobs.has(jobId)) {
         cancelledJobs.delete(jobId);
       }
-
-      progressService.broadcastError(jobId, {
-        status: 'failed',
-        error: {
-          code: 'BACKUP_FAILED',
-          message: errorMessage
-        }
-      });
 
       // Update metadata with error
       await BackupMetadata.findOneAndUpdate(
@@ -734,18 +666,7 @@ export async function startRestore(
     });
 
     // T044: Broadcast initial progress (uploading phase)
-    progressService.broadcastProgress(jobId, {
-      status: 'uploading',
-      progress: {
-        current: 0,
-        total: 100,
-        percentage: 0
-      },
-      currentStep: 'Uploading backup file...',
-      details: {
-        uploadedFileSize: 0
-      }
-    });
+    // (Previously used SSE, now polling-based)
 
     // Get the uploaded file
     // @ts-ignore - multipart plugin adds file method to request
@@ -757,14 +678,6 @@ export async function startRestore(
       restoreJob.status = 'failed';
       restoreJob.error = 'No file uploaded';
       await restoreJob.save();
-      
-      progressService.broadcastError(jobId, {
-        status: 'failed',
-        error: {
-          code: 'NO_FILE',
-          message: 'No file uploaded'
-        }
-      });
       
       return reply.status(400).send({ error: 'No file uploaded' });
     }
@@ -788,19 +701,6 @@ export async function startRestore(
     await restoreJob.save();
     
     logger.info({ jobId, tempZipPath, fileSize: stats.size }, '[Restore] File saved to disk');
-    
-    progressService.broadcastProgress(jobId, {
-      status: 'uploading',
-      progress: {
-        current: 100,
-        total: 100,
-        percentage: 100
-      },
-      currentStep: 'File uploaded, starting restore...',
-      details: {
-        uploadedFileSize: stats.size
-      }
-    });
     
     // Start background job with file path
     restoreBackupInBackground(jobId, tempZipPath).catch((error) => {
@@ -975,16 +875,6 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
     restoreJob.status = 'extracting';
     await restoreJob.save();
 
-    progressService.broadcastProgress(jobId, {
-      status: 'extracting',
-      progress: {
-        current: 10,
-        total: 100,
-        percentage: 10
-      },
-      currentStep: 'Extracting backup archive...'
-    });
-
     fs.mkdirSync(tempExtractPath, { recursive: true });
     
     await new Promise<void>((resolve, reject) => {
@@ -1003,16 +893,6 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
     // Step 3: Validate and read backup data
     restoreJob.status = 'validating';
     await restoreJob.save();
-
-    progressService.broadcastProgress(jobId, {
-      status: 'validating',
-      progress: {
-        current: 20,
-        total: 100,
-        percentage: 20
-      },
-      currentStep: 'Validating backup data...'
-    });
 
     const dataJsonPath = path.join(tempExtractPath, 'data.json');
     if (!fs.existsSync(dataJsonPath)) {
@@ -1052,22 +932,6 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
     // T046: Step 4: Restore database (restoring phase)
     restoreJob.status = 'restoring';
     await restoreJob.save();
-
-    progressService.broadcastProgress(jobId, {
-      status: 'restoring',
-      progress: {
-        current: 0,
-        total: totalWorkItems,
-        percentage: 0
-      },
-      currentStep: 'Restoring database records...',
-      details: {
-        collectionsRestored: 0,
-        totalCollections,
-        recordsRestored: 0,
-        totalRecords
-      }
-    });
 
     // T047: Track progress for each collection
     let collectionsRestored = 0;
@@ -1115,22 +979,6 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
       restoreJob.recordsRestored = recordsRestored;
       await restoreJob.save();
 
-      progressService.broadcastProgress(jobId, {
-        status: 'restoring',
-        progress: {
-          current: recordsRestored,
-          total: totalWorkItems,
-          percentage: Math.floor((recordsRestored / totalWorkItems) * 100)
-        },
-        currentStep: 'Importing profiles...',
-        details: {
-          collectionsRestored,
-          totalCollections,
-          recordsRestored,
-          totalRecords
-        }
-      });
-
       logger.info({ jobId, imported: backupData.profiles.length }, '[Restore] Profiles imported');
       await new Promise(resolve => setTimeout(resolve, 50));
     }
@@ -1171,22 +1019,6 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
         if (i % (BATCH_SIZE * 10) === 0 || i + BATCH_SIZE >= totalGames) {
           restoreJob.recordsRestored = recordsRestored;
           await restoreJob.save();
-
-          progressService.broadcastProgress(jobId, {
-            status: 'restoring',
-            progress: {
-              current: recordsRestored,
-              total: totalWorkItems,
-              percentage: Math.floor((recordsRestored / totalWorkItems) * 100)
-            },
-            currentStep: `Importing games... (${recordsRestored - backupData.profiles.length}/${totalGames})`,
-            details: {
-              collectionsRestored,
-              totalCollections,
-              recordsRestored,
-              totalRecords
-            }
-          });
         }
 
         await new Promise(resolve => setTimeout(resolve, 75));
@@ -1236,23 +1068,6 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
         if (i % (BATCH_SIZE * 10) === 0 || i + BATCH_SIZE >= totalAchievements) {
           restoreJob.recordsRestored = recordsRestored;
           await restoreJob.save();
-
-          const prevRecords = (backupData.profiles?.length || 0) + (backupData.games?.length || 0);
-          progressService.broadcastProgress(jobId, {
-            status: 'restoring',
-            progress: {
-              current: recordsRestored,
-              total: totalWorkItems,
-              percentage: Math.floor((recordsRestored / totalWorkItems) * 100)
-            },
-            currentStep: `Importing database records... (${recordsRestored}/${totalRecords})`,
-            details: {
-              collectionsRestored,
-              totalCollections,
-              recordsRestored,
-              totalRecords
-            }
-          });
         }
 
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -1303,24 +1118,6 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
         if (count % 100 === 0 || count === totalImageFiles) {
           restoreJob.imagesRestored = count;
           await restoreJob.save();
-
-          progressService.broadcastProgress(jobId, {
-            status: 'restoring',
-            progress: {
-              current: recordsRestored + count,
-              total: totalWorkItems,
-              percentage: Math.floor(((recordsRestored + count) / totalWorkItems) * 100)
-            },
-            currentStep: `Restoring images... (${count}/${totalImageFiles})`,
-            details: {
-              collectionsRestored,
-              totalCollections,
-              recordsRestored,
-              totalRecords,
-              imagesRestored: count,
-              totalImages: totalImageFiles
-            }
-          });
         }
       });
       
@@ -1337,19 +1134,6 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
     restoreJob.status = 'completed';
     restoreJob.completedAt = new Date();
     await restoreJob.save();
-
-    progressService.broadcastComplete(jobId, {
-      status: 'completed',
-      summary: {
-        collectionsRestored: restoreJob.collectionsRestored,
-        totalCollections: restoreJob.totalCollections,
-        recordsRestored: restoreJob.recordsRestored,
-        totalRecords: restoreJob.totalRecords,
-        imagesRestored: restoreJob.imagesRestored,
-        warnings: restoreJob.warnings
-      },
-      message: 'Restore completed successfully'
-    });
 
     // Update metadata (legacy compatibility)
     await BackupMetadata.findOneAndUpdate(
@@ -1394,18 +1178,6 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
         restoreJob.error = errorMessage;
         await restoreJob.save();
       }
-
-      progressService.broadcastError(jobId, {
-        status: 'failed',
-        error: {
-          code: 'RESTORE_FAILED',
-          message: errorMessage
-        },
-        partialProgress: restoreJob ? {
-          itemsProcessed: restoreJob.recordsRestored + restoreJob.imagesRestored,
-          percentage: Math.floor((restoreJob.recordsRestored / restoreJob.totalRecords) * 100)
-        } : undefined
-      });
 
       // Update metadata with error
       await BackupMetadata.findOneAndUpdate(
