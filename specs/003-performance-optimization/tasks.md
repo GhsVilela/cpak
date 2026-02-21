@@ -7,7 +7,7 @@ created: "2026-02-19"
 # Tasks: System Performance Optimization
 
 **Input**: Design documents from `/specs/003-performance-optimization/`
-**Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/sse-events.md, quickstart.md
+**Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/progress-api.md, quickstart.md
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -68,9 +68,9 @@ created: "2026-02-19"
 
 ### Progress Service Foundation
 
-- [X] T015 Create backend/src/services/progressService.ts with SSE connection management, broadcast methods, and heartbeat mechanism
-- [X] T016 Add progress event types to backend/src/services/progressService.ts: ProgressEvent, CompleteEvent, ErrorEvent, HeartbeatEvent
-- [X] T017 Create backend/src/api/routes/progress.ts with SSE endpoints: GET /api/progress/sync/:operationId, /api/progress/backup/:jobId, /api/progress/restore/:jobId
+- [X] T015 Create backend/src/services/progressService.ts with in-memory state management, status methods, and progress update tracking
+- [X] T016 Add progress state types to backend/src/services/progressService.ts: SyncProgress, BackupProgress, RestoreProgress, OperationStatus
+- [X] T017 Modify backend/src/api/routes/sync.ts to add status endpoint: GET /api/sync/:profileId/status returning current sync progress
 - [X] T018 Register progress routes in backend/src/api/routes/index.ts
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
@@ -128,12 +128,12 @@ created: "2026-02-19"
 
 ## Phase 4: User Story 2 - Backup/Restore Progress Tracking (Priority: P2)
 
-**Goal**: Provide real-time progress feedback during backup creation and restore operations via SSE, tracking file preparation, compression, upload, extraction, and database restoration phases
+**Goal**: Provide real-time progress feedback during backup creation and restore operations via polling, tracking file preparation, compression, upload, extraction, and database restoration phases
 
 **Independent Test**:
 1. Navigate to Settings page
 2. Click "Create Backup" button
-3. Verify: SSE connection established, progress updates show collections processed, file size, compression status, "Download Ready" appears when complete
+3. Verify: Client polls status endpoint, progress updates show collections processed, file size, compression status, "Download Ready" appears when complete
 4. Upload backup file for restore
 5. Verify: Progress updates show upload percentage, extraction status, collections restored, completion message
 
@@ -142,16 +142,16 @@ created: "2026-02-19"
   - AC2.1: Backup creation shows preparing → compressing → ready phases with progress percentage
   - AC2.2: Restore shows uploading → extracting → validating → restoring phases with progress
   - AC2.3: File size and collections count displayed during backup/restore
-  - AC2.4: Errors during backup/restore trigger error event via SSE
-  - AC2.5: Progress updates sent every 2 seconds or on significant milestones
-  - AC2.6: Connection heartbeat every 30 seconds keeps SSE alive
+  - AC2.4: Errors during backup/restore trigger error state in status API
+  - AC2.5: Progress updates polled by client every 1-2 seconds
+  - AC2.6: Backend caches progress state in-memory for efficient polling
 
 ### Implementation for User Story 2
 
 #### Backup Progress Integration
 
 - [X] T034 [P] [US2] Modify backend/src/api/routes/backup.ts POST /api/backup to create BackupJob record at operation start
-- [X] T035 [US2] Modify backend/src/api/routes/backup.ts to call progressService.broadcastProgress() during collection export loop
+- [X] T035 [US2] Modify backend/src/api/routes/backup.ts to call progressService.updateBackupProgress() during collection export loop
 - [X] T036 [US2] Modify backend/src/api/routes/backup.ts to update BackupJob fields (collectionsProcessed, recordsProcessed, fileSize) as backup proceeds
 - [X] T037 [US2] Modify backend/src/api/routes/backup.ts to broadcast complete event when backup file is ready with download path
 - [X] T038 [US2] Modify backend/src/api/routes/backup.ts to broadcast error event on backup failure with error details
@@ -201,10 +201,10 @@ created: "2026-02-19"
 
 ### Implementation for User Story 3
 
-#### Frontend SSE Client
+#### Frontend Polling Client
 
-- [X] T048 [P] [US3] Create frontend/services/sseClient.ts with EventSource management, automatic reconnection with exponential backoff, and error handling
-- [X] T049 [P] [US3] Add progress event parsing to frontend/services/sseClient.ts: handle progress, complete, error, heartbeat event types
+- [X] T048 [P] [US3] Create frontend/services/pollingClient.ts with polling interval management, automatic cleanup, and error handling
+- [X] T049 [P] [US3] Add progress status fetching to frontend/services/pollingClient.ts: handle sync, backup, restore status endpoints with 1-2s intervals
 
 #### UI Components - Sync Progress
 
@@ -223,16 +223,16 @@ created: "2026-02-19"
 
 #### Page Integration
 
-- [X] T059 [US3] Modify frontend/app/steam/page.tsx to integrate SyncProgressPanel: show modal on sync start, establish SSE connection
+- [X] T059 [US3] Modify frontend/app/steam/page.tsx to integrate SyncProgressPanel: show modal on sync start, establish polling interval
 - [X] T060 [US3] Modify frontend/app/steam/page.tsx to close SyncProgressPanel on sync completion or error with toast notification
-- [X] T061 [US3] Modify frontend/app/settings/page.tsx to integrate BackupProgressModal: show modal on backup creation with SSE connection
-- [X] T062 [US3] Modify frontend/app/settings/page.tsx to integrate RestoreProgressModal: show modal on restore upload with SSE connection
+- [X] T061 [US3] Modify frontend/app/settings/page.tsx to integrate BackupProgressModal: show modal on backup creation with status polling
+- [X] T062 [US3] Modify frontend/app/settings/page.tsx to integrate RestoreProgressModal: show modal on restore upload with status polling
 
 #### Error Handling
 
-- [X] T063 [US3] Add SSE error handling to frontend/services/sseClient.ts: display user-friendly error messages in modal
-- [X] T064 [US3] Add SSE disconnection handling to frontend/services/sseClient.ts: show "Connection lost, reconnecting..." message
-- [X] T065 [US3] Modify frontend/components/Toast.tsx to handle error events from SSE: display error code and message
+- [X] T063 [US3] Add polling error handling to frontend/services/pollingClient.ts: display user-friendly error messages in modal
+- [X] T064 [US3] Add polling cleanup to frontend/services/pollingClient.ts: clear intervals when operations complete or component unmounts
+- [X] T065 [US3] Modify frontend/components/Toast.tsx to handle error events from status APIs: display error code and message
 
 **Checkpoint**: All user stories should now be independently functional. Users have full visibility into sync, backup, and restore operations with real-time progress feedback.
 
@@ -247,9 +247,9 @@ created: "2026-02-19"
 - [X] T068 Code review backend/src/services/syncService.ts for cleanup: remove debug logging, optimize error handling
 - [X] T069 Code review frontend/components for consistency: ensure all progress components use shared ProgressIndicator styling
 - [X] T070 [P] Add MongoDB query performance validation script to backend/src/scripts/: verify indexes eliminate COLLSCAN
-- [X] T071 Security review of SSE implementation: validate connection limits, prevent memory leaks from orphaned connections
+- [X] T071 Security review of polling implementation: validate request rate limits, prevent memory leaks from cached state
 - [X] T072 Run quickstart.md validation steps: verify all 4 implementation phases work as documented
-- [X] T073 [P] Update .github/agents/copilot-instructions.md with adaptive algorithm patterns and SSE implementation notes
+- [X] T073 [P] Update .github/agents/copilot-instructions.md with adaptive algorithm patterns and polling implementation notes
 
 ---
 
@@ -271,14 +271,14 @@ created: "2026-02-19"
   - User Story 1 adds: Integration into syncService and steam adapter
 
 - **User Story 2 (P2)**: Can start after Foundational (Phase 2) - No dependencies on User Story 1
-  - Foundational provides: BackupJob/RestoreJob models, progressService with SSE endpoints
+  - Foundational provides: BackupJob/RestoreJob models, progressService with status endpoints
   - User Story 2 adds: Integration into backup/restore routes
   - Independent: Does not modify sync flow, operates on separate endpoints
 
 - **User Story 3 (P3)**: Depends on Foundational (Phase 2) - Can benefit from US1/US2 being complete for full testing
-  - Foundational provides: SSE endpoints exposed via progressService
-  - User Story 3 adds: Frontend UI components and SSE client
-  - Partial independence: Can be developed and tested with mock SSE data, but full integration testing requires US1 and US2
+  - Foundational provides: Status endpoints exposed via REST API  
+  - User Story 3 adds: Frontend UI components and polling client
+  - Partial independence: Can be developed and tested with mock status data, but full integration testing requires US1 and US2
 
 ### Within Each User Story
 
@@ -294,8 +294,8 @@ created: "2026-02-19"
 3. Cleanup jobs (T050-T051) - parallel, depends on job models from Foundational
 
 **User Story 3** (Sync Progress Visibility):
-1. SSE client (T052-T053) - parallel, no dependencies
-2. Progress UI components (T054-T062) - parallel, depends on SSE client structure
+1. Polling client (T052-T053) - parallel, no dependencies
+2. Progress UI components (T054-T062) - parallel, depends on polling client structure
 3. Page integration (T063-T066) - depends on components, parallel across pages
 4. Error handling (T067-T069) - depends on page integration
 
@@ -319,7 +319,7 @@ created: "2026-02-19"
 - Cleanup jobs (T050-T051) can run in parallel
 
 **User Story 3**:
-- SSE client creation (T052-T053) can run in parallel with progress components
+- Polling client creation (T052-T053) can run in parallel with progress components
 - Progress components (T054-T055, T059-T060) can run in parallel (independent components)
 - Component features (T056-T058, T061-T062) depend on base components but can parallelize across components
 - Page integrations (T063-T066) can run in parallel (separate pages)
@@ -419,12 +419,12 @@ With multiple developers:
      - Backend: Add progress tracking to backup/restore routes
      - Independent code path from sync
    - **Developer C**: User Story 3 (Sync Progress Visibility) - ~4-5 hours
-     - Frontend: Build SSE client and progress UI components
+     - Frontend: Build polling client and progress UI components
      - Can start with mock data, integrate when US1/US2 complete
 
 3. **Stories complete and integrate independently**
    - Each developer can test their story without blocking others
-   - Integration point: Frontend (US3) connects to backend SSE endpoints from US1/US2
+   - Integration point: Frontend (US3) connects to backend status endpoints from US1/US2
 
 **Estimated Total with Parallel Team**: ~9-12 hours wall-clock time (vs 17-23 hours sequential)
 
@@ -439,8 +439,8 @@ With multiple developers:
 - **Performance targets**: 
   - Database queries: <50ms (down from 498ms)
   - API responses during sync: <2s (prevents unresponsiveness)
-  - SSE updates: Every 2 seconds or on significant progress
-  - SSE heartbeat: Every 30 seconds
+  - Progress updates: Polled every 1-2 seconds by client
+  - Backend caching: In-memory state for efficient polling
 - **Commit strategy**: Commit after each task or logical group
 - **Validation checkpoints**: Stop at each phase checkpoint to validate story independence
 - **Avoid**: 

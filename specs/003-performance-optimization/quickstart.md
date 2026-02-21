@@ -450,229 +450,235 @@ await Promise.all(iconDownloadPromises);
 
 ---
 
-### Phase 4: SSE Progress Tracking (3-4 hours)
+### Phase 4: Polling-Based Progress Tracking (2-3 hours)
 
-**Goal**: Real-time progress updates for sync/backup/restore operations.
+**Goal**: Real-time progress updates for sync/backup/restore operations via polling.
 
 #### Step 4.1: Create Progress Service
 
 Create `backend/src/services/progressService.ts`:
 ```typescript
-type ProgressCallback = (event: any) => void;
+interface SyncProgress {
+  syncing: boolean;
+  operationId?: string;
+  progress?: {
+    totalGames: number;
+    completedGames: number;
+    currentGame: string;
+    achievements: number;
+    icons: number;
+    errors: number;
+  };
+  startedAt?: string;
+  estimatedCompletion?: string;
+  lastSync?: string;
+}
 
 export class ProgressService {
-  private connections: Map<string, Set<ProgressCallback>> = new Map();
+  private syncStatus: Map<string, SyncProgress> = new Map();
+  private backupStatus: Map<string, any> = new Map();
+  private restoreStatus: Map<string, any> = new Map();
   
-  registerConnection(operationId: string, callback: ProgressCallback): void {
-    if (!this.connections.has(operationId)) {
-      this.connections.set(operationId, new Set());
-    }
-    this.connections.get(operationId)!.add(callback);
-    logger.info({ operationId, totalConnections: this.connections.get(operationId)!.size }, 'SSE connection registered');
+  // Sync progress management
+  setSyncStatus(profileId: string, status: SyncProgress): void {
+    this.syncStatus.set(profileId, status);
   }
   
-  unregisterConnection(operationId: string, callback: ProgressCallback): void {
-    const operationConnections = this.connections.get(operationId);
-    if (operationConnections) {
-      operationConnections.delete(callback);
-      if (operationConnections.size === 0) {
-        this.connections.delete(operationId);
-      }
-    }
-    logger.info({ operationId }, 'SSE connection unregistered');
+  getSyncStatus(profileId: string): SyncProgress | undefined {
+    return this.syncStatus.get(profileId);
   }
   
-  broadcastProgress(event: any): void {
-    const { operationId } = event;
-    const callbacks = this.connections.get(operationId);
-    
-    if (callbacks && callbacks.size > 0) {
-      callbacks.forEach(callback => {
-        try {
-          callback(event);
-        } catch (error) {
-          logger.error({ error, operationId }, 'Error broadcasting progress');
-        }
-      });
-    }
+  clearSyncStatus(profileId: string): void {
+    this.syncStatus.delete(profileId);
+  }
+  
+  // Backup progress management
+  setBackupStatus(jobId: string, status: any): void {
+    this.backupStatus.set(jobId, status);
+  }
+  
+  getBackupStatus(jobId: string): any {
+    return this.backupStatus.get(jobId);
+  }
+  
+  // Restore progress management
+  setRestoreStatus(jobId: string, status: any): void {
+    this.restoreStatus.set(jobId, status);
+  }
+  
+  getRestoreStatus(jobId: string): any {
+    return this.restoreStatus.get(jobId);
   }
 }
 
 export const progressService = new ProgressService();
 ```
 
-#### Step 4.2: Create SSE Endpoint
+#### Step 4.2: Add Status Endpoints
 
-Create `backend/src/api/routes/progress.ts`:
+Modify `backend/src/api/routes/sync.ts` to add status endpoint:
 ```typescript
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { progressService } from '../../services/progressService.js';
 
-export async function progressRoutes(fastify: FastifyInstance) {
-  fastify.get(
-    '/progress/sync/:operationId',
-    async (request: FastifyRequest<{ Params: { operationId: string } }>, reply: FastifyReply) => {
-      const { operationId } = request.params;
+// Add this route
+fastify.get(
+  '/sync/:profileId/status',
+  async (request: FastifyRequest<{ Params: { profileId: string } }>, reply: FastifyReply) => {
+    const { profileId } = request.params;
+    
+    const status = progressService.getSyncStatus(profileId);
+    
+    if (!status || !status.syncing) {
+      // Return last sync time if available
+      const lastSync = await SyncRun.findOne({ profileId })
+        .sort({ completedAt: -1 })
+        .lean();
       
-      // SSE headers
-      reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no'
-      });
-      
-      const sendEvent = (event: any) => {
-        const message = `data: ${JSON.stringify(event)}\n\n`;
-        reply.raw.write(message);
-      };
-      
-      progressService.registerConnection(operationId, sendEvent);
-      
-      // Heartbeat
-      const heartbeatInterval = setInterval(() => {
-        sendEvent({
-          type: 'heartbeat',
-          operationId,
-          timestamp: new Date().toISOString(),
-          payload: null
-        });
-      }, 30000);
-      
-      // Cleanup
-      request.raw.on('close', () => {
-        clearInterval(heartbeatInterval);
-        progressService.unregisterConnection(operationId, sendEvent);
+      return reply.send({
+        syncing: false,
+        lastSync: lastSync?.completedAt
       });
     }
-  );
-}
-```
-
-Register route in `backend/src/api/routes/index.ts`:
-```typescript
-import { progressRoutes } from './progress.js';
-
-export async function registerRoutes(fastify: FastifyInstance) {
-  // ... existing routes
-  await fastify.register(progressRoutes, { prefix: '/api' });
-}
-```
-
-#### Step 4.3: Broadcast Progress from Sync Service
-
-Modify sync service to emit progress:
-```typescript
-// In syncProfile method
-await progressService.broadcastProgress({
-  type: 'progress',
-  operationId: syncOperation._id.toString(),
-  timestamp: new Date().toISOString(),
-  payload: {
-    status: 'syncing',
-    progress: {
-      current: gamesCompleted,
-      total: totalGames,
-      percentage: (gamesCompleted / totalGames) * 100
-    },
-    currentStep: `Syncing game: ${game.name}`,
-    estimatedTimeRemaining: calculateETA(gamesCompleted, totalGames, startTime),
-    details: {
-      gamesCompleted,
-      achievementsSynced,
-      iconsDownloaded,
-      adaptiveBatchSize: batchController.getBatchSize(),
-      adaptiveConcurrency: concurrencyController.getCurrentLimit()
-    }
+    
+    return reply.send(status);
   }
+);
+```
+
+Add similar endpoints in `backend/src/api/routes/backup.ts`:
+```typescript
+fastify.get('/backup/status', async (request, reply) => {
+  const jobs = await BackupJob.find({ status: 'running' })
+    .sort({ createdAt: -1 })
+    .limit(1)
+    .lean();
+  
+  const currentJob = jobs[0];
+  const status = currentJob ? progressService.getBackupStatus(currentJob._id.toString()) : null;
+  
+  return reply.send({
+    current: status,
+    recent: await BackupJob.find({ status: 'completed' })
+      .sort({ completedAt: -1 })
+      .limit(5)
+      .lean()
+  });
 });
 ```
 
-#### Step 4.4: Create Frontend SSE Client
+#### Step 4.3: Update Progress from Sync Service
 
-Create `frontend/services/sseClient.ts`:
+Modify sync service to update progress state:
 ```typescript
-export function subscribeToProgress(
-  operationType: 'sync' | 'backup' | 'restore',
-  operationId: string,
-  callbacks: {
-    onProgress: (payload: any) => void;
-    onComplete: (payload: any) => void;
-    onError: (payload: any) => void;
+// In syncProfile method
+progressService.setSyncStatus(profileId, {
+  syncing: true,
+  operationId: syncOperation._id.toString(),
+  progress: {
+    totalGames,
+    completedGames: gamesCompleted,
+    currentGame: game.name,
+    achievements: achievementsSynced,
+    icons: iconsDownloaded,
+    errors: errorCount
+  },
+  startedAt: syncOperation.startedAt.toISOString(),
+  estimatedCompletion: calculateETA(gamesCompleted, totalGames, syncOperation.startedAt)
+});
+
+// When sync completes
+progressService.clearSyncStatus(profileId);
+```
+
+#### Step 4.4: Create Frontend Polling Client
+
+Create or modify `frontend/services/apiClient.ts`:
+```typescript
+export async function pollSyncStatus(profileId: string): Promise<SyncStatus> {
+  const response = await fetch(`/api/sync/${profileId}/status`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch sync status');
   }
-): EventSource {
-  const url = `/api/progress/${operationType}/${operationId}`;
-  const eventSource = new EventSource(url);
-  
-  eventSource.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    
-    switch (data.type) {
-      case 'progress':
-        callbacks.onProgress(data.payload);
-        break;
-      case 'complete':
-        callbacks.onComplete(data.payload);
-        eventSource.close();
-        break;
-      case 'error':
-        callbacks.onError(data.payload);
-        eventSource.close();
-        break;
-    }
-  };
-  
-  eventSource.onerror = () => {
-    console.error('SSE connection error');
-    eventSource.close();
-  };
-  
-  return eventSource;
+  return response.json();
+}
+
+export async function pollBackupStatus(): Promise<BackupStatus> {
+  const response = await fetch('/api/backup/status');
+  if (!response.ok) {
+    throw new Error('Failed to fetch backup status');
+  }
+  return response.json();
+}
+
+export async function pollRestoreStatus(): Promise<RestoreStatus> {
+  const response = await fetch('/api/restore/status');
+  if (!response.ok) {
+    throw new Error('Failed to fetch restore status');
+  }
+  return response.json();
 }
 ```
 
-#### Step 4.5: Update UI Components
+#### Step 4.5: Update UI Components with Polling
 
 Modify `frontend/components/SyncStatus.tsx`:
 ```typescript
 'use client';
 
-import { useEffect, useState } from 'react';
-import { subscribeToProgress } from '../services/sseClient';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { pollSyncStatus } from '../services/apiClient';
 
-export function SyncStatus({ syncOperationId }: { syncOperationId: string }) {
-  const [progress, setProgress] = useState({ percentage: 0, currentStep: '' });
+export function SyncStatus({ profileId }: { profileId: string }) {
+  const [status, setStatus] = useState<any>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout>();
+  
+  const startPolling = useCallback(async () => {
+    const poll = async () => {
+      try {
+        const data = await pollSyncStatus(profileId);
+        setStatus(data);
+        
+        // Stop polling when sync completes
+        if (!data.syncing && pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = undefined;
+        }
+      } catch (error) {
+        console.error('Failed to poll sync status:', error);
+      }
+    };
+    
+    // Initial poll
+    await poll();
+    
+    // Poll every 1 second
+    pollIntervalRef.current = setInterval(poll, 1000);
+  }, [profileId]);
   
   useEffect(() => {
-    const eventSource = subscribeToProgress(
-      'sync',
-      syncOperationId,
-      {
-        onProgress: (payload) => {
-          setProgress({
-            percentage: payload.progress.percentage,
-            currentStep: payload.currentStep
-          });
-        },
-        onComplete: (payload) => {
-          console.log('Sync complete:', payload.summary);
-        },
-        onError: (payload) => {
-          console.error('Sync failed:', payload.error);
-        }
-      }
-    );
+    startPolling();
     
-    return () => eventSource.close();
-  }, [syncOperationId]);
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, [startPolling]);
+  
+  if (!status?.syncing) {
+    return <div>Last sync: {status?.lastSync || 'Never'}</div>;
+  }
+  
+  const percentage = Math.round((status.progress.completedGames / status.progress.totalGames) * 100);
   
   return (
     <div>
       <div className="progress-bar">
-        <div style={{ width: `${progress.percentage}%` }} />
+        <div style={{ width: `${percentage}%` }} />
       </div>
-      <p>{progress.currentStep}</p>
-      <p>{Math.round(progress.percentage)}% complete</p>
+      <p>Syncing: {status.progress.currentGame}</p>
+      <p>{percentage}% complete ({status.progress.completedGames}/{status.progress.totalGames} games)</p>
+      <p>Achievements: {status.progress.achievements} | Icons: {status.progress.icons}</p>
     </div>
   );
 }
@@ -699,11 +705,13 @@ db.achievements.getIndexes()
 tail -f backend/logs/app.log | grep adaptive
 ```
 
-### 3. SSE Verification:
+### 3. Progress Polling Verification:
 ```bash
-# Open browser DevTools > Network > EventStream
-# Trigger sync, verify SSE connection established
-# Verify messages arriving every 2 seconds
+# Trigger sync, then poll status endpoint
+curl http://localhost:3001/api/sync/{profileId}/status
+
+# Should return JSON with syncing status and progress
+# {"syncing": true, "progress": {...}, "operationId": "..."}
 ```
 
 ---
@@ -712,9 +720,9 @@ tail -f backend/logs/app.log | grep adaptive
 
 If issues arise:
 
-1. **Database indexes**: Cannot rol back (low risk, read-only impact)
+1. **Database indexes**: Cannot rollback (low risk, read-only impact)
 2. **Adaptive algorithms**: Revert to fixed batch size from settings
-3. **SSE**: Frontend gracefully degrades (no progress indicator)
+3. **Progress Tracking**: Frontend gracefully degrades (no progress indicator)
 
 ---
 
@@ -750,10 +758,10 @@ db.achievements.getIndexes()
 db.achievements.find({profileId: ObjectId("..."), gameId: "123"}).explain("executionStats")
 ```
 
-### Issue: SSE not connecting
-- Check CORS configuration allows SSE
-- Verify `/api/progress/*` routes registered
-- Check nginx/proxy buffering disabled
+### Issue: Progress not updating
+- Check polling interval is active (1-2 seconds)
+- Verify status endpoints returning current state
+- Check progressService is updating state correctly
 
 ### Issue: Adaptive params not adjusting
 - Verify performance monitor logging
@@ -765,7 +773,6 @@ db.achievements.find({profileId: ObjectId("..."), gameId: "123"}).explain("execu
 ## Additional Resources
 
 - [data-model.md](./data-model.md): Complete entity schemas
-- [contracts/sse-events.md](./contracts/sse-events.md): SSE message formats
-- [research.md](./research.md): Algorithm design decisions
+- [contracts/progress-api.md](./contracts/progress-api.md): Progress tracking API specification
+- [research.md](./research.md): Polling vs SSE decision rationale
 - [MongoDB Indexes Documentation](https://docs.mongodb.com/manual/indexes/)
-- [Server-Sent Events Specification](https://html.spec.whatwg.org/multipage/server-sent-events.html)

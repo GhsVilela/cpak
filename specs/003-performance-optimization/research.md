@@ -8,63 +8,75 @@
 
 This document consolidates research findings for implementing performance optimizations across three critical areas: achievement synchronization, backup/restore operations, and real-time progress feedback. Research focuses on backwards-compatible solutions that respect existing user settings while adding intelligent adaptive behavior.
 
-## 1. Server-Sent Events (SSE) Implementation
+## 1. Progress Tracking Implementation
 
-### Decision: Native Node.js/Fastify SSE with EventSource on client
+### Decision: Polling-based progress tracking with REST API
 
 **Research Findings**:
 
 **Backend (Fastify)**:
 ```typescript
-// Pattern: SSE endpoint with connection management
-fastify.get('/api/progress/:operationId', async (request, reply) => {
-  reply.raw.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
-  });
+// Pattern: REST endpoint returning current operation status
+fastify.get('/api/sync/:profileId/status', async (request, reply) => {
+  const { profileId } = request.params;
   
-  const { operationId } = request.params;
-  const sendProgress = (data) => {
-    reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
+  // Return in-memory cached progress state
+  const status = progressService.getSyncStatus(profileId);
   
-  // Register connection in progress service
-  progressService.registerConnection(operationId, sendProgress);
-  
-  // Handle client disconnect
-  request.raw.on('close', () => {
-    progressService.unregisterConnection(operationId);
+  return reply.send({
+    syncing: status?.active || false,
+    operationId: status?.operationId,
+    progress: status?.progress,
+    startedAt: status?.startedAt,
+    estimatedCompletion: status?.estimatedCompletion
   });
 });
 ```
 
-**Frontend (Next.js)**:
+**Frontend (Next.js/React)**:
 ```typescript
-// Pattern: EventSource with automatic reconnection
-const eventSource = new EventSource(`/api/progress/${operationId}`);
+// Pattern: Polling with setInterval
+const pollSyncStatus = useCallback(async () => {
+  try {
+    const response = await fetch(`/api/sync/${profileId}/status`);
+    const data = await response.json();
+    setSyncStatus(data);
+    
+    // Stop polling when sync completes
+    if (!data.syncing && pollInterval) {
+      clearInterval(pollInterval);
+    }
+  } catch (error) {
+    console.error('Failed to fetch sync status:', error);
+  }
+}, [profileId]);
 
-eventSource.onmessage = (event) => {
-  const progress = JSON.parse(event.data);
-  updateProgressUI(progress);
-};
-
-eventSource.onerror = () => {
-  eventSource.close();
-  // Implement exponential backoff reconnection
-};
+useEffect(() => {
+  // Start polling every 1 second
+  const interval = setInterval(pollSyncStatus, 1000);
+  setPollInterval(interval);
+  
+  return () => clearInterval(interval);
+}, [pollSyncStatus]);
 ```
 
 **Best Practices**:
-- Keep connections alive with periodic heartbeat messages (every 30s)
-- Limit concurrent SSE connections per operation (max 10 clients per operation)
-- Clean up orphaned connections after 5 minutes of inactivity
-- Use structured message format: `{ type, operationId, progress, message, timestamp }`
+- Keep poll interval at 1-2 seconds for responsive UI
+- Cache progress state in-memory on backend to avoid database hits per poll
+- Clear polling intervals when operations complete or components unmount
+- Use structured status format: `{ syncing, operationId, progress, startedAt }`
+
+**Why Polling Over SSE/WebSockets**:
+- **Simplicity**: No connection management, reconnection logic, or heartbeat messages
+- **Reliability**: Works consistently across all network environments (proxies, load balancers)
+- **Debugging**: Easier to trace and debug individual HTTP requests
+- **Scalability**: No persistent connections, backend can scale horizontally without connection state
+- **Resource efficiency**: For operations lasting 5-30+ seconds, 1-2 second polling is acceptable overhead
 
 **Alternatives Considered**:
-- WebSockets: Overkill for one-way progress updates, more complex connection management
-- Long polling: Higher latency, more server overhead, no automatic reconnection
-- Traditional polling: Too much overhead, poor user experience
+- Server-Sent Events: More complex connection management, harder to debug, proxy/firewall issues
+- WebSockets: Overkill for one-way progress updates, requires persistent connection state
+- Long polling: Higher latency, more server overhead than simple polling
 
 ## 2. Adaptive Batching Algorithm
 
@@ -334,7 +346,7 @@ class PerformanceMonitor {
 - API response times during sync operations
 - Batch operation durations
 - Current adaptive parameters (batch size, concurrency, delay)
-- SSE connection counts and durations
+- Polling request counts and response times
 - Error rates and retry counts
 
 **Logging Format**:
@@ -411,16 +423,16 @@ class PerformanceMonitor {
 4. Monitor metrics for 24-48 hours
 5. Gradually enable for all users
 
-### Phase 3: SSE Progress Tracking (Low Risk)
-1. Deploy SSE endpoints (no breaking changes)
-2. Update frontend to use SSE (graceful degradation if unavailable)
-3. Monitor SSE connection counts and errors
+### Phase 3: Progress Tracking (Low Risk)
+1. Deploy status endpoints for sync/backup/restore operations
+2. Update frontend to poll for progress (1-2 second intervals)
+3. Monitor polling request volume and response times
 4. Expected timeline: Immediate rollout (additive feature)
 
 ### Rollback Plan:
 - Database indexes: Cannot be easily rolled back (but low risk, read-only impact)
 - Adaptive algorithms: Disable via feature flag, revert to user settings only
-- SSE: Frontend falls back to no progress indicator (existing behavior)
+- Progress tracking: Frontend falls back to no progress indicator (existing behavior)
 
 ## Conclusion
 
@@ -428,7 +440,7 @@ All research items have been resolved with concrete decisions. The chosen approa
 1. **Backwards Compatibility**: Respect existing user settings as maximum bounds
 2. **Adaptive Behavior**: Intelligent response to system load without manual intervention
 3. **Observability**: Comprehensive metrics and structured logging
-4. **Simplicity**: Use existing dependencies where possible (p-limit, Fastify SSE)
+4. **Simplicity**: Use existing dependencies where possible (p-limit, Fastify REST)
 5. **Performance**: Targeted optimizations (compound indexes) for maximum impact
 
 **No remaining NEEDS CLARIFICATION items.** Ready to proceed to Phase 1: Data Model and Contracts.
