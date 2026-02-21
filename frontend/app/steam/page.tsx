@@ -43,6 +43,15 @@ interface SyncStatus {
   };
 }
 
+interface BackupRestoreStatus {
+  backup: {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+  };
+  restore: {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+  };
+}
+
 function SteamPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -65,6 +74,10 @@ function SteamPageContent() {
   const [syncPollInterval, setSyncPollInterval] = useState<NodeJS.Timeout | null>(null);
   const lastSyncNotified = useRef<string | null>(null);
   
+  // Backup/Restore status (to block sync during backup/restore)
+  const [backupRestoreStatus, setBackupRestoreStatus] = useState<BackupRestoreStatus | null>(null);
+  const [backupRestorePollInterval, setBackupRestorePollInterval] = useState<NodeJS.Timeout | null>(null);
+  
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -76,6 +89,7 @@ function SteamPageContent() {
     if (selectedProfileId) {
       loadGames();
       loadSyncStatus();
+      loadBackupRestoreStatus();
     }
   }, [onlyCompleted, selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger]);
 
@@ -85,14 +99,21 @@ function SteamPageContent() {
       if (syncPollInterval) {
         clearInterval(syncPollInterval);
       }
+      if (backupRestorePollInterval) {
+        clearInterval(backupRestorePollInterval);
+      }
     };
-  }, [syncPollInterval]);
+  }, [syncPollInterval, backupRestorePollInterval]);
 
   const handleProfileChange = (profileId: string) => {
     // Stop any existing polling
     if (syncPollInterval) {
       clearInterval(syncPollInterval);
       setSyncPollInterval(null);
+    }
+    if (backupRestorePollInterval) {
+      clearInterval(backupRestorePollInterval);
+      setBackupRestorePollInterval(null);
     }
     
     setSelectedProfileId(profileId);
@@ -141,6 +162,47 @@ function SteamPageContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Load backup/restore status to check if operations are in progress
+  const loadBackupRestoreStatus = async () => {
+    try {
+      const response = await fetch('/api/backup/status');
+      if (response.ok) {
+        const data = await response.json();
+        setBackupRestoreStatus(data);
+        
+        // Start polling if there's an active operation
+        if ((data.backup?.current || data.restore?.current) && !backupRestorePollInterval) {
+          startBackupRestorePolling();
+        }
+        
+        return data;
+      }
+    } catch (err) {
+      console.error('Failed to load backup/restore status:', err);
+    }
+    return null;
+  };
+
+  // Start polling for backup/restore status
+  const startBackupRestorePolling = () => {
+    // Clear existing interval if any
+    if (backupRestorePollInterval) {
+      clearInterval(backupRestorePollInterval);
+    }
+
+    const interval = setInterval(async () => {
+      const status = await loadBackupRestoreStatus();
+      
+      // Stop polling when both backup and restore are idle
+      if (!status?.backup?.current && !status?.restore?.current) {
+        clearInterval(interval);
+        setBackupRestorePollInterval(null);
+      }
+    }, 2000); // Poll every 2 seconds (less frequent than sync)
+    
+    setBackupRestorePollInterval(interval);
   };
 
   // Load sync status from server
@@ -265,7 +327,9 @@ function SteamPageContent() {
             {selectedProfileId && !syncStatus?.current && (
               <button
                 onClick={triggerSync}
-                className="px-4 py-2 bg-[var(--steam-accent)] hover:bg-[#1a7fc1] rounded font-medium text-sm transition whitespace-nowrap"
+                disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                className="px-4 py-2 bg-[var(--steam-accent)] hover:bg-[#1a7fc1] disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap"
+                title={backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'Sync disabled during backup/restore operations' : ''}
               >
                 Sync Now
               </button>
@@ -361,16 +425,6 @@ function SteamPageContent() {
         <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-400 px-4 py-3 rounded mb-4">
           <p className="font-semibold">No Steam Profile Configured</p>
           <p className="text-sm mt-1">No Steam profiles configured. Add one in the Settings page to start syncing your games.</p>
-        </div>
-      )}
-
-      {!loading && games.length === 0 && !error && selectedProfileId && (
-        <div className="bg-blue-900/20 border border-blue-500 text-blue-400 px-4 py-3 rounded mb-4">
-          <p className="font-semibold">Sync in Progress or No Games Found</p>
-          <p className="text-sm mt-1">
-            Your Steam profile may be syncing. This can take a few minutes. 
-            {onlyCompleted && ' If you have games with achievements unlocked but no 100% completions, try disabling the "100% Complete Only" filter.'}
-          </p>
         </div>
       )}
 

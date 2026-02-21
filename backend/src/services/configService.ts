@@ -5,8 +5,8 @@ import { config } from '../utils/config.js';
 const DEFAULTS: Record<string, string> = {
   scheduler_enabled: 'false',
   scheduler_cron: '0 3 * * *',
-  sync_batch_size: '10',
-  sync_image_concurrency: '5'
+  sync_batch_size: '20',
+  sync_image_concurrency: '10'
 };
 
 // Secret setting keys
