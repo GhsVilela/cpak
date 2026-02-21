@@ -27,3 +27,68 @@ body {
   }
 }
 
+/* Stylized cpak logo */
+.logo-text {
+  font-family: 'Courier New', 'Courier', monospace;
+  position: relative;
+}
+
+.logo-gradient {
+  background: linear-gradient(
+    90deg,
+    var(--steam-accent) 0%,
+    var(--steam-accent) 25%,
+    var(--xbox-accent) 25%,
+    var(--xbox-accent) 50%,
+    var(--playstation-accent) 50%,
+    var(--playstation-accent) 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  transition: all 0.3s ease;
+}
+
+.logo-bracket {
+  color: #666;
+  font-weight: 700;
+  transition: color 0.3s ease;
+}
+
+.group:hover .logo-gradient {
+  letter-spacing: 0.15em;
+  filter: brightness(1.2);
+}
+
+.group:hover .logo-bracket {
+  filter: brightness(1.2);
+}
+
+/* Platform-specific bracket colors on hover */
+.group-steam:hover .logo-bracket {
+  color: var(--steam-accent);
+}
+
+.group-xbox:hover .logo-bracket {
+  color: var(--xbox-accent);
+}
+
+.group-playstation:hover .logo-bracket {
+  color: var(--playstation-accent);
+}
+
+/* Add subtle animation */
+@keyframes pulse-glow {
+  0%, 100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.1);
+  }
+}
+
+.logo-gradient {
+  animation: pulse-glow 3s ease-in-out infinite;
+}

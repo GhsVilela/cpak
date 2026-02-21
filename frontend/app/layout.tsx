@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Logo from "@/components/Logo";
 
 export const metadata: Metadata = {
   title: "cpak — Cross Platform Achievement Keeper",
@@ -16,7 +17,7 @@ export default function RootLayout({
       <body>
         <nav className="border-b border-gray-800 bg-gray-900/50 backdrop-blur">
           <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-            <h1 className="text-xl font-bold">cpak</h1>
+            <Logo />
             <div className="flex gap-4 text-sm">
               <a href="/steam" className="hover:text-[var(--steam-accent)] transition">Steam</a>
               <a href="/xbox" className="hover:text-[var(--xbox-accent)] transition">Xbox</a>
@@ -30,4 +31,3 @@ export default function RootLayout({
     </html>
   );
 }
-
