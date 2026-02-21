@@ -12,6 +12,7 @@ interface ProfileSyncControlsProps {
   };
   onSyncComplete?: () => void;
   onToast?: (message: string, type: 'success' | 'error' | 'info') => void;
+  disabled?: boolean;
 }
 
 export default function ProfileSyncControls({
@@ -20,6 +21,7 @@ export default function ProfileSyncControls({
   lastSync,
   onSyncComplete,
   onToast,
+  disabled = false,
 }: ProfileSyncControlsProps) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
@@ -83,8 +85,9 @@ export default function ProfileSyncControls({
         </div>
         <button
           onClick={handleSync}
-          disabled={syncing}
+          disabled={syncing || disabled}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition text-sm whitespace-nowrap flex-shrink-0 w-full sm:w-auto"
+          title={disabled ? 'Sync disabled during backup/restore operations' : ''}
         >
           {syncing ? 'Syncing...' : 'Sync Now'}
         </button>

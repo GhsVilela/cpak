@@ -771,7 +771,7 @@ export default function SettingsPage() {
                   ></div>
                 </div>
                 <div className="flex items-center justify-between mt-2">
-                  <p className="text-xs text-gray-400">Running in the background, you can leave this page and check back later. Progress is updated automatically.</p>
+                  <p className="text-xs text-gray-400">Backup is running in the background. You can check back later.</p>
                   <button
                     onClick={handleCancelBackup}
                     className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition flex items-center gap-1"
@@ -858,7 +858,7 @@ export default function SettingsPage() {
                   ></div>
                 </div>
                 <div className="flex items-center justify-between mt-2">
-                  <p className="text-xs text-gray-400">Running in the background, you can leave this page and check back later. Progress is updated automatically.</p>
+                  <p className="text-xs text-gray-400">Restore is running in the background. You can check back later.</p>
                   <button
                     onClick={handleCancelRestore}
                     className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition flex items-center gap-1"
@@ -999,6 +999,7 @@ export default function SettingsPage() {
                 lastSync={syncRuns[profile._id]}
                 onSyncComplete={loadSyncRuns}
                 onToast={showToast}
+                disabled={!!backupStatus?.current || !!restoreStatus?.current}
               />
             </div>
           ))}
