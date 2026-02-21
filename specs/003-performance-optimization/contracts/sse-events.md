@@ -407,36 +407,6 @@ async function syncGame(gameId: string, syncOperationId: string) {
 ---
 
 ## Testing
-
-### Unit Tests:
-- Parse SSE message format correctly
-- Handle each event type appropriately
-- Reconnect on connection loss
-
-### Integration Tests:
-- Receive progress updates during real sync operation
-- Receive complete event when operation finishes
-- Receive error event when operation fails
-- Heartbeat messages arrive every 30 seconds
-
-### E2E Tests (Playwright):
-```javascript
-test('shows real-time sync progress', async ({ page }) => {
-  await page.goto('/steam');
-  await page.click('[data-testid="sync-button"]');
-  
-  // Wait for progress indicator to appear
-  await page.waitForSelector('[data-testid="progress-bar"]');
-  
-  // Verify progress updates
-  const progressText = page.locator('[data-testid="progress-text"]');
-  await expect(progressText).toContainText(/\d+%/);
-  
-  // Wait for completion
-  await page.waitForSelector('[data-testid="sync-complete"]', { timeout: 60000 });
-});
-```
-
 ---
 
 ## Security Considerations

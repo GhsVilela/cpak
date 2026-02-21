@@ -8,25 +8,7 @@
 
 This document consolidates research findings for implementing performance optimizations across three critical areas: achievement synchronization, backup/restore operations, and real-time progress feedback. Research focuses on backwards-compatible solutions that respect existing user settings while adding intelligent adaptive behavior.
 
-## 1. Testing Framework Selection
-
-### Decision: Vitest + Playwright
-
-**Rationale**: 
-- **Vitest** for unit/integration tests: Native ESM support (project uses `"type": "module"`), faster than Jest, better TypeScript integration, Jest-compatible API for easy migration
-- **Playwright** for E2E tests: Better Next.js 15 support than Cypress, handles SSE connections well, multi-browser support, built-in parallel execution
-
-**Alternatives Considered**:
-- Jest: Requires complex ESM configuration, slower execution
-- Cypress: Weaker SSE support, more overhead for simple E2E scenarios
-
-**Implementation Notes**:
-- Backend unit tests: Mock MongoDB with `mongodb-memory-server`, mock SSE connections
-- Frontend unit tests: Mock SSE EventSource API, test component rendering with mock progress data
-- Integration tests: Use real MongoDB instance, test full sync flow with 1000+ mock games
-- E2E tests: Test complete user workflows including SSE progress updates in browser
-
-## 2. Server-Sent Events (SSE) Implementation
+## 1. Server-Sent Events (SSE) Implementation
 
 ### Decision: Native Node.js/Fastify SSE with EventSource on client
 
@@ -84,7 +66,7 @@ eventSource.onerror = () => {
 - Long polling: Higher latency, more server overhead, no automatic reconnection
 - Traditional polling: Too much overhead, poor user experience
 
-## 3. Adaptive Batching Algorithm
+## 2. Adaptive Batching Algorithm
 
 ### Decision: Feedback-controlled adaptive batch sizing
 
@@ -143,7 +125,7 @@ class AdaptiveBatchController {
 - Per-game adaptive: Too complex, inconsistent behavior
 - Linear adjustment: Too slow to respond to degradation
 
-## 4. MongoDB Indexing Strategy
+## 3. MongoDB Indexing Strategy
 
 ### Decision: Compound index (profileId, gameId, achievementId) with additional indexes
 
@@ -199,7 +181,7 @@ await Achievement.collection.createIndex(
 - Eliminates COLLSCAN (26,790 docs scanned → index lookup)
 - Index size: ~2-5MB for 50,000 achievements (acceptable overhead)
 
-## 5. Adaptive Concurrency Control
+## 4. Adaptive Concurrency Control
 
 ### Decision: p-limit with dynamic limit adjustment
 
@@ -264,7 +246,7 @@ class AdaptiveConcurrencyController {
 - Lightweight (no external dependencies)
 - Battle-tested in production environments
 
-## 6. Adaptive Throttling (Delay Between Batches)
+## 5. Adaptive Throttling (Delay Between Batches)
 
 ### Decision: Dynamic delay with exponential backoff
 
@@ -308,7 +290,7 @@ class AdaptiveThrottler {
 - Never exceeds 2s (prevents sync from stalling completely)
 - Independent of batch size (works with adaptive batching)
 
-## 7. Performance Monitoring & Metrics
+## 6. Performance Monitoring & Metrics
 
 ### Decision: Structured logging with performance thresholds
 
@@ -372,7 +354,7 @@ class PerformanceMonitor {
 }
 ```
 
-## 8. Backwards Compatibility Strategy
+## 7. Backwards Compatibility Strategy
 
 ### Key Requirements:
 1. Respect existing user-configured settings as starting point
@@ -414,35 +396,7 @@ class PerformanceMonitor {
 }
 ```
 
-## 9. Testing Strategy
-
-### Unit Tests (Vitest):
-- Adaptive batch size controller (various response time scenarios)
-- Adaptive concurrency controller (degradation and recovery)
-- Adaptive throttler (delay adjustment logic)
-- Performance monitor (threshold detection and logging)
-- SSE connection management (registration, broadcasting, cleanup)
-
-### Integration Tests (Vitest + mongodb-memory-server):
-- Full sync flow with 1000+ games (verify no timeouts)
-- Achievement queries with and without indexes (verify performance)
-- Backup/restore with 50,000 achievements (verify streaming)
-- SSE progress updates during long operations (verify real-time delivery)
-
-### E2E Tests (Playwright):
-- User triggers sync → sees real-time progress → completes successfully
-- User initiates backup → sees progress bar → downloads file
-- User uploads backup file → sees restore progress → verifies data
-- Multiple concurrent operations → system remains responsive
-- Settings page → modify batch size → verify adaptive respects new maximum
-
-### Performance Tests:
-- Load test: 10 concurrent sync operations
-- Stress test: Single profile with 1000 games
-- Scalability test: External MongoDB with 100k achievements
-- Regression test: Verify <2s API response during sync
-
-## 10. Migration and Rollout Plan
+## 8. Migration and Rollout Plan
 
 ### Phase 1: Database Indexes (Low Risk)
 1. Create migration script: `add-achievement-indexes.ts`
