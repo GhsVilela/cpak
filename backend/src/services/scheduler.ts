@@ -34,18 +34,21 @@ class SchedulerService {
    * Start the scheduled sync task
    */
   async start(): Promise<void> {
-    // Check if scheduler is enabled
-    const isEnabled = await configService.getSetting('scheduler_enabled');
-    if (isEnabled === 'false' || isEnabled === undefined) {
-      logger.info('[Scheduler] Disabled - not starting scheduled sync');
-      return;
-    }
-    
     // Reload configuration from database on start
     await this.loadConfiguration();
     
+    // Start cleanup scheduler (always runs, independent of sync scheduler)
+    this.startCleanupScheduler();
+    
+    // Check if profile sync scheduler is enabled
+    const isEnabled = await configService.getSetting('scheduler_enabled');
+    if (isEnabled === 'false' || isEnabled === undefined) {
+      logger.info('[Scheduler] Profile sync disabled - cleanup scheduler still running');
+      return;
+    }
+    
     if (this.task) {
-      logger.info('[Scheduler] Already running');
+      logger.info('[Scheduler] Profile sync already running');
       return;
     }
 
@@ -59,10 +62,7 @@ class SchedulerService {
       await this.syncAllProfiles();
     });
 
-    logger.info(`[Scheduler] Started with schedule: ${this.cronExpression}`);
-    
-    // Start cleanup scheduler
-    this.startCleanupScheduler();
+    logger.info(`[Scheduler] Profile sync started with schedule: ${this.cronExpression}`);
   }
 
   /**
