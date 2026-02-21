@@ -8,7 +8,7 @@ import { registerIconRoutes } from './icons.js';
 import { syncRunsRoutes } from './syncRuns.js';
 import { getAllSettings, getSetting, updateSetting, deleteSetting } from './settings.js';
 import { exportData, importData } from './exportImport.js';
-import { startBackup, getBackupProgress, downloadBackup, startRestore, getRestoreProgress, getStatus, cancelBackup, cancelRestore } from './backup.js';
+import { startBackup, getBackupProgress, downloadBackup, startRestore, getRestoreProgress, getRestoreJobs, getStatus, cancelBackup, cancelRestore } from './backup.js';
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Register system routes at root
@@ -54,6 +54,7 @@ export async function registerRoutes(fastify: FastifyInstance) {
   fastify.delete('/backup/cancel/:jobId', cancelBackup);
   fastify.post('/backup/restore/start', startRestore);
   fastify.get('/backup/restore/progress/:jobId', getRestoreProgress);
+  fastify.get('/backup/restore/status', getRestoreJobs);
   fastify.delete('/backup/restore/cancel/:jobId', cancelRestore);
 
   // Icons API

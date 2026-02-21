@@ -175,6 +175,11 @@ export async function getStatus(
       status: 'completed'
     }).sort({ completedAt: -1 });
 
+    // Get last failed restore from RestoreJob
+    const lastFailedRestore = await RestoreJob.findOne({
+      status: 'failed'
+    }).sort({ createdAt: -1 });
+
     // Check if last backup file still exists
     let backupReady = false;
     if (lastBackup && lastBackup.filePath && fs.existsSync(lastBackup.filePath)) {
@@ -196,6 +201,11 @@ export async function getStatus(
         lastCompleted: lastRestore ? {
           completedAt: lastRestore.completedAt,
           metadata: lastRestore.metadata
+        } : null,
+        lastFailed: lastFailedRestore ? {
+          createdAt: lastFailedRestore.createdAt,
+          error: lastFailedRestore.error,
+          jobId: lastFailedRestore._id.toString()
         } : null
       }
     });
@@ -682,7 +692,37 @@ export async function startRestore(
       return reply.status(400).send({ error: 'No file uploaded' });
     }
 
-    logger.info({ jobId, filename: data.filename }, '[Restore] File received, saving to disk');
+    logger.info({ jobId, filename: data.filename, mimetype: data.mimetype }, '[Restore] File received, validating');
+    
+    // Validate file is a zip file
+    const validMimeTypes = [
+      'application/zip',
+      'application/x-zip',
+      'application/x-zip-compressed',
+      'application/octet-stream' // Sometimes browsers send this for .zip files
+    ];
+    
+    const isValidMimeType = data.mimetype && validMimeTypes.includes(data.mimetype.toLowerCase());
+    const isValidExtension = data.filename && data.filename.toLowerCase().endsWith('.zip');
+    
+    if (!isValidMimeType && !isValidExtension) {
+      logger.error({ jobId, mimetype: data.mimetype, filename: data.filename }, '[Restore] Invalid file type');
+      restoreJob.status = 'failed';
+      restoreJob.error = 'Invalid file type. Only .zip files are supported.';
+      await restoreJob.save();
+      
+      await BackupMetadata.findOneAndUpdate(
+        { jobId },
+        {
+          status: 'failed',
+          error: 'Invalid file type. Only .zip files are supported.'
+        }
+      );
+      
+      return reply.status(400).send({ error: 'Invalid file type. Only .zip files are supported.' });
+    }
+    
+    logger.info({ jobId }, '[Restore] File validated, saving to disk');
     
     // Ensure backup directory exists
     if (!fs.existsSync(BACKUP_TEMP_DIR)) {
@@ -747,6 +787,27 @@ export async function getRestoreProgress(
   } catch (error) {
     logger.error({ error }, '[Restore] Failed to get progress');
     reply.status(500).send({ error: 'Failed to get progress' });
+  }
+}
+
+/**
+ * Get recent restore jobs (for checking failures)
+ */
+export async function getRestoreJobs(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    // Get the 5 most recent restore jobs
+    const jobs = await RestoreJob.find()
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('_id status error createdAt completedAt');
+    
+    reply.send(jobs);
+  } catch (error) {
+    logger.error({ error }, '[Restore] Failed to get restore jobs');
+    reply.status(500).send({ error: 'Failed to get restore jobs' });
   }
 }
 
@@ -884,8 +945,14 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
       readStream.pipe(extractStream);
       
       extractStream.on('close', () => resolve());
-      extractStream.on('error', reject);
-      readStream.on('error', reject);
+      extractStream.on('error', (err) => {
+        logger.error({ error: err, jobId }, '[Restore] Failed to extract zip file');
+        reject(new Error('Invalid or corrupted zip file'));
+      });
+      readStream.on('error', (err) => {
+        logger.error({ error: err, jobId }, '[Restore] Failed to read zip file');
+        reject(new Error('Failed to read zip file'));
+      });
     });
 
     logger.info('[Restore] Backup extracted');
@@ -896,10 +963,17 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
 
     const dataJsonPath = path.join(tempExtractPath, 'data.json');
     if (!fs.existsSync(dataJsonPath)) {
-      throw new Error('data.json not found in backup');
+      throw new Error('Invalid backup file: data.json not found. Please ensure you are uploading a valid CPAK backup file.');
     }
 
-    const backupData = JSON.parse(fs.readFileSync(dataJsonPath, 'utf-8'));
+    let backupData;
+    try {
+      backupData = JSON.parse(fs.readFileSync(dataJsonPath, 'utf-8'));
+    } catch (parseError) {
+      logger.error({ parseError, jobId }, '[Restore] Failed to parse data.json');
+      throw new Error('Invalid backup file: data.json is corrupted or not valid JSON.');
+    }
+    
     logger.info(`[Restore] Loaded backup data: version ${backupData.version}`);
 
     // Calculate totals
@@ -1187,6 +1261,15 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
           error: errorMessage
         }
       );
+      
+      // Cleanup temp files on failure
+      const tempExtractPath = path.join(BACKUP_TEMP_DIR, `${jobId}-extract`);
+      if (fs.existsSync(tempZipPath)) {
+        fs.rmSync(tempZipPath, { force: true });
+      }
+      if (fs.existsSync(tempExtractPath)) {
+        fs.rmSync(tempExtractPath, { recursive: true, force: true });
+      }
     } catch (saveError) {
       logger.error({ saveError, jobId }, '[Restore] Failed to save error state');
     }
