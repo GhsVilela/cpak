@@ -1,5 +1,6 @@
 import { Setting, SettingCategory } from '../models/setting.js';
 import { config } from '../utils/config.js';
+import { logger } from '../utils/logger.js';
 
 // Setting defaults
 const DEFAULTS: Record<string, string> = {
@@ -131,11 +132,11 @@ export class ConfigService {
       if (!existingSetting) {
         const category = key.startsWith('scheduler_') ? SettingCategory.SCHEDULER : SettingCategory.SYNC;
         await this.setSetting(key, value, category);
-        console.log(`[ConfigService] Initialized ${key} with default value: ${value}`);
+        logger.info({ key, value }, '[ConfigService] Initialized setting with default value');
       }
     }
 
-    console.log('[ConfigService] Settings initialization complete');
+    logger.info('[ConfigService] Settings initialization complete');
   }
 }
 
