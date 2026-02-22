@@ -18,7 +18,7 @@ export class AdaptiveBatchController {
   private currentBatchSize: number;
   private readonly minBatchSize = 5;
   private readonly maxBatchSize: number;
-  private readonly targetResponseTime = 500; // ms - balanced target
+  private readonly targetResponseTime = 800; // ms - More tolerant for network latency
   private recentResponseTimes: number[] = [];
   private readonly windowSize = 5; // Track last 5 responses
   
@@ -54,8 +54,8 @@ export class AdaptiveBatchController {
     const previousBatchSize = this.currentBatchSize;
     
     // Adjust batch size based on performance
-    if (avgResponseTime > this.targetResponseTime * 2) {
-      // Performance degrading: reduce batch size by 25% (aggressive response to slowdowns)
+    if (avgResponseTime > this.targetResponseTime * 2.5) {
+      // Performance degrading severely: reduce batch size by 25%
       this.currentBatchSize = Math.max(
         this.minBatchSize,
         Math.floor(this.currentBatchSize * 0.75)
@@ -64,23 +64,23 @@ export class AdaptiveBatchController {
       if (this.currentBatchSize !== previousBatchSize) {
         logger.info({
           avgResponseTime,
-          threshold: this.targetResponseTime * 2,
+          threshold: this.targetResponseTime * 2.5,
           previousBatchSize,
           newBatchSize: this.currentBatchSize,
           action: 'decreased',
         }, 'Batch size adjusted due to slow response times');
       }
-    } else if (avgResponseTime < this.targetResponseTime * 0.7 && this.currentBatchSize < this.maxBatchSize) {
-      // Performing well: increase batch size by 15% (conservative growth)
+    } else if (avgResponseTime < this.targetResponseTime * 1.2 && this.currentBatchSize < this.maxBatchSize) {
+      // Performing well: increase batch size by 20% (more aggressive growth)
       this.currentBatchSize = Math.min(
         this.maxBatchSize,
-        Math.ceil(this.currentBatchSize * 1.15)
+        Math.ceil(this.currentBatchSize * 1.20)
       );
       
       if (this.currentBatchSize !== previousBatchSize) {
         logger.info({
           avgResponseTime,
-          threshold: this.targetResponseTime * 0.7,
+          threshold: this.targetResponseTime * 1.2,
           previousBatchSize,
           newBatchSize: this.currentBatchSize,
           action: 'increased',

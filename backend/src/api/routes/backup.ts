@@ -963,7 +963,7 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
 
     const dataJsonPath = path.join(tempExtractPath, 'data.json');
     if (!fs.existsSync(dataJsonPath)) {
-      throw new Error('Invalid backup file: data.json not found. Please ensure you are uploading a valid CPAK backup file.');
+      throw new Error('Invalid backup file: data.json not found. Please upload a valid backup file.');
     }
 
     let backupData;
