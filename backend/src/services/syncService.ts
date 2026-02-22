@@ -33,8 +33,8 @@ class SyncService {
       iconDownloadsFailed: 0,
       errors: [],
       adaptiveParams: {
-        batchSize: parseInt(await configService.getSetting('sync_batch_size') || '20', 20),
-        concurrency: parseInt(await configService.getSetting('sync_concurrency') || '10', 10),
+        batchSize: parseInt(await configService.getSetting('sync_batch_size') || '30', 30),
+        concurrency: parseInt(await configService.getSetting('sync_concurrency') || '15', 15),
         delay: 250, // Initial throttle delay
       },
     });
