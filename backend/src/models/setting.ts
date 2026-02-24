@@ -57,7 +57,7 @@ const settingSchema = new Schema<ISetting, ISettingModel, ISettingMethods>(
 
 // Indexes
 settingSchema.index({ category: 1 });
-settingSchema.index({ key: 1 }, { unique: true });
+// Note: key field already has unique: true in schema definition, no need for explicit index
 
 // Instance method: Decrypt value
 settingSchema.method('getDecryptedValue', function (): string {

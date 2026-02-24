@@ -13,6 +13,9 @@ const updateSettingSchema = z.object({
 
 type UpdateSettingBody = z.infer<typeof updateSettingSchema>;
 
+// Debounce timer for scheduler reload (prevents duplicate reloads when multiple settings updated rapidly)
+let schedulerReloadTimer: NodeJS.Timeout | null = null;
+
 /**
  * GET /api/settings
  * Get all settings (secret values are hidden)
@@ -107,10 +110,19 @@ export async function updateSetting(
     // Update or create setting
     await configService.setSetting(key, value, category);
 
-    // Reload scheduler if scheduler settings were updated
+    // Reload scheduler if scheduler settings were updated (debounced to avoid duplicate reloads)
     if (key === 'scheduler_enabled' || key === 'scheduler_cron') {
-      await schedulerService.reload();
-      logger.info({ key, value }, '[Settings] Scheduler reloaded after settings update');
+      // Clear any pending reload
+      if (schedulerReloadTimer) {
+        clearTimeout(schedulerReloadTimer);
+      }
+      
+      // Schedule reload after a short delay to allow multiple settings to be updated
+      schedulerReloadTimer = setTimeout(async () => {
+        await schedulerService.reload();
+        logger.info({ key, value }, '[Settings] Scheduler reloaded after settings update');
+        schedulerReloadTimer = null;
+      }, 150); // 150ms debounce window
     }
 
     logger.info({ key, category }, '[Settings] Setting updated');
