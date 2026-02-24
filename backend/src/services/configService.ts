@@ -1,12 +1,13 @@
 import { Setting, SettingCategory } from '../models/setting.js';
 import { config } from '../utils/config.js';
+import { logger } from '../utils/logger.js';
 
 // Setting defaults
 const DEFAULTS: Record<string, string> = {
   scheduler_enabled: 'false',
   scheduler_cron: '0 3 * * *',
-  sync_batch_size: '10',
-  sync_image_concurrency: '5'
+  sync_batch_size: '30',
+  sync_concurrency: '15'
 };
 
 // Secret setting keys
@@ -131,11 +132,11 @@ export class ConfigService {
       if (!existingSetting) {
         const category = key.startsWith('scheduler_') ? SettingCategory.SCHEDULER : SettingCategory.SYNC;
         await this.setSetting(key, value, category);
-        console.log(`[ConfigService] Initialized ${key} with default value: ${value}`);
+        logger.info({ key, value }, '[ConfigService] Initialized setting with default value');
       }
     }
 
-    console.log('[ConfigService] Settings initialization complete');
+    logger.info('[ConfigService] Settings initialization complete');
   }
 }
 

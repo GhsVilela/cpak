@@ -30,8 +30,6 @@ export default function SetupPage() {
         },
       };
       
-      console.log('Sending profile data:', profileData);
-      
       const createdProfile = await apiClient.post<{ _id: string }>('/profiles', profileData);
 
       // Trigger initial sync using the MongoDB _id

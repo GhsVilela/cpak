@@ -34,4 +34,8 @@ const GameSchema = new Schema<IGame>(
 GameSchema.index({ platform: 1, profileId: 1, gameId: 1 }, { unique: true });
 GameSchema.index({ completionPercent: 1 });
 
+// Performance optimization index (added for 003-performance-optimization)
+// Compound index for fast profile + platform queries during sync
+GameSchema.index({ profileId: 1, platform: 1 }, { name: 'idx_games_profile_platform' });
+
 export const Game = mongoose.model<IGame>('Game', GameSchema);
