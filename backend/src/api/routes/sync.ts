@@ -100,13 +100,13 @@ export async function getSyncStatus(
           // Phase 2: Downloading game images (33-50% progress)
           else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted === 0) {
             progress = 33;
-            message = `Downloading game images... (${activeSyncOp.gamesCompleted} games)`;
+            message = `Fetching game images... (${activeSyncOp.gamesCompleted} games)`;
           }
           // Phase 3: Downloading achievement icons (50-100% progress)
           else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted < activeSyncOp.iconDownloadsPending) {
             const iconProgress = Math.floor((activeSyncOp.iconDownloadsCompleted / activeSyncOp.iconDownloadsPending) * 67);
             progress = 33 + iconProgress;
-            message = `Downloading achievement icons... (${activeSyncOp.iconDownloadsCompleted}/${activeSyncOp.iconDownloadsPending})`;
+            message = `Fetching achievement icons... (${activeSyncOp.iconDownloadsCompleted}/${activeSyncOp.iconDownloadsPending})`;
           }
           // Phase 4: Finalizing
           else {

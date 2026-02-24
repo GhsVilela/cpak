@@ -62,7 +62,7 @@ class SchedulerService {
       await this.syncAllProfiles();
     });
 
-    logger.info(`[Scheduler] Profile sync started with schedule: ${this.cronExpression}`);
+    logger.info(`[Scheduler] Profile sync configured with schedule: ${this.cronExpression}`);
   }
 
   /**
@@ -84,7 +84,7 @@ class SchedulerService {
       await this.cleanupExpiredJobs();
     });
 
-    logger.info(`[Scheduler] Cleanup task started with schedule: ${this.cleanupCronExpression}`);
+    logger.info(`[Scheduler] Cleanup task configured with schedule: ${this.cleanupCronExpression}`);
   }
 
   /**
@@ -108,7 +108,7 @@ class SchedulerService {
     if (this.task) {
       this.task.stop();
       this.task = null;
-      logger.info('[Scheduler] Stopped');
+      logger.info('[Scheduler] Profile sync stopped');
     }
     
     if (this.cleanupTask) {

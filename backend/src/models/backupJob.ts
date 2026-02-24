@@ -38,7 +38,7 @@ const backupJobSchema = new Schema<IBackupJob>(
       enum: ['preparing', 'compressing', 'ready', 'failed', 'expired'],
       required: true,
       default: 'preparing',
-      index: true,
+      // No single-field index - covered by compound index below
     },
     initiatedBy: {
       type: String,
@@ -84,7 +84,7 @@ const backupJobSchema = new Schema<IBackupJob>(
       type: Date,
       required: true,
       default: () => new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours from creation
-      index: true, // TTL index for automatic cleanup
+      // TTL index defined explicitly below with expireAfterSeconds
     },
     error: {
       type: String,
