@@ -4,6 +4,8 @@ import { Game } from '../../models/game.js';
 import { Achievement } from '../../models/achievement.js';
 import { Setting } from '../../models/setting.js';
 import { BackupMetadata } from '../../models/backupMetadata.js';
+import { BackupJob } from '../../models/backupJob.js';
+import { RestoreJob } from '../../models/restoreJob.js';
 import { logger } from '../../utils/logger.js';
 import archiver from 'archiver';
 import fs from 'fs';
@@ -70,24 +72,95 @@ export async function getStatus(
   reply: FastifyReply
 ) {
   try {
-    // Get current jobs from memory
+    // Get current jobs from MongoDB (source of truth)
     let currentBackup = null;
     let currentRestore = null;
 
-    // Find active backup
-    for (const [jobId, progress] of backupJobs.entries()) {
-      if (progress.status !== 'complete' && progress.status !== 'error') {
-        currentBackup = { jobId, ...progress };
-        break;
+    // Find active backup job from DB (exclude ready/completed/failed/expired)
+    const activeBackupJob = await BackupJob.findOne({
+      status: { $nin: ['ready', 'completed', 'failed', 'expired'] }
+    }).sort({ createdAt: -1 });
+
+    if (activeBackupJob) {
+      // Calculate progress percentage
+      let progress = 0;
+      let message = '';
+      
+      if (activeBackupJob.status === 'preparing') {
+        progress = activeBackupJob.totalRecords > 0 
+          ? Math.floor((activeBackupJob.recordsProcessed / activeBackupJob.totalRecords) * 100)
+          : 0;
+        message = `Fetching data from database... (${activeBackupJob.recordsProcessed}/${activeBackupJob.totalRecords} records)`;
+      } else if (activeBackupJob.status === 'compressing') {
+        // During compression, show archive progress if available
+        if (activeBackupJob.fileSize > 0 && activeBackupJob.metadata?.totalFiles) {
+          const filesProcessed = activeBackupJob.fileSize; // Temporarily stores file count
+          const totalFiles = activeBackupJob.metadata.totalFiles;
+          progress = Math.min(Math.floor((filesProcessed / totalFiles) * 100), 99);
+          message = `Creating backup archive... (${filesProcessed}/${totalFiles} files)`;
+        } else {
+          progress = 50;
+          message = 'Creating backup archive (this may take a while for large image collections)...';
+        }
+      } else if (activeBackupJob.status === 'ready') {
+        progress = 100;
+        message = 'Backup ready for download';
+      } else if (activeBackupJob.status === 'failed') {
+        progress = 0;
+        message = activeBackupJob.error || 'Backup failed';
+      } else {
+        progress = activeBackupJob.totalRecords > 0 
+          ? Math.floor((activeBackupJob.recordsProcessed / activeBackupJob.totalRecords) * 100)
+          : 0;
+        message = `Processing... (${activeBackupJob.recordsProcessed}/${activeBackupJob.totalRecords} records)`;
       }
+
+      currentBackup = {
+        jobId: activeBackupJob._id.toString(),
+        status: activeBackupJob.status,
+        progress: progress,
+        message: message
+      };
     }
 
-    // Find active restore
-    for (const [jobId, progress] of restoreJobs.entries()) {
-      if (progress.status !== 'complete' && progress.status !== 'error') {
-        currentRestore = { jobId, ...progress };
-        break;
+    // Find active restore job from DB
+    const activeRestoreJob = await RestoreJob.findOne({
+      status: { $nin: ['completed', 'failed'] }
+    }).sort({ createdAt: -1 });
+
+    if (activeRestoreJob) {
+      // Calculate total work (records + images)
+      const totalWork = activeRestoreJob.totalRecords + activeRestoreJob.totalImages;
+      const currentWork = activeRestoreJob.recordsRestored + activeRestoreJob.imagesRestored;
+      
+      // Calculate progress percentage including images
+      const progress = totalWork > 0 
+        ? Math.floor((currentWork / totalWork) * 100)
+        : 0;
+
+      // Generate message based on current phase
+      let message = '';
+      if (activeRestoreJob.status === 'extracting') {
+        message = 'Extracting backup archive...';
+      } else if (activeRestoreJob.status === 'validating') {
+        message = 'Validating backup data...';
+      } else if (activeRestoreJob.status === 'restoring') {
+        const collection = activeRestoreJob.currentCollection;
+        if (collection === 'images') {
+          message = `Restoring images... (${activeRestoreJob.imagesRestored}/${activeRestoreJob.totalImages} files)`;
+        } else {
+          message = `Restoring database records... (${activeRestoreJob.recordsRestored}/${activeRestoreJob.totalRecords} records)`;
+        }
+      } else {
+        message = `Processing... (${currentWork}/${totalWork} items)`;
       }
+
+      currentRestore = {
+        jobId: activeRestoreJob._id.toString(),
+        status: activeRestoreJob.status,
+        progress: progress,
+        message: message
+      };
     }
 
     // Get last completed or ready backup from DB
@@ -101,6 +174,11 @@ export async function getStatus(
       type: 'restore',
       status: 'completed'
     }).sort({ completedAt: -1 });
+
+    // Get last failed restore from RestoreJob
+    const lastFailedRestore = await RestoreJob.findOne({
+      status: 'failed'
+    }).sort({ createdAt: -1 });
 
     // Check if last backup file still exists
     let backupReady = false;
@@ -123,6 +201,11 @@ export async function getStatus(
         lastCompleted: lastRestore ? {
           completedAt: lastRestore.completedAt,
           metadata: lastRestore.metadata
+        } : null,
+        lastFailed: lastFailedRestore ? {
+          createdAt: lastFailedRestore.createdAt,
+          error: lastFailedRestore.error,
+          jobId: lastFailedRestore._id.toString()
         } : null
       }
     });
@@ -139,34 +222,37 @@ export async function startBackup(
   req: FastifyRequest,
   reply: FastifyReply
 ) {
-  const jobId = `backup-${Date.now()}`;
-  
-  // Initialize progress
-  backupJobs.set(jobId, {
-    status: 'preparing',
-    progress: 0,
-    message: 'Preparing backup...'
-  });
-
-  // Create metadata entry
-  await BackupMetadata.create({
-    type: 'backup',
-    status: 'in-progress',
-    jobId
-  });
-
-  // Start background job
-  createBackupInBackground(jobId).catch((error) => {
-    logger.error({ error, jobId }, '[Backup] Background job failed');
-    backupJobs.set(jobId, {
-      status: 'error',
-      progress: 0,
-      message: 'Backup failed',
-      error: error instanceof Error ? error.message : String(error)
+  try {
+    // T038: Create BackupJob record at operation start
+    const backupJob = await BackupJob.create({
+      status: 'preparing',
+      totalCollections: 4, // profiles, games, achievements, settings
+      collectionsProcessed: 0,
+      totalRecords: 0,
+      recordsProcessed: 0,
+      fileSize: 0,
+      collections: ['profiles', 'games', 'achievements', 'settings']
     });
-  });
 
-  reply.send({ jobId });
+    const jobId = backupJob._id.toString();
+
+    // Create metadata entry (legacy compatibility)
+    await BackupMetadata.create({
+      type: 'backup',
+      status: 'in-progress',
+      jobId
+    });
+
+    // Start background job
+    createBackupInBackground(jobId).catch((error) => {
+      logger.error({ error, jobId }, '[Backup] Background job failed');
+    });
+
+    reply.send({ jobId });
+  } catch (error) {
+    logger.error({ error }, '[Backup] Failed to start backup');
+    reply.status(500).send({ error: 'Failed to start backup' });
+  }
 }
 
 /**
@@ -176,14 +262,30 @@ export async function getBackupProgress(
   req: FastifyRequest<{ Params: { jobId: string } }>,
   reply: FastifyReply
 ) {
-  const { jobId } = req.params;
-  const progress = backupJobs.get(jobId);
-  
-  if (!progress) {
-    return reply.status(404).send({ error: 'Job not found' });
+  try {
+    const { jobId } = req.params;
+    const backupJob = await BackupJob.findById(jobId);
+    
+    if (!backupJob) {
+      return reply.status(404).send({ error: 'Job not found' });
+    }
+    
+    reply.send({
+      status: backupJob.status,
+      totalCollections: backupJob.totalCollections,
+      collectionsProcessed: backupJob.collectionsProcessed,
+      totalRecords: backupJob.totalRecords,
+      recordsProcessed: backupJob.recordsProcessed,
+      fileSize: backupJob.fileSize,
+      filePath: backupJob.filePath,
+      error: backupJob.error,
+      createdAt: backupJob.createdAt,
+      completedAt: backupJob.completedAt
+    });
+  } catch (error) {
+    logger.error({ error }, '[Backup] Failed to get progress');
+    reply.status(500).send({ error: 'Failed to get progress' });
   }
-  
-  reply.send(progress);
 }
 
 /**
@@ -193,61 +295,78 @@ export async function downloadBackup(
   req: FastifyRequest<{ Params: { jobId: string } }>,
   reply: FastifyReply
 ) {
-  const { jobId } = req.params;
-  const progress = backupJobs.get(jobId);
-  
-  if (!progress) {
-    return reply.status(404).send({ error: 'Job not found' });
-  }
-  
-  if (progress.status !== 'complete' || !progress.filePath) {
-    return reply.status(400).send({ error: 'Backup not ready' });
-  }
-  
-  if (!fs.existsSync(progress.filePath)) {
-    return reply.status(404).send({ error: 'Backup file not found' });
-  }
+  try {
+    const { jobId } = req.params;
+    const backupJob = await BackupJob.findById(jobId);
+    
+    if (!backupJob) {
+      return reply.status(404).send({ error: 'Job not found' });
+    }
+    
+    if (backupJob.status !== 'ready' || !backupJob.filePath) {
+      return reply.status(400).send({ error: 'Backup not ready' });
+    }
+    
+    if (!fs.existsSync(backupJob.filePath)) {
+      return reply.status(404).send({ error: 'Backup file not found' });
+    }
 
-  // Record download timestamp
-  await BackupMetadata.findOneAndUpdate(
-    { jobId },
-    { downloadedAt: new Date() }
-  );
-  
-  // Stream the file
-  const stream = createReadStream(progress.filePath);
-  reply.raw.writeHead(200, {
-    'Content-Type': 'application/zip',
-    'Content-Disposition': `attachment; filename="cpak-backup-${Date.now()}.zip"`
-  });
-  
-  stream.pipe(reply.raw);
-  
-  // Cleanup after sending
-  stream.on('end', () => {
-    fs.unlinkSync(progress.filePath!);
-    backupJobs.delete(jobId);
-  });
+    // Record download timestamp
+    await BackupMetadata.findOneAndUpdate(
+      { jobId },
+      { downloadedAt: new Date() }
+    );
+    
+    // Get file size for Content-Length header (required for progress tracking)
+    const stats = fs.statSync(backupJob.filePath);
+    
+    // Stream the file
+    const stream = createReadStream(backupJob.filePath);
+    reply.raw.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="cpak-backup-${Date.now()}.zip"`,
+      'Content-Length': stats.size.toString()
+    });
+    
+    stream.pipe(reply.raw);
+    
+    // Cleanup after sending
+    stream.on('end', () => {
+      if (backupJob.filePath && fs.existsSync(backupJob.filePath)) {
+        fs.unlinkSync(backupJob.filePath);
+      }
+    });
+  } catch (error) {
+    logger.error({ error }, '[Backup] Failed to download backup');
+    reply.status(500).send({ error: 'Failed to download backup' });
+  }
 }
 
 /**
  * Create backup in background with progress tracking
  */
 async function createBackupInBackground(jobId: string) {
-  const progress = backupJobs.get(jobId)!;
-  
   try {
+    // Load BackupJob record
+    const backupJob = await BackupJob.findById(jobId);
+    if (!backupJob) {
+      logger.error({ jobId }, '[Backup] BackupJob not found');
+      return;
+    }
+
     // Check for cancellation
     if (cancelledJobs.has(jobId)) {
       logger.info({ jobId }, '[Backup] Job was cancelled before starting');
       cancelledJobs.delete(jobId);
+      backupJob.status = 'failed';
+      backupJob.error = 'Cancelled by user';
+      await backupJob.save();
       return;
     }
 
-    // Step 1: Fetch data (10% progress)
-    progress.message = 'Fetching data from database...';
-    progress.progress = 5;
-    backupJobs.set(jobId, progress);
+    // T039: Step 1: Fetch data from database (preparing phase)
+    backupJob.status = 'preparing';
+    await backupJob.save();
 
     const [profiles, games, achievements, settings] = await Promise.all([
       Profile.find().lean(),
@@ -255,6 +374,13 @@ async function createBackupInBackground(jobId: string) {
       Achievement.find().lean(),
       Setting.find().lean()
     ]);
+
+    // T040: Update BackupJob with total records count
+    const totalRecords = profiles.length + games.length + achievements.length + settings.length;
+    backupJob.totalRecords = totalRecords;
+    backupJob.recordsProcessed = totalRecords; // All data fetched
+    backupJob.collectionsProcessed = 4;
+    await backupJob.save();
 
     const exportData = {
       version: '1.0.0',
@@ -265,64 +391,87 @@ async function createBackupInBackground(jobId: string) {
       settings
     };
 
-    progress.progress = 10;
-    progress.message = 'Data fetched, preparing archive...';
-    backupJobs.set(jobId, progress);
-
-    // Step 2: Count files for progress tracking (15% progress)
-    let totalFiles = 0;
-    if (fs.existsSync(IMAGES_DIR)) {
-      progress.message = 'Counting image files...';
-      backupJobs.set(jobId, progress);
-      totalFiles = await countFiles(IMAGES_DIR);
-      logger.info({ totalFiles }, '[Backup] Total files to archive');
-    }
-
-    progress.progress = 15;
-    progress.message = `Creating archive (${totalFiles} files)...`;
-    backupJobs.set(jobId, progress);
-
     // Check for cancellation
     if (cancelledJobs.has(jobId)) {
       logger.info({ jobId }, '[Backup] Job cancelled before archiving');
       cancelledJobs.delete(jobId);
+      backupJob.status = 'failed';
+      backupJob.error = 'Cancelled by user';
+      await backupJob.save();
       return;
     }
 
-    // Step 3: Create archive
-    try {
-      if (!fs.existsSync(BACKUP_TEMP_DIR)) {
-        logger.info({ dir: BACKUP_TEMP_DIR }, 'Creating backup directory');
-        fs.mkdirSync(BACKUP_TEMP_DIR, { recursive: true, mode: 0o755 });
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error({ error: errorMessage, dir: BACKUP_TEMP_DIR }, 'Failed to create backup directory');
-      throw new Error(`Failed to create backup directory: ${errorMessage}`);
+    // T040: Step 2: Create archive (compressing phase)
+    backupJob.status = 'compressing';
+    await backupJob.save();
+
+    // Count total images for progress tracking
+    const totalImages = fs.existsSync(IMAGES_DIR) ? await countFiles(IMAGES_DIR) : 0;
+    const totalFiles = totalImages + 1; // +1 for data.json
+    logger.info({ jobId, totalImages, totalFiles }, '[Backup] Counted images for archive');
+
+    // Store total files in metadata for progress tracking
+    backupJob.metadata = { totalFiles };
+    backupJob.fileSize = 0; // Will be used to track processed files
+    await backupJob.save();
+
+    // Create backup directory if needed
+    if (!fs.existsSync(BACKUP_TEMP_DIR)) {
+      logger.info({ dir: BACKUP_TEMP_DIR }, 'Creating backup directory');
+      fs.mkdirSync(BACKUP_TEMP_DIR, { recursive: true, mode: 0o755 });
     }
 
     const backupFilePath = path.join(BACKUP_TEMP_DIR, `${jobId}.zip`);
     const output = createWriteStream(backupFilePath);
     const archive = archiver('zip', { 
-      zlib: { level: 6 } // Balanced compression (was 9, now 6 for speed)
+      zlib: { level: 5 } // Slightly faster compression
     });
 
-    // Track archive progress
+    // Track archiver progress and cancellation
     let processedFiles = 0;
-    archive.on('entry', (entry) => {
-      // Check for cancellation
-      if (cancelledJobs.has(jobId)) {
-        logger.info({ jobId }, '[Backup] Job cancelled during archiving');
-        archive.abort();
-        return;
+    let lastProgressUpdate = 0;
+    let archiveCancelled = false;
+    
+    // Set up error handlers immediately to prevent unhandled errors
+    output.on('error', (err) => {
+      // Ignore errors after cancellation (stream destroyed errors are expected)
+      if (!archiveCancelled) {
+        logger.error({ error: err, jobId }, '[Backup] Output stream error');
+      }
+    });
+    
+    archive.on('error', (err) => {
+      // Ignore errors after cancellation
+      if (!archiveCancelled) {
+        logger.error({ error: err, jobId }, '[Backup] Archiver error');
+      }
+    });
+    
+    archive.on('entry', async (entry) => {
+      processedFiles++;
+      
+      // Update progress every 500 files or every 2 seconds
+      const now = Date.now();
+      if (processedFiles % 500 === 0 || now - lastProgressUpdate > 2000) {
+        lastProgressUpdate = now;
+        
+        // Update BackupJob in MongoDB for polling frontend
+        const percentage = totalImages > 0 ? Math.floor((processedFiles / (totalImages + 1)) * 100) : 50;
+        backupJob.recordsProcessed = totalRecords; // Keep at max
+        backupJob.fileSize = processedFiles; // Use fileSize field temporarily to track archive progress
+        await backupJob.save();
+        
+        logger.info({ jobId, processedFiles, totalImages }, '[Backup] Archive progress');
       }
       
-      if (totalFiles > 0) {
-        processedFiles++;
-        const fileProgress = Math.floor((processedFiles / totalFiles) * 70); // 15-85% range
-        progress.progress = 15 + fileProgress;
-        progress.message = `Archiving files... (${processedFiles}/${totalFiles})`;
-        backupJobs.set(jobId, progress);
+      // Check for cancellation every 100 files
+      if (processedFiles % 100 === 0) {
+        const job = await BackupJob.findById(jobId);
+        if (job && job.status === 'failed') {
+          logger.info({ jobId }, '[Backup] Job cancelled during archiving, aborting');
+          archiveCancelled = true;
+          archive.abort();
+        }
       }
     });
 
@@ -331,32 +480,47 @@ async function createBackupInBackground(jobId: string) {
     // Add data.json
     archive.append(JSON.stringify(exportData, null, 2), { name: 'data.json' });
 
-    // Add images directory
+    // Add images directory if exists
     if (fs.existsSync(IMAGES_DIR)) {
       archive.directory(IMAGES_DIR, 'images');
     }
 
-    // Finalize
-    progress.progress = 85;
-    progress.message = 'Finalizing archive...';
-    backupJobs.set(jobId, progress);
+    // Finalize archive
+    try {
+      await archive.finalize();
+    } catch (error) {
+      if (archiveCancelled) {
+        logger.info({ jobId }, '[Backup] Archive finalize cancelled');
+        throw new Error('Backup cancelled by user');
+      }
+      throw error;
+    }
 
-    await archive.finalize();
+    // Wait for output stream to finish (unless cancelled)
+    if (!archiveCancelled) {
+      await new Promise<void>((resolve, reject) => {
+        output.on('close', () => resolve());
+        output.on('error', (err) => {
+          logger.error({ error: err, jobId }, '[Backup] Output stream error during finalization');
+          reject(err);
+        });
+      });
+    } else {
+      // If cancelled, throw error to trigger cleanup
+      throw new Error('Backup cancelled by user');
+    }
 
-    // Wait for output stream to finish
-    await new Promise<void>((resolve, reject) => {
-      output.on('close', () => resolve());
-      output.on('error', reject);
-    });
+    // Get file size
+    const stats = fs.statSync(backupFilePath);
+    backupJob.fileSize = stats.size;
+    backupJob.filePath = backupFilePath;
 
-    // Complete
-    progress.status = 'complete';
-    progress.progress = 100;
-    progress.message = 'Backup ready for download';
-    progress.filePath = backupFilePath;
-    backupJobs.set(jobId, progress);
+    // T041: Mark as ready and broadcast complete event
+    backupJob.status = 'ready';
+    backupJob.completedAt = new Date();
+    await backupJob.save();
 
-    // Update metadata
+    // Update metadata (legacy compatibility)
     await BackupMetadata.findOneAndUpdate(
       { jobId },
       {
@@ -366,8 +530,7 @@ async function createBackupInBackground(jobId: string) {
         metadata: {
           profiles: profiles.length,
           games: games.length,
-          achievements: achievements.length,
-          images: totalFiles
+          achievements: achievements.length
         }
       }
     );
@@ -377,26 +540,45 @@ async function createBackupInBackground(jobId: string) {
       profiles: profiles.length, 
       games: games.length, 
       achievements: achievements.length,
-      totalFiles 
+      fileSize: backupJob.fileSize
     }, '[Backup] Backup created successfully');
 
   } catch (error) {
+    // T042: Broadcast error event on failure
     logger.error({ error, jobId }, '[Backup] Failed to create backup');
-    progress.status = 'error';
-    progress.message = 'Backup failed';
-    progress.error = error instanceof Error ? error.message : String(error);
-    backupJobs.set(jobId, progress);
-
-    // Update metadata with error
-    await BackupMetadata.findOneAndUpdate(
-      { jobId },
-      {
-        status: 'failed',
-        error: error instanceof Error ? error.message : String(error)
+    
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    try {
+      // Clean up partial backup file if it exists
+      const backupJob = await BackupJob.findById(jobId);
+      if (backupJob && backupJob.filePath && fs.existsSync(backupJob.filePath)) {
+        logger.info({ jobId, filePath: backupJob.filePath }, '[Backup] Cleaning up partial backup file');
+        fs.unlinkSync(backupJob.filePath);
       }
-    );
+      
+      if (backupJob) {
+        backupJob.status = 'failed';
+        backupJob.error = errorMessage;
+        await backupJob.save();
+      }
 
-    throw error;
+      // Clear cancelled flag
+      if (cancelledJobs.has(jobId)) {
+        cancelledJobs.delete(jobId);
+      }
+
+      // Update metadata with error
+      await BackupMetadata.findOneAndUpdate(
+        { jobId },
+        {
+          status: 'failed',
+          error: errorMessage
+        }
+      );
+    } catch (saveError) {
+      logger.error({ saveError, jobId }, '[Backup] Failed to save error state');
+    }
   }
 }
 
@@ -470,23 +652,31 @@ export async function startRestore(
   try {
     logger.info('[Restore] Starting restore request');
     
-    const jobId = `restore-${Date.now()}`;
-    logger.info({ jobId }, '[Restore] Created jobId');
-    
-    // Initialize progress
-    restoreJobs.set(jobId, {
+    // T043: Create RestoreJob record at operation start
+    const restoreJob = await RestoreJob.create({
       status: 'uploading',
-      progress: 0,
-      message: 'Uploading backup file...'
+      uploadedFileSize: 0,
+      totalCollections: 0,
+      collectionsRestored: 0,
+      totalRecords: 0,
+      recordsRestored: 0,
+      imagesRestored: 0,
+      mode: 'merge', // Default mode
+      warnings: []
     });
-    logger.info({ jobId }, '[Restore] Initialized progress job');
 
-    // Create metadata entry
+    const jobId = restoreJob._id.toString();
+    logger.info({ jobId }, '[Restore] Created RestoreJob');
+
+    // Create metadata entry (legacy compatibility)
     await BackupMetadata.create({
       type: 'restore',
       status: 'in-progress',
       jobId
     });
+
+    // T044: Broadcast initial progress (uploading phase)
+    // (Previously used SSE, now polling-based)
 
     // Get the uploaded file
     // @ts-ignore - multipart plugin adds file method to request
@@ -495,40 +685,66 @@ export async function startRestore(
     
     if (!data) {
       logger.error({ jobId }, '[Restore] No file uploaded');
-      restoreJobs.delete(jobId);
+      restoreJob.status = 'failed';
+      restoreJob.error = 'No file uploaded';
+      await restoreJob.save();
+      
       return reply.status(400).send({ error: 'No file uploaded' });
     }
 
-    logger.info({ jobId, filename: data.filename }, '[Restore] File received, saving to disk');
+    logger.info({ jobId, filename: data.filename, mimetype: data.mimetype }, '[Restore] File received, validating');
+    
+    // Validate file is a zip file
+    const validMimeTypes = [
+      'application/zip',
+      'application/x-zip',
+      'application/x-zip-compressed',
+      'application/octet-stream' // Sometimes browsers send this for .zip files
+    ];
+    
+    const isValidMimeType = data.mimetype && validMimeTypes.includes(data.mimetype.toLowerCase());
+    const isValidExtension = data.filename && data.filename.toLowerCase().endsWith('.zip');
+    
+    if (!isValidMimeType && !isValidExtension) {
+      logger.error({ jobId, mimetype: data.mimetype, filename: data.filename }, '[Restore] Invalid file type');
+      restoreJob.status = 'failed';
+      restoreJob.error = 'Invalid file type. Only .zip files are supported.';
+      await restoreJob.save();
+      
+      await BackupMetadata.findOneAndUpdate(
+        { jobId },
+        {
+          status: 'failed',
+          error: 'Invalid file type. Only .zip files are supported.'
+        }
+      );
+      
+      return reply.status(400).send({ error: 'Invalid file type. Only .zip files are supported.' });
+    }
+    
+    logger.info({ jobId }, '[Restore] File validated, saving to disk');
     
     // Ensure backup directory exists
     if (!fs.existsSync(BACKUP_TEMP_DIR)) {
       fs.mkdirSync(BACKUP_TEMP_DIR, { recursive: true, mode: 0o755 });
     }
     
-    // Save file to disk BEFORE responding (stream must be consumed while request is active)
+    // Save file to disk (stream must be consumed while request is active)
     const tempZipPath = path.join(BACKUP_TEMP_DIR, `${jobId}.zip`);
     const writeStream = createWriteStream(tempZipPath);
     
     await pipeline(data.file, writeStream);
-    logger.info({ jobId, tempZipPath }, '[Restore] File saved to disk');
     
-    // Update progress
-    restoreJobs.set(jobId, {
-      status: 'extracting',
-      progress: 5,
-      message: 'File uploaded, starting restore...'
-    });
+    // Get uploaded file size
+    const stats = fs.statSync(tempZipPath);
+    restoreJob.uploadedFileSize = stats.size;
+    await restoreJob.save();
     
-    // Start background job with file path instead of stream
+    logger.info({ jobId, tempZipPath, fileSize: stats.size }, '[Restore] File saved to disk');
+    
+    // Start background job with file path
     restoreBackupInBackground(jobId, tempZipPath).catch((error) => {
       logger.error({ error, jobId }, '[Restore] Background job failed');
-      restoreJobs.set(jobId, {
-        status: 'error',
-        progress: 0,
-        message: 'Restore failed',
-        error: error instanceof Error ? error.message : String(error)
-      });
     });
 
     logger.info({ jobId }, '[Restore] Sending jobId response');
@@ -546,14 +762,53 @@ export async function getRestoreProgress(
   req: FastifyRequest<{ Params: { jobId: string } }>,
   reply: FastifyReply
 ) {
-  const { jobId } = req.params;
-  const progress = restoreJobs.get(jobId);
-  
-  if (!progress) {
-    return reply.status(404).send({ error: 'Job not found' });
+  try {
+    const { jobId } = req.params;
+    const restoreJob = await RestoreJob.findById(jobId);
+    
+    if (!restoreJob) {
+      return reply.status(404).send({ error: 'Job not found' });
+    }
+    
+    reply.send({
+      status: restoreJob.status,
+      uploadedFileSize: restoreJob.uploadedFileSize,
+      totalCollections: restoreJob.totalCollections,
+      collectionsRestored: restoreJob.collectionsRestored,
+      totalRecords: restoreJob.totalRecords,
+      recordsRestored: restoreJob.recordsRestored,
+      imagesRestored: restoreJob.imagesRestored,
+      mode: restoreJob.mode,
+      warnings: restoreJob.warnings,
+      error: restoreJob.error,
+      createdAt: restoreJob.createdAt,
+      completedAt: restoreJob.completedAt
+    });
+  } catch (error) {
+    logger.error({ error }, '[Restore] Failed to get progress');
+    reply.status(500).send({ error: 'Failed to get progress' });
   }
-  
-  reply.send(progress);
+}
+
+/**
+ * Get recent restore jobs (for checking failures)
+ */
+export async function getRestoreJobs(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    // Get the 5 most recent restore jobs
+    const jobs = await RestoreJob.find()
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('_id status error createdAt completedAt');
+    
+    reply.send(jobs);
+  } catch (error) {
+    logger.error({ error }, '[Restore] Failed to get restore jobs');
+    reply.status(500).send({ error: 'Failed to get restore jobs' });
+  }
 }
 
 /**
@@ -563,37 +818,43 @@ export async function cancelBackup(
   req: FastifyRequest<{ Params: { jobId: string } }>,
   reply: FastifyReply
 ) {
-  const { jobId } = req.params;
-  const progress = backupJobs.get(jobId);
-  
-  if (!progress) {
-    return reply.status(404).send({ error: 'Job not found' });
-  }
-
-  if (progress.status === 'complete' || progress.status === 'error') {
-    return reply.status(400).send({ error: 'Job already finished' });
-  }
-
-  // Mark job as cancelled
-  cancelledJobs.add(jobId);
-  
-  // Update job status
-  progress.status = 'error';
-  progress.message = 'Cancelled by user';
-  progress.error = 'Cancelled';
-  backupJobs.set(jobId, progress);
-
-  // Update metadata
-  await BackupMetadata.findOneAndUpdate(
-    { jobId },
-    {
-      status: 'failed',
-      error: 'Cancelled by user'
+  try {
+    const { jobId } = req.params;
+    
+    // Find the BackupJob in MongoDB
+    const backupJob = await BackupJob.findById(jobId);
+    
+    if (!backupJob) {
+      return reply.status(404).send({ error: 'Job not found' });
     }
-  );
 
-  logger.info({ jobId }, '[Backup] Job cancelled by user');
-  reply.send({ message: 'Backup cancelled' });
+    if (backupJob.status === 'ready' || backupJob.status === 'failed') {
+      return reply.status(400).send({ error: 'Job already finished' });
+    }
+
+    // Mark job as cancelled
+    cancelledJobs.add(jobId);
+    
+    // Update BackupJob status
+    backupJob.status = 'failed';
+    backupJob.error = 'Cancelled by user';
+    await backupJob.save();
+
+    // Update metadata
+    await BackupMetadata.findOneAndUpdate(
+      { jobId },
+      {
+        status: 'failed',
+        error: 'Cancelled by user'
+      }
+    );
+
+    logger.info({ jobId }, '[Backup] Job cancelled by user');
+    reply.send({ message: 'Backup cancelled' });
+  } catch (error) {
+    logger.error({ error }, '[Backup] Failed to cancel job');
+    reply.status(500).send({ error: 'Failed to cancel backup job' });
+  }
 }
 
 /**
@@ -603,73 +864,77 @@ export async function cancelRestore(
   req: FastifyRequest<{ Params: { jobId: string } }>,
   reply: FastifyReply
 ) {
-  const { jobId } = req.params;
-  const progress = restoreJobs.get(jobId);
-  
-  if (!progress) {
-    return reply.status(404).send({ error: 'Job not found' });
-  }
-
-  if (progress.status === 'complete' || progress.status === 'error') {
-    return reply.status(400).send({ error: 'Job already finished' });
-  }
-
-  // Mark job as cancelled
-  cancelledJobs.add(jobId);
-  
-  // Update job status
-  progress.status = 'error';
-  progress.message = 'Cancelled by user';
-  progress.error = 'Cancelled';
-  restoreJobs.set(jobId, progress);
-
-  // Update metadata
-  await BackupMetadata.findOneAndUpdate(
-    { jobId },
-    {
-      status: 'failed',
-      error: 'Cancelled by user'
+  try {
+    const { jobId } = req.params;
+    
+    // Find the RestoreJob in MongoDB
+    const restoreJob = await RestoreJob.findById(jobId);
+    
+    if (!restoreJob) {
+      return reply.status(404).send({ error: 'Job not found' });
     }
-  );
 
-  logger.info({ jobId }, '[Restore] Job cancelled by user');
-  reply.send({ message: 'Restore cancelled' });
+    if (restoreJob.status === 'completed' || restoreJob.status === 'failed') {
+      return reply.status(400).send({ error: 'Job already finished' });
+    }
+
+    // Mark job as cancelled
+    cancelledJobs.add(jobId);
+    
+    // Update RestoreJob status
+    restoreJob.status = 'failed';
+    restoreJob.error = 'Cancelled by user';
+    await restoreJob.save();
+
+    // Update metadata
+    await BackupMetadata.findOneAndUpdate(
+      { jobId },
+      {
+        status: 'failed',
+        error: 'Cancelled by user'
+      }
+    );
+
+    logger.info({ jobId }, '[Restore] Job cancelled by user');
+    reply.send({ message: 'Restore cancelled' });
+  } catch (error) {
+    logger.error({ error }, '[Restore] Failed to cancel job');
+    reply.status(500).send({ error: 'Failed to cancel restore job' });
+  }
 }
 
 /**
  * Restore backup in background with progress tracking
+ * T043-T049: RestoreJob integration with SSE progress broadcasting
  */
 async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
   logger.info({ jobId, tempZipPath }, '[Restore] Background function called');
   
-  const progress = restoreJobs.get(jobId);
-  if (!progress) {
-    logger.error({ jobId }, '[Restore] Progress job not found in Map');
-    throw new Error('Progress job not found');
-  }
-  
-  logger.info({ jobId }, '[Restore] Got progress from Map');
-  
   try {
+    // Load RestoreJob record
+    const restoreJob = await RestoreJob.findById(jobId);
+    if (!restoreJob) {
+      logger.error({ jobId }, '[Restore] RestoreJob not found');
+      return;
+    }
+
     // Check for cancellation
     if (cancelledJobs.has(jobId)) {
       logger.info({ jobId }, '[Restore] Job was cancelled before starting');
       cancelledJobs.delete(jobId);
+      restoreJob.status = 'failed';
+      restoreJob.error = 'Cancelled by user';
+      await restoreJob.save();
       return;
     }
 
     logger.info({ jobId }, '[Restore] Step 1: File already saved, proceeding to extract');
     
-    // File is already saved by startRestore, proceed to extraction
     const tempExtractPath = path.join(BACKUP_TEMP_DIR, `${jobId}-extract`);
     
-    logger.info({ jobId, tempExtractPath }, '[Restore] Temp extract path created');
-    
-    // Step 2: Extract zip file (10% progress)
-    progress.status = 'extracting';
-    progress.progress = 10;
-    progress.message = 'Extracting backup...';
-    restoreJobs.set(jobId, progress);
+    // T045: Step 2: Extract zip file (extracting phase)
+    restoreJob.status = 'extracting';
+    await restoreJob.save();
 
     fs.mkdirSync(tempExtractPath, { recursive: true });
     
@@ -680,74 +945,87 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
       readStream.pipe(extractStream);
       
       extractStream.on('close', () => resolve());
-      extractStream.on('error', reject);
-      readStream.on('error', reject);
+      extractStream.on('error', (err) => {
+        logger.error({ error: err, jobId }, '[Restore] Failed to extract zip file');
+        reject(new Error('Invalid or corrupted zip file'));
+      });
+      readStream.on('error', (err) => {
+        logger.error({ error: err, jobId }, '[Restore] Failed to read zip file');
+        reject(new Error('Failed to read zip file'));
+      });
     });
 
     logger.info('[Restore] Backup extracted');
 
-    // Step 3: Read data.json (20% progress)
-    progress.progress = 20;
-    progress.message = 'Loading backup data...';
-    restoreJobs.set(jobId, progress);
+    // Step 3: Validate and read backup data
+    restoreJob.status = 'validating';
+    await restoreJob.save();
 
     const dataJsonPath = path.join(tempExtractPath, 'data.json');
     if (!fs.existsSync(dataJsonPath)) {
-      throw new Error('data.json not found in backup');
+      throw new Error('Invalid backup file: data.json not found. Please upload a valid backup file.');
     }
 
-    const backupData = JSON.parse(fs.readFileSync(dataJsonPath, 'utf-8'));
+    let backupData;
+    try {
+      backupData = JSON.parse(fs.readFileSync(dataJsonPath, 'utf-8'));
+    } catch (parseError) {
+      logger.error({ parseError, jobId }, '[Restore] Failed to parse data.json');
+      throw new Error('Invalid backup file: data.json is corrupted or not valid JSON.');
+    }
+    
     logger.info(`[Restore] Loaded backup data: version ${backupData.version}`);
 
-    // Count total work units (db items + image files) for accurate progress
+    // Calculate totals
+    const totalCollections = 4; // profiles, games, achievements, settings
+    const totalRecords = 
+      (backupData.profiles?.length || 0) +
+      (backupData.games?.length || 0) +
+      (backupData.achievements?.length || 0) +
+      (backupData.settings?.length || 0);
+
+    restoreJob.totalCollections = totalCollections;
+    restoreJob.totalRecords = totalRecords;
+    await restoreJob.save();
+
+    // Count image files
     const imagesBackupPath = path.join(tempExtractPath, 'images');
     let totalImageFiles = 0;
     if (fs.existsSync(imagesBackupPath)) {
-      progress.message = 'Counting image files...';
-      restoreJobs.set(jobId, progress);
       totalImageFiles = await countFiles(imagesBackupPath);
       logger.info({ jobId, totalImageFiles }, '[Restore] Counted image files');
     }
 
-    // Step 4: Restore database (20-80% progress weighted by work)
-    progress.status = 'importing';
-    progress.message = 'Importing data to database...';
-    restoreJobs.set(jobId, progress);
+    // Set total images for progress calculation
+    restoreJob.totalImages = totalImageFiles;
+    await restoreJob.save();
 
-    const imported = {
-      profiles: 0,
-      games: 0,
-      achievements: 0,
-      settings: false,
-      images: 0
-    };
+    // Calculate total work items for consistent progress calculation
+    const totalWorkItems = totalRecords + totalImageFiles;
 
-    // Calculate total work units for progress tracking
-    const totalDbItems = 
-      (backupData.profiles?.length || 0) +
-      (backupData.games?.length || 0) +
-      (backupData.achievements?.length || 0) +
-      (backupData.settings ? 1 : 0);
-    
-    const totalWorkUnits = totalDbItems + totalImageFiles;
-    let processedWorkUnits = 0;
-    
-    logger.info({ 
-      jobId, 
-      totalDbItems, 
-      totalImageFiles, 
-      totalWorkUnits 
-    }, '[Restore] Total work calculated');
+    // T046: Step 4: Restore database (restoring phase)
+    restoreJob.status = 'restoring';
+    await restoreJob.save();
+
+    // T047: Track progress for each collection
+    let collectionsRestored = 0;
+    let recordsRestored = 0;
 
     // Check for cancellation
     if (cancelledJobs.has(jobId)) {
       logger.info({ jobId }, '[Restore] Job cancelled before profile import');
       cancelledJobs.delete(jobId);
+      restoreJob.status = 'failed';
+      restoreJob.error = 'Cancelled by user';
+      await restoreJob.save();
       return;
     }
 
-    // Import profiles (using bulk operations for performance)
+    // Import profiles
     if (backupData.profiles && Array.isArray(backupData.profiles)) {
+      restoreJob.currentCollection = 'profiles';
+      await restoreJob.save();
+
       const bulkOps = backupData.profiles.map((profile: any) => ({
         updateOne: {
           filter: { platform: profile.platform, profileId: profile.profileId },
@@ -756,34 +1034,45 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
         }
       }));
       
-      await Profile.bulkWrite(bulkOps, { ordered: false });
-      imported.profiles = backupData.profiles.length;
-      processedWorkUnits += backupData.profiles.length;
-      
-      const itemProgress = Math.floor((processedWorkUnits / totalWorkUnits) * 70);
-      progress.progress = 20 + itemProgress;
-      progress.message = `Importing profiles... (${imported.profiles}/${backupData.profiles.length})`;
-      restoreJobs.set(jobId, progress);
-      
-      logger.info({ jobId, imported: imported.profiles }, '[Restore] Profiles imported');
-      
-      // Add delay to yield to event loop
+      const result = await Profile.bulkWrite(bulkOps, { ordered: false });
+      recordsRestored += backupData.profiles.length;
+      collectionsRestored++;
+
+      // T049: Track warnings for duplicates
+      if (result.modifiedCount < backupData.profiles.length) {
+        const skipped = backupData.profiles.length - result.upsertedCount - result.modifiedCount;
+        if (skipped > 0) {
+          restoreJob.warnings.push({
+            message: `${skipped} duplicate profiles skipped`,
+            timestamp: new Date()
+          });
+        }
+      }
+
+      restoreJob.collectionsRestored = collectionsRestored;
+      restoreJob.recordsRestored = recordsRestored;
+      await restoreJob.save();
+
+      logger.info({ jobId, imported: backupData.profiles.length }, '[Restore] Profiles imported');
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     // Check for cancellation
     if (cancelledJobs.has(jobId)) {
-      logger.info({ jobId }, '[Restore] Job cancelled before game import');
+      logger.info({ jobId }, '[Restore] Job cancelled during restore');
       cancelledJobs.delete(jobId);
+      restoreJob.status = 'failed';
+      restoreJob.error = 'Cancelled by user';
+      await restoreJob.save();
       return;
     }
 
-    // Import games (using bulk operations for performance)
+    // Import games in batches
     if (backupData.games && Array.isArray(backupData.games)) {
-      progress.message = 'Importing games...';
-      restoreJobs.set(jobId, progress);
-      
-      const BATCH_SIZE = 100; // Very small batches to keep API responsive
+      restoreJob.currentCollection = 'games';
+      await restoreJob.save();
+
+      const BATCH_SIZE = 100;
       const totalGames = backupData.games.length;
       
       for (let i = 0; i < totalGames; i += BATCH_SIZE) {
@@ -798,48 +1087,41 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
         }));
         
         await Game.bulkWrite(bulkOps, { ordered: false });
-        
-        imported.games += batch.length;
-        processedWorkUnits += batch.length;
-        
-        const itemProgress = Math.floor((processedWorkUnits / totalWorkUnits) * 70);
-        progress.progress = 20 + itemProgress;
-        progress.message = `Importing games... (${imported.games}/${totalGames})`;
-        restoreJobs.set(jobId, progress);
-        
-        logger.info({ jobId, imported: imported.games, total: totalGames }, '[Restore] Game batch imported');
-        
-        // Longer delay to keep API responsive
+        recordsRestored += batch.length;
+
+        // Update every 10 batches to reduce I/O
+        if (i % (BATCH_SIZE * 10) === 0 || i + BATCH_SIZE >= totalGames) {
+          restoreJob.recordsRestored = recordsRestored;
+          await restoreJob.save();
+        }
+
         await new Promise(resolve => setTimeout(resolve, 75));
 
-        // Check for cancellation in batch loop
         if (cancelledJobs.has(jobId)) {
           logger.info({ jobId }, '[Restore] Job cancelled during game import');
           cancelledJobs.delete(jobId);
+          restoreJob.status = 'failed';
+          restoreJob.error = 'Cancelled by user';
+          await restoreJob.save();
           return;
         }
       }
+
+      collectionsRestored++;
+      logger.info({ jobId, imported: totalGames }, '[Restore] Games imported');
     }
 
-    // Check for cancellation
-    if (cancelledJobs.has(jobId)) {
-      logger.info({ jobId }, '[Restore] Job cancelled before achievement import');
-      cancelledJobs.delete(jobId);
-      return;
-    }
-
-    // Import achievements (using bulk operations for performance)
+    // Import achievements in batches
     if (backupData.achievements && Array.isArray(backupData.achievements)) {
-      progress.message = 'Importing achievements...';
-      restoreJobs.set(jobId, progress);
-      
-      const BATCH_SIZE = 100; // Very small batches to keep API responsive
+      restoreJob.currentCollection = 'achievements';
+      await restoreJob.save();
+
+      const BATCH_SIZE = 100;
       const totalAchievements = backupData.achievements.length;
       
       for (let i = 0; i < totalAchievements; i += BATCH_SIZE) {
         const batch = backupData.achievements.slice(i, i + BATCH_SIZE);
         
-        // Use bulkWrite for much better performance
         const bulkOps = batch.map((achievement: any) => ({
           updateOne: {
             filter: { 
@@ -854,126 +1136,143 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
         }));
         
         await Achievement.bulkWrite(bulkOps, { ordered: false });
-        
-        imported.achievements += batch.length;
-        processedWorkUnits += batch.length;
-        
-        const itemProgress = Math.floor((processedWorkUnits / totalWorkUnits) * 70);
-        progress.progress = 20 + itemProgress;
-        progress.message = `Importing achievements... (${imported.achievements}/${totalAchievements})`;
-        restoreJobs.set(jobId, progress);
-        
-        logger.info({ jobId, imported: imported.achievements, total: totalAchievements }, '[Restore] Achievement batch imported');
-        
-        // Longer delay to keep API responsive
+        recordsRestored += batch.length;
+
+        // Update every 10 batches to reduce I/O
+        if (i % (BATCH_SIZE * 10) === 0 || i + BATCH_SIZE >= totalAchievements) {
+          restoreJob.recordsRestored = recordsRestored;
+          await restoreJob.save();
+        }
+
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        // Check for cancellation in batch loop
         if (cancelledJobs.has(jobId)) {
           logger.info({ jobId }, '[Restore] Job cancelled during achievement import');
           cancelledJobs.delete(jobId);
+          restoreJob.status = 'failed';
+          restoreJob.error = 'Cancelled by user';
+          await restoreJob.save();
           return;
         }
       }
+
+      collectionsRestored++;
+      logger.info({ jobId, imported: totalAchievements }, '[Restore] Achievements imported');
     }
 
     // Import settings
     if (backupData.settings && Array.isArray(backupData.settings)) {
+      restoreJob.currentCollection = 'settings';
+      await restoreJob.save();
+
       await Setting.deleteMany({});
       await Setting.insertMany(backupData.settings);
-      imported.settings = true;
-      processedWorkUnits++;
-      
-      const itemProgress = Math.floor((processedWorkUnits / totalWorkUnits) * 70);
-      progress.progress = 20 + itemProgress;
-      restoreJobs.set(jobId, progress);
+      recordsRestored += backupData.settings.length;
+      collectionsRestored++;
+
+      restoreJob.collectionsRestored = collectionsRestored;
+      restoreJob.recordsRestored = recordsRestored;
+      await restoreJob.save();
+
+      logger.info({ jobId, imported: backupData.settings.length }, '[Restore] Settings imported');
     }
 
-    // Check for cancellation
-    if (cancelledJobs.has(jobId)) {
-      logger.info({ jobId }, '[Restore] Job cancelled before image restore');
-      cancelledJobs.delete(jobId);
-      return;
-    }
+    // Restore images directory
+    if (fs.existsSync(imagesBackupPath) && totalImageFiles > 0) {
+      restoreJob.currentCollection = 'images';
+      await restoreJob.save();
 
-    // Step 5: Restore images directory (continues from current progress to 95%)
-    const imagesStartProgress = progress.progress;
-    progress.message = 'Restoring images...';
-    restoreJobs.set(jobId, progress);
-
-    if (fs.existsSync(imagesBackupPath)) {
       fs.mkdirSync(IMAGES_DIR, { recursive: true });
       
       let copiedFiles = 0;
-      await copyDirectory(imagesBackupPath, IMAGES_DIR, (count) => {
+      await copyDirectory(imagesBackupPath, IMAGES_DIR, async (count) => {
         copiedFiles = count;
-        processedWorkUnits = totalDbItems + count;
         
-        const itemProgress = Math.floor((processedWorkUnits / totalWorkUnits) * 70);
-        progress.progress = Math.min(90, 20 + itemProgress);
-        progress.message = `Restoring images... (${count}/${totalImageFiles})`;
-        restoreJobs.set(jobId, progress);
+        // Update every 100 files
+        if (count % 100 === 0 || count === totalImageFiles) {
+          restoreJob.imagesRestored = count;
+          await restoreJob.save();
+        }
       });
       
-      imported.images = copiedFiles;
+      restoreJob.imagesRestored = copiedFiles;
+      await restoreJob.save();
       logger.info({ jobId, copiedFiles }, '[Restore] Images directory restored');
     }
 
     // Cleanup temp files
-    progress.progress = 95;
-    progress.message = 'Cleaning up...';
-    restoreJobs.set(jobId, progress);
-
     fs.rmSync(tempZipPath, { force: true });
     fs.rmSync(tempExtractPath, { recursive: true, force: true });
 
-    // Complete
-    progress.status = 'complete';
-    progress.progress = 100;
-    progress.message = 'Restore completed successfully';
-    progress.imported = imported;
-    restoreJobs.set(jobId, progress);
+    // T048: Complete and broadcast summary
+    restoreJob.status = 'completed';
+    restoreJob.completedAt = new Date();
+    await restoreJob.save();
 
-    // Update metadata
+    // Update metadata (legacy compatibility)
     await BackupMetadata.findOneAndUpdate(
       { jobId },
       {
         status: 'completed',
         completedAt: new Date(),
         metadata: {
-          profiles: imported.profiles,
-          games: imported.games,
-          achievements: imported.achievements,
-          images: imported.images
+          profiles: backupData.profiles?.length || 0,
+          games: backupData.games?.length || 0,
+          achievements: backupData.achievements?.length || 0,
+          settings: backupData.settings?.length || 0,
+          images: restoreJob.imagesRestored
         }
       }
     );
 
-    logger.info({ jobId, imported }, '[Restore] Full backup restored successfully');
-    
-    // Clean up job after 5 minutes
-    setTimeout(() => {
-      restoreJobs.delete(jobId);
-      logger.info({ jobId }, '[Restore] Cleaned up completed job');
-    }, 5 * 60 * 1000);
+    logger.info({ 
+      jobId, 
+      collections: restoreJob.collectionsRestored,
+      records: restoreJob.recordsRestored,
+      images: restoreJob.imagesRestored,
+      warnings: restoreJob.warnings.length,
+      metadata: {
+        profiles: backupData.profiles?.length || 0,
+        games: backupData.games?.length || 0,
+        achievements: backupData.achievements?.length || 0,
+        settings: backupData.settings?.length || 0,
+        images: restoreJob.imagesRestored
+      }
+    }, '[Restore] Full backup restored successfully');
 
   } catch (error) {
     logger.error({ error, jobId }, '[Restore] Failed to restore backup');
-    progress.status = 'error';
-    progress.message = 'Restore failed';
-    progress.error = error instanceof Error ? error.message : String(error);
-    restoreJobs.set(jobId, progress);
+    
+    const errorMessage = error instanceof Error ? error.message : String(error);
 
-    // Update metadata with error
-    await BackupMetadata.findOneAndUpdate(
-      { jobId },
-      {
-        status: 'failed',
-        error: error instanceof Error ? error.message : String(error)
+    try {
+      const restoreJob = await RestoreJob.findById(jobId);
+      if (restoreJob) {
+        restoreJob.status = 'failed';
+        restoreJob.error = errorMessage;
+        await restoreJob.save();
       }
-    );
 
-    throw error;
+      // Update metadata with error
+      await BackupMetadata.findOneAndUpdate(
+        { jobId },
+        {
+          status: 'failed',
+          error: errorMessage
+        }
+      );
+      
+      // Cleanup temp files on failure
+      const tempExtractPath = path.join(BACKUP_TEMP_DIR, `${jobId}-extract`);
+      if (fs.existsSync(tempZipPath)) {
+        fs.rmSync(tempZipPath, { force: true });
+      }
+      if (fs.existsSync(tempExtractPath)) {
+        fs.rmSync(tempExtractPath, { recursive: true, force: true });
+      }
+    } catch (saveError) {
+      logger.error({ saveError, jobId }, '[Restore] Failed to save error state');
+    }
   }
 }
 

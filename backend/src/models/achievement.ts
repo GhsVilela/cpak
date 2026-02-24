@@ -37,4 +37,10 @@ AchievementSchema.index(
 );
 AchievementSchema.index({ unlockedAt: 1 });
 
+// Performance optimization indexes (added for 003-performance-optimization)
+// Compound index for fast lookups by profile and game
+AchievementSchema.index({ profileId: 1, gameId: 1, achievementId: 1 }, { name: 'idx_achievements_profile_game_achievement' });
+// Index for game-level queries
+AchievementSchema.index({ profileId: 1, gameId: 1 }, { name: 'idx_achievements_profile_game' });
+
 export const Achievement = mongoose.model<IAchievement>('Achievement', AchievementSchema);

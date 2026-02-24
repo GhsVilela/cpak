@@ -98,8 +98,8 @@ Settings for automated sync scheduling:
 
 ### sync (Non-sensitive)
 Settings for sync behavior:
-- `sync_batch_size` (isSecret: false, numeric string, default: "10")
-- `sync_image_concurrency` (isSecret: false, numeric string, default: "5")
+- `sync_batch_size` (isSecret: false, numeric string, default: "20")
+- `sync_concurrency` (isSecret: false, numeric string, default: "10")
 
 ### system (Non-sensitive)
 Internal system settings:
