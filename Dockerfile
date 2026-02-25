@@ -19,9 +19,10 @@ WORKDIR /build/backend
 
 # Copy package files and install dependencies
 COPY backend/package*.json ./
-RUN npm ci --only=production && \
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --only=production --fetch-retries=5 --fetch-retry-mintimeout=20000 && \
     cp -R node_modules /tmp/backend-prod-modules && \
-    npm ci
+    npm ci --fetch-retries=5 --fetch-retry-mintimeout=20000
 
 # Copy source and build TypeScript
 COPY backend/ ./
@@ -36,7 +37,8 @@ WORKDIR /build/frontend
 
 # Copy package files and install dependencies
 COPY frontend/package*.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --fetch-retries=5 --fetch-retry-mintimeout=20000
 
 # Copy source and build Next.js in standalone mode
 COPY frontend/ ./
