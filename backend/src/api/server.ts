@@ -110,11 +110,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     await app.close();
     process.exit(0);
   });
-}
 
-process.on('SIGTERM', async () => {
-  fastify.log.info('SIGTERM received, closing server...');
-  schedulerService.stop();
-  await fastify.close();
-  process.exit(0);
-});
+  process.on('SIGTERM', async () => {
+    app.log.info('SIGTERM received, closing server...');
+    schedulerService.stop();
+    await app.close();
+    process.exit(0);
+  });
+}
