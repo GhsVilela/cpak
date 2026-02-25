@@ -7,7 +7,10 @@
     "dev": "tsx watch src/api/server.ts",
     "build": "tsc",
     "start": "node dist/api/server.js",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "test": "node --require ./polyfill.cjs node_modules/vitest/vitest.mjs run",
+    "test:watch": "node --require ./polyfill.cjs node_modules/vitest/vitest.mjs",
+    "test:coverage": "node --require ./polyfill.cjs node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
@@ -29,8 +32,11 @@
     "@types/unzipper": "^0.10.11",
     "@typescript-eslint/eslint-plugin": "^8.19.1",
     "@typescript-eslint/parser": "^8.19.1",
+    "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^9.18.0",
+    "mongodb-memory-server": "^11.0.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
   }
 }

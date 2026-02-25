@@ -1,51 +1,32 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version Change: 0.1.0 → 0.2.0 (MINOR)
+Version Change: 0.2.0 → 0.3.0 (MINOR)
 
 Modified Principles:
-- Principle I: "Static Frontend Minimalism" → Updated to reflect Next.js standalone server mode in unified container
-- Principle II: "REST Backend Simplicity" → Added settings database and UI configuration
-- Principle III: "Self-Hosting First" → Updated to emphasize unified container as primary deployment method
-- Principle IV: "Security Baseline" → Added settings database encryption requirements
-- Principle V: "Observability & Operations" → Minor clarifications, substantively unchanged
+- Principle V: "Observability & Operations" → Unchanged
 
 Added Sections:
-- Settings & Configuration subsection in Trophy Hunter Domain
-- Backup/Restore Export updated with database-backed implementation
-- Scheduler subsection updated with dynamic reload capability
-- Volume flexibility documentation
+- Principle VI: "Test Coverage by Default" — mandates test files for every new frontend
+  page and new backend route/service, committed in the same PR as the feature.
 
 Removed Sections:
-- 15+ environment variables for application settings (moved to UI configuration)
-- Multi-service docker-compose example (replaced with unified container deployment)
-- Static asset build references (replaced with Next.js standalone)
+- None
 
 Templates Requiring Updates:
-✅ spec-template.md - No hardcoded constitutional gates (dynamically generated)
-✅ plan-template.md - No hardcoded constitutional gates (dynamically generated)
-✅ tasks-template.md - Architecture-agnostic, no updates needed
-✅ checklist-template.md - Architecture-agnostic, no updates needed
+✅ tasks-template.md — "Tests are OPTIONAL" language replaced with
+   Constitution-aligned mandatory testing guidance (.specify/templates/tasks-template.md)
+✅ spec-template.md — No hardcoded constitutional gates (dynamically generated)
+✅ plan-template.md — No hardcoded constitutional gates (dynamically generated)
+✅ checklist-template.md — Architecture-agnostic, no updates needed
 
 Follow-up TODOs:
-- None; all placeholders filled with current architecture values
+- None; all placeholders filled.
 
-Key Architectural Changes Documented:
-1. Unified container deployment (supervisord managing all processes in single image)
-2. UI-first configuration (database-backed settings with web UI management)
-3. Minimal environment variables (≤3: ENCRYPTION_KEY, EXTERNAL_DB, MONGO_URI - all optional/conditional)
-4. Dynamic scheduler reload (no restart required for settings changes)
-5. Settings database with encryption for secrets
-6. Volume flexibility (unified /data, split volumes, or external database)
-7. Mobile-responsive frontend design
-8. Backup/restore system for data portability
-
-Rationale for MINOR Version Bump (0.1.0 → 0.2.0):
-- New architectural sections added (Settings & Configuration, Volume Flexibility)
-- Materiallly expanded guidance on deployment patterns
-- Backward incompatible changes to deployment model (multi-service → unified container)
-- Environment variable surface massively reduced (15+ → 3)
-- Configuration precedence changed (Database > Default; NO environment variable middle layer for app settings)
+Rationale for MINOR Version Bump (0.2.0 → 0.3.0):
+- New principle (VI) added; materially expands governance by mandating test coverage
+  for frontend pages and backend routes.
+- No existing principles removed or redefined → MINOR (not MAJOR).
 -->
 
 # cpak Constitution
@@ -84,6 +65,28 @@ The backend MUST log structured events to stdout/stderr (JSON or key-value). Hea
 The system MUST support dynamic configuration reloads for non-deployment settings without requiring container restarts. Specifically, scheduler configuration changes (cron expressions, enabled state) MUST take effect immediately upon saving via the web UI.
 
 **Rationale**: Dynamic configuration reload improves operational experience by eliminating restart downtime for routine configuration changes. Structured logging and health endpoints enable integration with monitoring systems without imposing specific monitoring tooling.
+
+### VI. Test Coverage by Default
+Every new frontend page (`app/**/page.tsx`) MUST ship with a corresponding test file
+under `frontend/tests/pages/`. Every new backend route module (files under
+`backend/src/api/routes/`) and every new service (files under `backend/src/services/`)
+MUST ship with a corresponding test file under `backend/tests/integration/routes/` or
+`backend/tests/unit/` respectively. Test files MUST be committed in the same PR or
+commit as the feature implementation — a page or route MUST NOT be merged without its
+accompanying test file.
+
+Frontend tests MUST use Vitest + Testing Library + MSW (no real network calls, no
+running server required). Backend tests MUST use Vitest + mongodb-memory-server (no
+external database required). All tests MUST pass via `npm run test` in CI (Node 20)
+before any PR is merged. Tests MUST cover the primary render / happy-path API
+interaction for each new page or route; exhaustive edge-case coverage is encouraged
+but not required beyond the happy path.
+
+**Rationale**: Mandating tests at the time a feature lands prevents regression debt from
+accumulating, ensures every page and route can be validated in CI without a live
+environment, and keeps the project maintainable as the feature set grows. The Testing
+Library + MSW stack has already been established and all existing pages are covered;
+this principle locks in that standard going forward.
 
 ## Minimal Requirements
 
@@ -344,13 +347,19 @@ volumes:
   - Routing complies with unified container architecture (Caddy internal routing)
   - No hardcoded secrets or credentials exist in code
   - Mobile responsiveness is maintained for UI changes
+  - Every new frontend page (`app/**/page.tsx`) has a matching test file in
+    `frontend/tests/pages/` (Principle VI)
+  - Every new backend route module or service has a matching test file in
+    `backend/tests/integration/routes/` or `backend/tests/unit/` (Principle VI)
+  - All tests pass via `npm run test` in CI before merge (Principle VI)
 - Feature specifications MUST include a "Constitution Check" section validating alignment with principles.
 - Breaking changes to deployment model (e.g., splitting unified container) require constitution amendment before implementation.
 
 ### Version History
 - **0.1.0** (2026-01-24): Initial ratification with multi-service architecture and environment variable configuration
 - **0.2.0** (2026-02-13): Major update reflecting unified container deployment, UI-first configuration, minimal environment variables (≤3), settings database with encryption, dynamic scheduler reload, backup/restore system, and mobile-responsive design
+- **0.3.0** (2026-07-10): Added Principle VI (Test Coverage by Default) mandating test files for every new frontend page and backend route/service; updated Compliance & Review checklist; updated tasks-template.md to reflect mandatory testing
 
 ---
 
-**Version**: 0.2.0 | **Ratified**: 2026-01-24 | **Last Amended**: 2026-02-13
+**Version**: 0.3.0 | **Ratified**: 2026-01-24 | **Last Amended**: 2026-07-10
