@@ -9,6 +9,8 @@ export interface IGame extends Document {
   achievementsUnlocked: number;
   completionPercent: number;
   imagePath?: string;
+  /** Xbox-specific: console generations the game supports (e.g. Xbox360, XboxOne, XboxSeries, PC) */
+  devices?: string[];
   lastSyncedAt: Date;
 }
 
@@ -26,6 +28,7 @@ const GameSchema = new Schema<IGame>(
     achievementsUnlocked: { type: Number, required: true, default: 0 },
     completionPercent: { type: Number, required: true, default: 0 },
     imagePath: String,
+    devices: { type: [String], default: undefined },
     lastSyncedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

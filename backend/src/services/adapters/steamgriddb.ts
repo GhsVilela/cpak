@@ -120,6 +120,91 @@ export class SteamGridDBAdapter {
   }
 
   /**
+   * Search for a game by name (for non-Steam platforms like Xbox, PlayStation)
+   * Uses the autocomplete search endpoint.
+   * Returns the best (first) verified match or first result if none verified.
+   */
+  async searchGameByName(name: string): Promise<SteamGridDBGame | null> {
+    const url = `${this.baseUrl}/search/autocomplete/${encodeURIComponent(name)}`;
+
+    try {
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) return null;
+        throw new Error(`SteamGridDB search error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json() as any;
+      const results: SteamGridDBGame[] = data.data || [];
+      if (results.length === 0) return null;
+
+      // Prefer verified entries, fall back to first result
+      return results.find(g => g.verified) ?? results[0];
+    } catch (error) {
+      logger.warn({ error, name }, 'Failed to search SteamGridDB by name');
+      return null;
+    }
+  }
+
+  /**
+   * Download and store the best grid image for a game identified only by name.
+   * Used for non-Steam platforms (Xbox, PlayStation) where no Steam App ID is available.
+   *
+   * @param gameName  Display name of the game (used for SteamGridDB search)
+   * @param platform  Platform identifier used in the storage path (e.g. 'xbox')
+   * @param gameId    Unique game identifier used in the storage path (e.g. Xbox title ID)
+   */
+  async downloadGameImageByName(
+    gameName: string,
+    platform: string,
+    gameId: string,
+  ): Promise<string | null> {
+    try {
+      // Check for existing cached image
+      const cached = imageStorage.checkLocalFile(platform, gameId, 'game', 'grid');
+      if (cached) {
+        logger.debug({ gameName, platform, gameId }, 'Grid image already cached for non-Steam game');
+        return cached;
+      }
+
+      const game = await this.searchGameByName(gameName);
+      if (!game) {
+        logger.warn({ gameName }, 'Game not found in SteamGridDB by name');
+        return null;
+      }
+
+      // Try alternate style first, then all styles
+      let images = await this.getGridImages(game.id, 'alternate');
+      if (images.length === 0) {
+        images = await this.getGridImages(game.id);
+      }
+      if (images.length === 0) return null;
+
+      // Prefer portrait images, sort by score
+      const portraitImages = images.filter(img => img.height > img.width);
+      const pool: typeof images = portraitImages.length > 0 ? portraitImages : images;
+      const best = pool.sort((a: SteamGridDBImage, b: SteamGridDBImage) => b.score - a.score)[0];
+
+      const imagePath = await imageStorage.downloadAndStore(
+        best.url,
+        platform,
+        gameId,
+        'game',
+        'grid',
+      );
+
+      logger.info({ gameName, platform, gameId, sgdbId: game.id }, 'Downloaded SteamGridDB image by name');
+      return imagePath;
+    } catch (error) {
+      logger.warn({ error, gameName, platform, gameId }, 'Failed to download game image by name');
+      return null;
+    }
+  }
+
+  /**
    * Download and store the best grid image for a Steam game
    */
   async downloadGameImage(steamAppId: number): Promise<string | null> {

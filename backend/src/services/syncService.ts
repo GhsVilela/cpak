@@ -5,6 +5,7 @@ import { SyncRun } from '../models/syncRun.js';
 import { SyncOperation } from '../models/syncOperation.js';
 import { createSteamAdapter } from './adapters/steam.js';
 import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
+import { createXboxAdapter } from './adapters/xbox.js';
 import { logger } from '../utils/logger.js';
 import { imageStorage } from '../utils/imageStorage.js';
 import pLimit from 'p-limit';
@@ -45,8 +46,7 @@ class SyncService {
       if (profile.platform === 'steam') {
         await this.syncSteam(profile, syncOperation);
       } else if (profile.platform === 'xbox') {
-        logger.warn({ profileId: profile.profileId }, 'Xbox sync not yet implemented');
-        throw new Error('Xbox sync not implemented');
+        await this.syncXbox(profile, syncOperation);
       } else if (profile.platform === 'playstation') {
         logger.warn({ profileId: profile.profileId }, 'PlayStation sync not yet implemented');
         throw new Error('PlayStation sync not implemented');
@@ -683,6 +683,306 @@ class SyncService {
     // Clear large data structures to free memory
     achievementIconMap.clear();
     gameIdToMongoId.clear();
+  }
+
+  // -------------------------------------------------------------------------
+  // Xbox sync (T014 / T016)
+  // -------------------------------------------------------------------------
+
+  private async syncXbox(profile: IProfile, syncOperation: any): Promise<void> {
+    const { isSyncCancelled } = await import('./syncCancellation.js');
+
+    // -----------------------------------------------------------------------
+    // Phase 1: Token refresh
+    // Xbox XSTS tokens expire in ~24 h and we need userHash from the bundle.
+    // Always refresh at the start of sync using the stored MSO refresh token.
+    // -----------------------------------------------------------------------
+
+    const clientId = await configService.getSetting('xbox_client_id');
+    const clientSecret = await configService.getSetting('xbox_client_secret');
+
+    if (!clientId || !clientSecret) {
+      throw new Error('Xbox Client ID and Secret not configured. Please add them in Settings → Xbox.');
+    }
+
+    const credentials = profile.getDecryptedCredentials();
+    if (!credentials?.refreshToken || credentials.tokenType !== 'xbox') {
+      throw new Error('Profile is missing Xbox refresh token. Please re-authenticate in Settings.');
+    }
+
+    const adapter = createXboxAdapter();
+
+    logger.info({ profileId: profile.profileId }, 'Refreshing Xbox XSTS token before sync');
+
+    const tokenBundle = await adapter.refreshXboxTokens(
+      credentials.refreshToken,
+      clientId,
+      clientSecret,
+    );
+
+    // Persist refreshed token (encrypted by pre-save hook)
+    await Profile.findByIdAndUpdate(profile._id, {
+      'credentials.accessToken': tokenBundle.xstsToken,
+      'credentials.refreshToken': tokenBundle.refreshToken ?? credentials.refreshToken,
+      'credentials.expiresAt': tokenBundle.expiresAt,
+    });
+
+    const { xstsToken, userHash, xuid } = tokenBundle;
+
+    // -----------------------------------------------------------------------
+    // Phase 2: Update profile display name (gamertag)
+    // -----------------------------------------------------------------------
+
+    try {
+      const xboxProfile = await adapter.getXboxProfile(xuid, xstsToken, userHash);
+      if (xboxProfile.gamertag && xboxProfile.gamertag !== profile.displayName) {
+        await Profile.findByIdAndUpdate(profile._id, { displayName: xboxProfile.gamertag });
+        logger.info({ xuid, gamertag: xboxProfile.gamertag }, 'Updated Xbox profile display name');
+      }
+    } catch (error) {
+      logger.warn({ error, xuid }, 'Failed to update Xbox profile display name');
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 3: Game discovery
+    // -----------------------------------------------------------------------
+
+    const titles = await adapter.getTitleHistory(xuid, xstsToken, userHash);
+
+    const totalAchievements = titles.reduce((sum, t) => sum + t.totalAchievements, 0);
+
+    syncOperation.totalGames = titles.length;
+    syncOperation.totalAchievements = totalAchievements;
+    syncOperation.iconDownloadsPending = totalAchievements; // one icon per achievement
+    await syncOperation.save();
+
+    logger.info(
+      { syncOperationId: syncOperation._id, totalGames: titles.length, totalAchievements },
+      'Xbox title history fetched',
+    );
+
+    // -----------------------------------------------------------------------
+    // Phase 4: Game image downloads
+    // -----------------------------------------------------------------------
+
+    const steamGridDBAdapter = await createSteamGridDBAdapter();
+    const hasSteamGridDB = steamGridDBAdapter !== null;
+
+    const concurrencySetting = await configService.getSetting('sync_concurrency');
+    const imageConcurrency = concurrencySetting ? parseInt(concurrencySetting, 10) : 5;
+    const limit = pLimit(imageConcurrency);
+
+    const gameImagePromises = titles.map((title) =>
+      limit(async () => {
+        let imagePath: string | undefined;
+
+        // Priority 1: Existing local cache
+        imagePath = imageStorage.checkLocalFile('xbox', title.titleId, 'game', 'grid') || undefined;
+        if (imagePath) return { titleId: title.titleId, imagePath };
+
+        // Priority 2: Xbox CDN displayImage
+        if (title.titleImageUrl) {
+          try {
+            imagePath = await imageStorage.downloadAndStore(
+              title.titleImageUrl, 'xbox', title.titleId, 'game', 'grid',
+            );
+          } catch (error) {
+            logger.debug({ error, titleId: title.titleId }, 'Xbox CDN image download failed');
+          }
+        }
+
+        // Priority 3: SteamGridDB by name
+        if (!imagePath && hasSteamGridDB) {
+          try {
+            imagePath = await steamGridDBAdapter!.downloadGameImageByName(
+              title.name, 'xbox', title.titleId,
+            ) || undefined;
+          } catch (error) {
+            logger.warn({ error, titleId: title.titleId }, 'SteamGridDB name lookup failed');
+          }
+        }
+
+        return { titleId: title.titleId, imagePath };
+      }),
+    );
+
+    const gameImageResults = await Promise.all(gameImagePromises);
+    const gameImageMap = new Map(gameImageResults.map((r) => [r.titleId, r.imagePath]));
+
+    // Upsert games
+    await Promise.all(
+      titles.map((title) => {
+        const completionPercent =
+          title.totalAchievements > 0
+            ? Math.round((title.currentAchievements / title.totalAchievements) * 100)
+            : 0;
+
+        const updateData: any = {
+          platform: 'xbox',
+          title: title.name,
+          achievementsTotal: title.totalAchievements,
+          achievementsUnlocked: title.currentAchievements,
+          completionPercent,
+          devices: title.devices,
+          lastSyncedAt: new Date(),
+        };
+
+        const imagePath = gameImageMap.get(title.titleId);
+        if (imagePath) updateData.imagePath = imagePath;
+
+        return Game.findOneAndUpdate(
+          { profileId: profile._id, gameId: title.titleId },
+          { $set: updateData },
+          { upsert: true, new: true },
+        ).catch((error) => {
+          logger.error({ error, titleId: title.titleId }, 'Failed to upsert Xbox game');
+          syncOperation.gamesFailed++;
+        });
+      }),
+    );
+
+    syncOperation.gamesCompleted = titles.length;
+    await syncOperation.save();
+
+    logger.info({ syncOperationId: syncOperation._id, gamesUpserted: titles.length }, 'Xbox games upserted');
+
+    // -----------------------------------------------------------------------
+    // Phase 5: Achievement sync
+    // -----------------------------------------------------------------------
+
+    // Pre-fetch all game IDs for achievement linking
+    const allGames = await Game.find({ profileId: profile._id, platform: 'xbox' })
+      .select('_id gameId')
+      .lean();
+    const gameIdToMongoId = new Map(allGames.map((g) => [g.gameId, g._id]));
+
+    let achievementsSynced = 0;
+    const iconLimit = pLimit(imageConcurrency);
+
+    for (const title of titles) {
+      // Cancellation check
+      if (isSyncCancelled(syncOperation._id.toString())) {
+        logger.info({ syncOperationId: syncOperation._id }, 'Xbox sync cancelled');
+        break;
+      }
+
+      let achievements: Awaited<ReturnType<typeof adapter.getAchievements>>;
+      try {
+        achievements = await adapter.getAchievements(xuid, title.titleId, xstsToken, userHash);
+      } catch (error) {
+        logger.warn({ error, titleId: title.titleId }, 'Failed to fetch Xbox achievements, skipping game');
+        continue;
+      }
+
+      if (achievements.length === 0) continue;
+
+      const gameMongoId = gameIdToMongoId.get(title.titleId);
+      if (!gameMongoId) {
+        logger.warn({ titleId: title.titleId }, 'Xbox game not found after upsert, skipping achievements');
+        continue;
+      }
+
+      // The title history API doesn't return totalAchievements, so we now know
+      // the real total from getAchievements(). Patch the game record accordingly.
+      const realTotal = achievements.length;
+      const unlockedCount = achievements.filter((a) => a.unlockedAt != null).length;
+      const realCompletionPercent = Math.round((unlockedCount / realTotal) * 100);
+      await Game.findByIdAndUpdate(gameMongoId, {
+        $set: {
+          achievementsTotal: realTotal,
+          achievementsUnlocked: unlockedCount,
+          completionPercent: realCompletionPercent,
+        },
+      });
+
+      // Accumulate into the sync operation for accurate progress display
+      syncOperation.totalAchievements += realTotal;
+      syncOperation.iconDownloadsPending += realTotal;
+      await SyncOperation.findByIdAndUpdate(syncOperation._id, {
+        totalAchievements: syncOperation.totalAchievements,
+        iconDownloadsPending: syncOperation.iconDownloadsPending,
+      });
+
+      // Download achievement icons
+      // Xbox provides one icon URL — same path used for both iconPath and iconGrayPath;
+      // the UI applies CSS grayscale filter to render locked achievements in gray.
+      const iconPromises = achievements.map((ach) =>
+        iconLimit(async () => {
+          let iconPath: string | undefined;
+          if (ach.iconUrl) {
+            try {
+              iconPath = await imageStorage.downloadAndStore(
+                ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
+              );
+            } catch {
+              iconPath =
+                imageStorage.checkLocalFile('xbox', title.titleId, ach.achievementId, 'icon') || undefined;
+            }
+          }
+
+          syncOperation.iconDownloadsCompleted++;
+          if (syncOperation.iconDownloadsCompleted % 50 === 0) {
+            await SyncOperation.findByIdAndUpdate(syncOperation._id, {
+              iconDownloadsCompleted: syncOperation.iconDownloadsCompleted,
+            });
+          }
+          return { achievementId: ach.achievementId, iconPath };
+        }),
+      );
+
+      const iconResults = await Promise.all(iconPromises.map((p) => p.catch(() => null)));
+      const iconMap = new Map(
+        iconResults.filter(Boolean).map((r) => [r!.achievementId, r!.iconPath]),
+      );
+
+      // Bulk upsert achievements for this title
+      const bulkOps = achievements.map((ach) => {
+        const iconPath = iconMap.get(ach.achievementId);
+        const updateFields: any = {
+          platform: 'xbox',
+          profileId: profile._id,
+          name: ach.name,
+          description: ach.description,
+          unlockedAt: ach.unlockedAt,
+          isSecret: ach.isSecret,
+        };
+        if (iconPath) {
+          updateFields.iconPath = iconPath;
+          updateFields.iconGrayPath = iconPath; // same image, CSS grayscale handles locked state
+        }
+        return {
+          updateOne: {
+            filter: { profileId: profile._id, gameId: gameMongoId, achievementId: ach.achievementId },
+            update: { $set: updateFields },
+            upsert: true,
+          },
+        };
+      });
+
+      if (bulkOps.length > 0) {
+        try {
+          await Achievement.bulkWrite(bulkOps, { ordered: false });
+          achievementsSynced += bulkOps.length;
+          await SyncOperation.findByIdAndUpdate(syncOperation._id, { achievementsSynced });
+          syncOperation.achievementsSynced = achievementsSynced;
+        } catch (error) {
+          logger.error({ error, titleId: title.titleId }, 'Failed to upsert Xbox achievements');
+        }
+      }
+    }
+
+    syncOperation.achievementsSynced = achievementsSynced;
+    await syncOperation.save();
+
+    logger.info(
+      {
+        syncOperationId: syncOperation._id,
+        totalGames: titles.length,
+        totalAchievements: syncOperation.totalAchievements,
+        achievementsSynced,
+      },
+      'Xbox sync completed successfully',
+    );
   }
 }
 

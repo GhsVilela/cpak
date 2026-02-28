@@ -147,6 +147,37 @@ export const handlers = [
   http.get(`${TEST_BASE_URL}/config.json`, () =>
     HttpResponse.json({ API_BASE_URL: TEST_BASE_URL }),
   ),
+
+  // --- Xbox Auth ---
+  http.get(`${TEST_BASE_URL}/api/auth/xbox/url`, ({ request }) => {
+    const url = new URL(request.url);
+    const configured = url.searchParams.get('configured') !== 'false';
+    if (!configured) {
+      return HttpResponse.json(
+        { error: 'Xbox OAuth not configured. Please set xbox_client_id and xbox_client_secret in Settings.' },
+        { status: 400 },
+      );
+    }
+    return HttpResponse.json({
+      url: 'https://login.live.com/oauth20_authorize.srf?client_id=test-client-id&scope=XboxLive.signin+XboxLive.offline_access&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%2Fapi%2Fauth%2Fxbox%2Fcallback&state=test-state',
+    });
+  }),
+  http.get(`${TEST_BASE_URL}/api/auth/xbox/callback`, () =>
+    new HttpResponse(null, {
+      status: 302,
+      headers: { Location: '/setup?xboxProfileId=xuid-12345&success=true' },
+    }),
+  ),
+  http.post(`${TEST_BASE_URL}/api/auth/xbox/refresh`, async ({ request }) => {
+    const body = await request.json() as Record<string, unknown>;
+    if (!body.profileId) {
+      return HttpResponse.json({ error: 'profileId is required' }, { status: 400 });
+    }
+    return HttpResponse.json({
+      success: true,
+      expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+    });
+  }),
 ];
 
 export const server = setupServer(...handlers);

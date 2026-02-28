@@ -57,10 +57,9 @@ describe('SyncService', () => {
     expect(op).toBeTruthy();
   });
 
-  it('syncProfile records failure for Xbox (not yet implemented)', async () => {
+  it('syncProfile records failure for Xbox when credentials not configured', async () => {
     const { syncService } = await import('../../../src/services/syncService.js');
     const { Profile } = await import('../../../src/models/profile.js');
-    const { SyncRun } = await import('../../../src/models/syncRun.js');
 
     const profile = await Profile.create({
       platform: 'xbox',
@@ -68,7 +67,9 @@ describe('SyncService', () => {
       displayName: 'Xbox User',
     });
 
-    // Xbox sync propagates the not-implemented error after recording the failure
-    await expect(syncService.syncProfile(profile as any)).rejects.toThrow('Xbox sync not implemented');
+    // Xbox sync throws when client credentials are not configured
+    await expect(syncService.syncProfile(profile as any)).rejects.toThrow(
+      /Xbox Client ID|not configured|Xbox sync/i
+    );
   });
 });

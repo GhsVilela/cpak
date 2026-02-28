@@ -5,7 +5,8 @@ import { encrypt, decrypt } from '../utils/crypto.js';
 export enum SettingCategory {
   IMAGE_PROVIDER = 'image_provider',
   SCHEDULER = 'scheduler',
-  SYNC = 'sync'
+  SYNC = 'sync',
+  AUTH = 'auth'
 }
 
 // Setting interface
