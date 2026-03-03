@@ -31,13 +31,13 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
     onChange('sync_concurrency', concurrency);
   };
 
-  const batchSize = parseInt(values.sync_batch_size || '30');
-  const concurrency = parseInt(values.sync_concurrency || '15');
+  const batchSize = parseInt(values.sync_batch_size || '150');
+  const concurrency = parseInt(values.sync_concurrency || '75');
 
   // Determine which preset is currently active
-  const isConservative = batchSize === 20 && concurrency === 10;
-  const isBalanced = batchSize === 30 && concurrency === 15;
-  const isAggressive = batchSize === 50 && concurrency === 30;
+  const isConservative = batchSize === 50 && concurrency === 25;
+  const isBalanced = batchSize === 150 && concurrency === 75;
+  const isAggressive = batchSize === 500 && concurrency === 250;
 
   return (
     <div className="bg-gray-900 rounded-lg p-6 space-y-6">
@@ -61,7 +61,7 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
           <input
             type="range"
             min="5"
-            max="100"
+            max="500"
             step="5"
             value={batchSize}
             onChange={(e) => onChange('sync_batch_size', e.target.value)}
@@ -69,7 +69,7 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
           />
           <div className="flex justify-between text-xs text-gray-500">
             <span>5 (slower)</span>
-            <span>100 (fastest)</span>
+            <span>500 (fastest)</span>
           </div>
           <p className="text-xs text-gray-500">
             Number of games to process simultaneously during sync. Higher values use more memory.
@@ -85,15 +85,15 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
           <input
             type="range"
             min="1"
-            max="50"
-            step="1"
+            max="250"
+            step="5"
             value={concurrency}
             onChange={(e) => onChange('sync_concurrency', e.target.value)}
             className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
           />
           <div className="flex justify-between text-xs text-gray-500">
             <span>1 (slower)</span>
-            <span>50 (fastest)</span>
+            <span>250 (fastest)</span>
           </div>
           <p className="text-xs text-gray-500">
             Number of parallel operations (API calls, image downloads) to execute simultaneously. Higher values use more bandwidth and memory.
@@ -109,10 +109,10 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
             <div className="space-y-2">
               <p className="text-sm text-gray-300 font-medium">Performance Tips:</p>
               <ul className="text-xs text-gray-400 space-y-1 list-disc list-inside">
-                <li>For slow connections or limited bandwidth, use lower concurrency (1-5)</li>
-                <li>For fast connections, increase concurrency (10-50) for faster syncs</li>
-                <li>Batch size affects memory usage during sync - lower values use less memory</li>
-                <li>Default values (batch: 20, concurrency: 10) work well for most deployments</li>
+                <li>For slow connections or limited bandwidth, use lower concurrency (1–25)</li>
+                <li>For fast connections, increase concurrency (75–250) for faster syncs</li>
+                <li>Batch size affects memory usage during sync — lower values use less memory</li>
+                <li>Default values (batch: 150, concurrency: 75) work well for most deployments</li>
               </ul>
             </div>
           </div>
@@ -122,19 +122,19 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <button
             type="button"
-            onClick={() => handlePresetClick('20', '10')}
+            onClick={() => handlePresetClick('50', '25')}
             className={`bg-gray-800 hover:bg-gray-750 border rounded p-3 text-left transition-colors ${
               isConservative ? 'border-blue-700 hover:border-blue-600' : 'border-gray-700 hover:border-gray-600'
             }`}
           >
             <p className="text-sm font-medium text-gray-300">Conservative</p>
             <p className="text-xs text-gray-500 mt-1">Low resource usage</p>
-            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 20, Concurrency: 10</p>
+            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 50, Concurrency: 25</p>
           </button>
 
           <button
             type="button"
-            onClick={() => handlePresetClick('30', '15')}
+            onClick={() => handlePresetClick('150', '75')}
             className={`bg-gray-800 hover:bg-gray-750 border rounded p-3 text-left transition-colors ${
               isBalanced ? 'border-blue-700 hover:border-blue-600' : 'border-gray-700 hover:border-gray-600'
             }`}
@@ -144,19 +144,19 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
               <span className="ml-2 text-xs text-blue-400">(Default)</span>
             </p>
             <p className="text-xs text-gray-500 mt-1">Good for most setups</p>
-            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 30, Concurrency: 15</p>
+            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 150, Concurrency: 75</p>
           </button>
 
           <button
             type="button"
-            onClick={() => handlePresetClick('50', '30')}
+            onClick={() => handlePresetClick('500', '250')}
             className={`bg-gray-800 hover:bg-gray-750 border rounded p-3 text-left transition-colors ${
               isAggressive ? 'border-blue-700 hover:border-blue-600' : 'border-gray-700 hover:border-gray-600'
             }`}
           >
             <p className="text-sm font-medium text-gray-300">Aggressive</p>
             <p className="text-xs text-gray-500 mt-1">Fast sync, high resources</p>
-            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 50, Concurrency: 30</p>
+            <p className="text-xs text-gray-600 mt-2 font-mono">Batch: 500, Concurrency: 250</p>
           </button>
         </div>
       </div>

@@ -1,10 +1,9 @@
 ﻿'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
-import ProfileSyncControls from '../../components/ProfileSyncControls';
 import GameGrid from '../../components/GameGrid';
 import Toast from '../../components/Toast';
 
@@ -28,6 +27,20 @@ interface GamesResponse {
     limit: number;
     offset: number;
     hasMore: boolean;
+  };
+}
+
+interface SyncStatus {
+  current?: {
+    operationId: string;
+    status: string;
+    progress: number;
+    message: string;
+  };
+  lastCompleted?: {
+    completedAt: string;
+    status: 'success' | 'failed';
+    error?: string;
   };
 }
 
@@ -70,6 +83,11 @@ function XboxPageContent() {
   const [selectedProfile, setSelectedProfile] = useState<XboxProfile | null>(null);
   const [reAuthUrl, setReAuthUrl] = useState('');
 
+  // Sync status and polling
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncPollInterval, setSyncPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const lastSyncNotified = useRef<string | null>(null);
+
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -102,11 +120,26 @@ function XboxPageContent() {
   useEffect(() => {
     if (selectedProfileId) {
       loadGames();
+      loadSyncStatus();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onlyCompleted, selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, generationFilter]);
 
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (syncPollInterval) {
+        clearInterval(syncPollInterval);
+      }
+    };
+  }, [syncPollInterval]);
+
   const handleProfileChange = (profileId: string) => {
+    // Stop any existing polling
+    if (syncPollInterval) {
+      clearInterval(syncPollInterval);
+      setSyncPollInterval(null);
+    }
     setSelectedProfileId(profileId);
     router.push(`/xbox?profileId=${profileId}`, { scroll: false });
   };
@@ -119,6 +152,109 @@ function XboxPageContent() {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1);
     await loadGames({ page: 1, perPage: newItemsPerPage });
+  };
+
+  // Load sync status from server
+  const loadSyncStatus = async () => {
+    if (!selectedProfileId) return null;
+
+    try {
+      const response = await fetch(`/api/sync/status?profileId=${selectedProfileId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setSyncStatus(data);
+
+        // If there's an active sync, start polling
+        if (data.current && !syncPollInterval) {
+          startSyncPolling();
+        }
+
+        return data;
+      }
+    } catch (err) {
+      console.error('Failed to load sync status:', err);
+    }
+    return null;
+  };
+
+  // Start polling for sync status
+  const startSyncPolling = () => {
+    if (syncPollInterval) {
+      clearInterval(syncPollInterval);
+    }
+
+    const interval = setInterval(async () => {
+      const status = await loadSyncStatus();
+
+      if (!status?.current) {
+        clearInterval(interval);
+        setSyncPollInterval(null);
+
+        if (status?.lastCompleted?.completedAt) {
+          const completedAt = status.lastCompleted.completedAt;
+          if (completedAt !== lastSyncNotified.current) {
+            if (status.lastCompleted.status === 'success') {
+              showToast('Sync completed successfully!', 'success');
+            } else {
+              showToast(`Sync failed: ${status.lastCompleted.error || 'Unknown error'}`, 'error');
+            }
+            lastSyncNotified.current = completedAt;
+            setReloadTrigger((prev) => prev + 1);
+          }
+        }
+      }
+    }, 1000);
+
+    setSyncPollInterval(interval);
+  };
+
+  // Format relative time
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  // Cancel sync
+  const cancelSync = async () => {
+    if (!syncStatus?.current?.operationId) return;
+
+    try {
+      await apiClient.delete(`/sync/cancel/${syncStatus.current.operationId}`);
+      showToast('Sync cancelled', 'success');
+      if (syncPollInterval) {
+        clearInterval(syncPollInterval);
+        setSyncPollInterval(null);
+      }
+      await loadSyncStatus();
+    } catch {
+      showToast('Failed to cancel sync', 'error');
+    }
+  };
+
+  // Trigger sync
+  const triggerSync = async () => {
+    if (!selectedProfileId) return;
+
+    try {
+      await apiClient.post(`/sync/xbox?profileId=${selectedProfileId}`, {});
+      showToast('Sync started', 'success');
+      startSyncPolling();
+      setTimeout(async () => {
+        await loadSyncStatus();
+      }, 500);
+    } catch {
+      showToast('Failed to start sync', 'error');
+    }
   };
 
   const loadGames = async (overrides?: { page?: number; perPage?: number }) => {
@@ -159,21 +295,29 @@ function XboxPageContent() {
 
   return (
     <div>
-      {/* Header */}
+      {/* Header row: title + ProfileSelector + Sync Now button */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-[var(--xbox-accent)] mb-4">Xbox Games</h1>
-
-        {/* Profile selector */}
-        <div className="mb-4">
-          <ProfileSelector
-            platform="xbox"
-            selectedProfileId={selectedProfileId}
-            onSelectProfile={handleProfileChange}
-            onError={handleProfileError}
-          />
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+          <h1 className="text-3xl font-bold text-[var(--xbox-accent)]">Xbox Games</h1>
+          <div className="flex items-center gap-4">
+            <ProfileSelector
+              platform="xbox"
+              selectedProfileId={selectedProfileId}
+              onSelectProfile={handleProfileChange}
+              onError={handleProfileError}
+            />
+            {selectedProfileId && !syncStatus?.current && (
+              <button
+                onClick={triggerSync}
+                className="px-4 py-2 bg-[var(--xbox-accent)] hover:opacity-90 rounded font-medium text-sm transition whitespace-nowrap text-black"
+              >
+                Sync Now
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Re-auth banner (T025) */}
+        {/* Re-auth banner */}
         {tokenExpired && (
           <div className="flex items-center gap-4 bg-yellow-900/30 border border-yellow-600 text-yellow-300 px-4 py-3 rounded mb-4">
             <span>⚠️ Your Xbox token has expired. Re-connect your account to resume syncing.</span>
@@ -188,16 +332,48 @@ function XboxPageContent() {
           </div>
         )}
 
-        {/* Sync controls + filters */}
+        {/* Sync Progress Banner */}
+        {selectedProfileId && syncStatus?.current && (
+          <div className="mb-4 p-3 bg-green-900/20 border border-green-500/30 rounded">
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span className="text-green-400 font-medium">{syncStatus.current.message}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-green-400 font-bold">{syncStatus.current.progress}%</span>
+                <button
+                  onClick={cancelSync}
+                  className="text-sm px-3 py-1.5 bg-red-600/20 hover:bg-red-600/40 border border-red-500/50 rounded text-red-400 transition font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+            <div className="w-full bg-gray-700 rounded-full h-2">
+              <div
+                className="bg-[var(--xbox-accent)] h-2 rounded-full transition-all duration-300"
+                style={{ width: `${syncStatus.current.progress}%` }}
+              ></div>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Sync in progress. This page will automatically update when complete.
+            </p>
+          </div>
+        )}
+
+        {/* Last Sync Info */}
+        {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
+          <div className="mb-4 text-sm text-gray-400">
+            Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
+            {syncStatus.lastCompleted.status === 'success' ? (
+              <span className="text-green-400 ml-2">✓</span>
+            ) : (
+              <span className="text-red-400 ml-2">✗</span>
+            )}
+          </div>
+        )}
+
+        {/* Filters */}
         {selectedProfileId && (
           <div className="flex items-center gap-4 flex-wrap">
-            <ProfileSyncControls
-              profileId={selectedProfileId}
-              platform="xbox"
-              onSyncComplete={() => setReloadTrigger((t) => t + 1)}
-              onToast={(msg, type) => showToast(msg, type)}
-            />
-
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"

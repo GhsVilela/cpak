@@ -35,6 +35,52 @@ export class SteamGridDBAdapter {
   }
 
   /**
+   * Normalise an Xbox (or other platform) game title for SteamGridDB searching.
+   *
+   * Xbox API titles are often machine-formatted without spaces, e.g.:
+   *   "SplinterCellConviction"  → "Splinter Cell Conviction"
+   *   "DEADRISING2:CASE WEST"   → "Dead Rising 2 Case West"
+   *   "ForzaHorizon5"           → "Forza Horizon 5"
+   */
+  private normalizeGameName(name: string): string {
+    let n = name;
+
+    // 1. Remove content inside parentheses/brackets (editions, SKU suffixes)
+    n = n.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, '');
+
+    // 2. Replace colons/hyphens used as subtitle separators with a space
+    n = n.replace(/[:\-]/g, ' ');
+
+    // 3. Insert space before a digit that immediately follows a letter: "DEADRISING2" → "DEADRISING 2"
+    n = n.replace(/([A-Za-z])(\d)/g, '$1 $2');
+    // Insert space before a letter that immediately follows a digit: "2FAST" → "2 FAST"
+    n = n.replace(/(\d)([A-Za-z])/g, '$1 $2');
+
+    // 4. Split CamelCase / PascalCase: insert space before an uppercase letter
+    //    that is preceded by a lowercase letter or followed by a lowercase letter
+    //    (avoids splitting acronyms like "USA" or "RPG").
+    //    "SplinterCellConviction" → "Splinter Cell Conviction"
+    n = n.replace(/([a-z])([A-Z])/g, '$1 $2');
+    n = n.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+
+    // 5. Convert fully upper-cased words to title case, leave mixed-case alone
+    //    "DEAD RISING" → "Dead Rising"  but "DeadRising" already split → leave alone
+    if (n === n.toUpperCase()) {
+      n = n.toLowerCase().replace(/(?:^|\s)\S/g, (c) => c.toUpperCase());
+    } else {
+      // Title-case any remaining all-caps words (≥2 chars) that aren't acronyms context
+      n = n.replace(/\b([A-Z]{2,})\b/g, (word) =>
+        word.charAt(0) + word.slice(1).toLowerCase(),
+      );
+    }
+
+    // 6. Collapse multiple spaces and trim
+    n = n.replace(/\s{2,}/g, ' ').trim();
+
+    return n;
+  }
+
+  /**
    * Search for game by Steam App ID
    */
   async searchGameBySteamId(steamAppId: number): Promise<SteamGridDBGame | null> {
@@ -170,9 +216,20 @@ export class SteamGridDBAdapter {
         return cached;
       }
 
-      const game = await this.searchGameByName(gameName);
+      // Normalise the name before searching (handles CamelCase, all-caps, colons, etc.)
+      const normalizedName = this.normalizeGameName(gameName);
+      if (normalizedName !== gameName) {
+        logger.debug({ original: gameName, normalized: normalizedName }, 'Normalized game name for SteamGridDB search');
+      }
+
+      // Try normalized name first, then fall back to original if nothing found
+      let game = await this.searchGameByName(normalizedName);
+      if (!game && normalizedName !== gameName) {
+        game = await this.searchGameByName(gameName);
+      }
+
       if (!game) {
-        logger.warn({ gameName }, 'Game not found in SteamGridDB by name');
+        logger.warn({ gameName, normalizedName }, 'Game not found in SteamGridDB by name');
         return null;
       }
 

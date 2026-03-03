@@ -80,7 +80,7 @@ describe('XboxAdapter', () => {
   describe('getAuthorizeUrl', () => {
     it('returns a Microsoft OAuth authorization URL', () => {
       const url = adapter.getAuthorizeUrl('my-client-id', 'http://localhost/callback');
-      expect(url).toContain('login.live.com');
+      expect(url).toContain('login.microsoftonline.com');
     });
 
     it('appends state parameter when provided', () => {
@@ -88,15 +88,12 @@ describe('XboxAdapter', () => {
       expect(url).toContain('state=my-state');
     });
 
-    it('calls live.getAuthorizeUrl with correct arguments', async () => {
-      const { live: mockLive } = await import('@xboxreplay/xboxlive-auth');
-      adapter.getAuthorizeUrl('real-client-id', 'http://localhost/cb');
-      expect(mockLive.getAuthorizeUrl).toHaveBeenCalledWith(
-        'real-client-id',
-        'XboxLive.signin XboxLive.offline_access',
-        'code',
-        'http://localhost/cb',
-      );
+    it('includes correct OAuth parameters in the URL', () => {
+      const url = adapter.getAuthorizeUrl('real-client-id', 'http://localhost/cb');
+      expect(url).toContain('client_id=real-client-id');
+      expect(url).toContain('response_type=code');
+      expect(url).toContain('XboxLive.signin');
+      expect(url).toContain('redirect_uri=http');
     });
   });
 
@@ -106,6 +103,7 @@ describe('XboxAdapter', () => {
 
   describe('getTitleHistory', () => {
     it('returns titles with achievements, filtering out titles with 0 achievements', async () => {
+      // v2 call (Xbox One / Series / PC games)
       getXSAPI().mockResolvedValueOnce({
         data: {
           titles: [
@@ -114,19 +112,23 @@ describe('XboxAdapter', () => {
               name: 'Halo Infinite',
               currentGamerscore: 500,
               maxGamerscore: 1000,
-              achievement: { currentAchievements: 30, totalAchievements: 100 },
-              devices: ['XboxSeries', 'PC'],
+              earnedAchievements: 30,
+              platform: 'XboxSeries',
               displayImage: 'https://example.com/halo.jpg',
             },
             {
               titleId: 'title-2',
               name: 'No Achievements App',
-              achievement: { currentAchievements: 0, totalAchievements: 0 },
-              devices: ['XboxSeries'],
+              currentGamerscore: 0,
+              maxGamerscore: 0,
             },
           ],
           pagingInfo: { continuationToken: null },
         },
+      });
+      // v1 call (Xbox 360 legacy) — no 360 titles for this test
+      getXSAPI().mockResolvedValueOnce({
+        data: { titles: [], pagingInfo: {} },
       });
 
       const titles = await adapter.getTitleHistory('user-xuid', 'xsts-token', 'user-hash');
@@ -134,33 +136,41 @@ describe('XboxAdapter', () => {
       expect(titles).toHaveLength(1);
       expect(titles[0].titleId).toBe('title-1');
       expect(titles[0].name).toBe('Halo Infinite');
-      expect(titles[0].devices).toEqual(['XboxSeries', 'PC']);
+      expect(titles[0].devices).toContain('XboxSeries');
     });
 
     it('handles pagination via continuationToken', async () => {
-      // First page
+      // v2 page 1: returns title-1 with a continuation token
       getXSAPI().mockResolvedValueOnce({
         data: {
           titles: [
             {
               titleId: 'title-1',
               name: 'Game 1',
-              achievement: { currentAchievements: 5, totalAchievements: 10 },
-              devices: ['XboxOne'],
+              currentGamerscore: 50,
+              maxGamerscore: 100,
+              earnedAchievements: 5,
+              platform: 'XboxOne',
             },
           ],
           pagingInfo: { continuationToken: 'next-page-token' },
         },
       });
-      // Second page
+      // v1 page 1: no 360 titles
+      getXSAPI().mockResolvedValueOnce({
+        data: { titles: [], pagingInfo: {} },
+      });
+      // v2 page 2: returns title-2, no more pages
       getXSAPI().mockResolvedValueOnce({
         data: {
           titles: [
             {
               titleId: 'title-2',
               name: 'Game 2',
-              achievement: { currentAchievements: 3, totalAchievements: 50 },
-              devices: ['Xbox360'],
+              currentGamerscore: 30,
+              maxGamerscore: 500,
+              earnedAchievements: 3,
+              platform: 'XboxOne',
             },
           ],
           pagingInfo: { continuationToken: null },
@@ -172,7 +182,8 @@ describe('XboxAdapter', () => {
       expect(titles).toHaveLength(2);
       expect(titles[0].titleId).toBe('title-1');
       expect(titles[1].titleId).toBe('title-2');
-      expect(getXSAPI()).toHaveBeenCalledTimes(2);
+      // 3 calls: v2 page1, v1 page1, v2 page2
+      expect(getXSAPI()).toHaveBeenCalledTimes(3);
     });
 
     it('returns empty array when API returns no titles', async () => {
@@ -235,7 +246,7 @@ describe('XboxAdapter', () => {
         },
       });
 
-      const achievements = await adapter.getAchievements('user-xuid', 'title-1', 'xsts-token', 'user-hash');
+      const { achievements } = await adapter.getAchievements('user-xuid', 'title-1', 'xsts-token', 'user-hash');
 
       expect(achievements).toHaveLength(2);
 
@@ -296,7 +307,7 @@ describe('XboxAdapter', () => {
         },
       });
 
-      const achievements = await adapter.getAchievements('user-xuid', 'title-1', 'xsts-token', 'user-hash');
+      const { achievements } = await adapter.getAchievements('user-xuid', 'title-1', 'xsts-token', 'user-hash');
       expect(achievements).toHaveLength(2);
       expect(getXSAPI()).toHaveBeenCalledTimes(2);
     });
@@ -306,8 +317,8 @@ describe('XboxAdapter', () => {
       (privacyError as any).statusCode = 403;
       getXSAPI().mockRejectedValueOnce(privacyError);
 
-      const achievements = await adapter.getAchievements('user-xuid', 'private-title', 'xsts-token', 'user-hash');
-      expect(achievements).toEqual([]);
+      const result = await adapter.getAchievements('user-xuid', 'private-title', 'xsts-token', 'user-hash');
+      expect(result.achievements).toEqual([]);
     });
   });
 });

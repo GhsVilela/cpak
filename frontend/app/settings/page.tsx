@@ -981,8 +981,8 @@ export default function SettingsPage() {
         {/* Sync Performance Settings */}
         <SyncSettings
           values={{
-            sync_batch_size: settings.sync_batch_size || '30',
-            sync_concurrency: settings.sync_concurrency || '15'
+            sync_batch_size: settings.sync_batch_size || '150',
+            sync_concurrency: settings.sync_concurrency || '75'
           }}
           onChange={handleSettingChange}
           onSave={handleSyncSettingsSave}

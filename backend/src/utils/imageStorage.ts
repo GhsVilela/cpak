@@ -1,7 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import sharp from 'sharp';
 import { logger } from './logger.js';
+
+const execFileAsync = promisify(execFile);
 
 const IMAGES_BASE_DIR = process.env.IMAGES_DIR || '/app/data/images';
 
@@ -20,46 +25,174 @@ export class ImageStorage {
     platform: string,
     gameId: string,
     achievementId: string,
-    imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
+    imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule',
+    /** Optional HTTP headers to include in the download request (e.g. Xbox Live auth) */
+    headers?: Record<string, string>,
   ): Promise<string> {
     try {
-      // Validate URL - must have a file extension (not just a directory path)
+      // Fast-path: check if ANY previously-saved version of this image already exists
+      // (any extension) before doing any network I/O. This is especially important for
+      // extension-less CDN URLs (e.g. Xbox: /image?url=...) where the URL-based pre-check
+      // below would be skipped, causing unnecessary re-downloads every sync.
+      const existingPath = this.checkLocalFile(platform, gameId, achievementId, imageType);
+      if (existingPath) {
+        logger.debug({ existingPath, platform, gameId, achievementId, imageType }, 'Image already cached locally, skipping download');
+        return existingPath;
+      }
+
       const urlObj = new URL(url);
       const pathname = urlObj.pathname;
-      const ext = path.extname(pathname);
-      
-      if (!ext || pathname.endsWith('/')) {
-        logger.debug({ url, platform, gameId, imageType }, 'Invalid image URL - no file extension or ends with /');
-        throw new Error('Image not available (invalid URL - missing file)');
+      // Only treat the URL path extension as valid if it is a known image format.
+      // CDN URLs like store-images.s-microsoft.com end in a GUID segment
+      // (e.g. ".ed9482e8-90c6-4198-952b-9a084078cb92") which path.extname()
+      // would otherwise extract as the extension, producing an unreadable
+      // filename and bypassing Content-Type detection on every subsequent run.
+      const rawUrlExt = path.extname(pathname).toLowerCase();
+      const KNOWN_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif']);
+      const urlExt = KNOWN_IMAGE_EXTS.has(rawUrlExt) ? rawUrlExt : '';
+
+      // URLs without a path extension (e.g. Xbox image CDN: /image?url=...)
+      // are still valid — we resolve the extension from Content-Type after fetching.
+      if (pathname.endsWith('/')) {
+        logger.debug({ url, platform, gameId, imageType }, 'Invalid image URL - ends with /');
+        throw new Error('Image not available (invalid URL - ends with /)');
       }
 
       // Create directory structure: images/{platform}/{gameId}/
       const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
       await fs.promises.mkdir(gameDir, { recursive: true });
 
+      // If the URL has an extension we can pre-check the cache before fetching.
+      if (urlExt) {
+        const filename = `${this.sanitizeFilename(achievementId)}_${imageType}${urlExt}`;
+        const filePath = path.join(gameDir, filename);
+        if (fs.existsSync(filePath)) {
+          const relativePath = this.getRelativePath(filePath);
+          logger.debug({ filePath, relativePath, platform, gameId, imageType }, 'Image already exists, returning cached path');
+          return relativePath;
+        }
+      }
+
+      // Download the image with up to 3 attempts (exponential backoff).
+      // Transient CDN errors (5xx, connection resets, timeouts) should not
+      // exhaust a fallback source — a quick retry resolves them reliably.
+      // 4xx errors (403/404) are terminal and thrown immediately without retry.
+      const defaultHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      };
+      const MAX_ATTEMPTS = 3;
+      const RETRY_BASE_MS = 500;
+      let response!: Response;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        let fetchErr: unknown;
+        try {
+          response = await fetch(url, {
+            headers: { ...defaultHeaders, ...(headers ?? {}) },
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (response.ok) break;
+          // Terminal client errors — no point retrying.
+          if (response.status === 404) {
+            logger.debug({ url, platform, gameId, imageType }, 'Image not found (404)');
+            throw new Error('Image not found');
+          }
+          if (response.status === 403) {
+            throw new Error('Image not found (403 Forbidden)');
+          }
+          // Rate-limit or server error — retry with backoff.
+          if ((response.status === 429 || response.status >= 500) && attempt < MAX_ATTEMPTS) {
+            logger.warn({ url, platform, gameId, imageType, status: response.status, attempt }, 'Transient download error — retrying');
+          } else {
+            throw new Error(`Failed to download image: ${response.statusText}`);
+          }
+        } catch (err) {
+          const msg = (err as any)?.message ?? String(err);
+          // Re-throw terminal errors immediately.
+          if (msg.includes('Image not found') || msg.includes('403') || msg.includes('invalid URL')) throw err;
+          if (attempt === MAX_ATTEMPTS) throw err;
+          fetchErr = err;
+          logger.warn({ url, platform, gameId, imageType, attempt, err: msg }, 'Fetch error — retrying');
+        }
+        if (fetchErr || !response.ok) {
+          await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** (attempt - 1)));
+        }
+      }
+
+      // Determine extension: prefer URL path, fall back to Content-Type header.
+      const contentType = response.headers.get('content-type') ?? '';
+      let ext = urlExt ||
+        (contentType.includes('png') ? '.png' :
+         contentType.includes('jpeg') || contentType.includes('jpg') ? '.jpg' :
+         contentType.includes('webp') ? '.webp' :
+         contentType.includes('gif') ? '.gif' : '.png'); // default .png
+
+      const buffer = await response.arrayBuffer();
+
+      // Resize icon/iconGray images to 512×512 max and normalise to PNG.
+      // Achievement icons from Xbox/PlayStation CDNs can be large (1–2 MB originals);
+      // resizing here keeps storage uniform regardless of source CDN behaviour.
+      const MAX_ICON_DIMENSION = 512;
+      // Xbox achievement artwork: the icon is centered within a wide canvas
+      // (typically 1920×1080). Center-crop to a square using min(w, h) — i.e. a
+      // 1080×1080 region for a 1920×1080 source — so the icon fills the frame
+      // with no portrait/landscape distortion, then resize down to 512×512.
+      let fileBuffer: Buffer = Buffer.from(buffer) as Buffer;
+      if (imageType === 'icon' || imageType === 'iconGray') {
+        try {
+          let sharpPipeline = sharp(fileBuffer);
+
+          if (platform === 'xbox') {
+            const meta = await sharpPipeline.metadata();
+            const srcW = meta.width ?? 0;
+            const srcH = meta.height ?? 0;
+            const side = Math.min(srcW, srcH);
+            if (side > 0) {
+              sharpPipeline = sharpPipeline.extract({
+                left: Math.floor((srcW - side) / 2),
+                top: Math.floor((srcH - side) / 2),
+                width: side,
+                height: side,
+              });
+            }
+          }
+
+          fileBuffer = await sharpPipeline
+            .resize(MAX_ICON_DIMENSION, MAX_ICON_DIMENSION, { fit: 'inside', withoutEnlargement: true })
+            .png()
+            .toBuffer();
+          ext = '.png'; // output is always PNG after resize
+        } catch (resizeErr) {
+          logger.warn({ url, platform, gameId, achievementId, imageType, err: String(resizeErr) }, 'Failed to resize icon image, storing original');
+        }
+      }
+
+      // Resize grid images to the standard 600×900 cover art size and normalise
+      // to JPEG. Sources like PCGamingWiki can return originals up to 3000×4000+
+      // (6+ MB); resizing here keeps storage and load times consistent.
+      if (imageType === 'grid') {
+        try {
+          fileBuffer = await sharp(fileBuffer)
+            .resize(600, 900, { fit: 'cover', position: 'centre' })
+            .jpeg({ quality: 90 })
+            .toBuffer();
+          ext = '.jpg';
+        } catch (resizeErr) {
+          logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, 'Failed to resize grid image, storing original');
+        }
+      }
+
       // Generate filename: {achievementId}_{imageType}.{ext}
       const filename = `${this.sanitizeFilename(achievementId)}_${imageType}${ext}`;
       const filePath = path.join(gameDir, filename);
 
-      // Check if file already exists
+      // Check if file already exists (for the extension-less URL path, checked here after fetch)
       if (fs.existsSync(filePath)) {
         const relativePath = this.getRelativePath(filePath);
         logger.debug({ filePath, relativePath, platform, gameId, imageType }, 'Image already exists, returning cached path');
         return relativePath;
       }
 
-      // Download the image
-      const response = await fetch(url);
-      if (!response.ok) {
-        if (response.status === 404) {
-          logger.debug({ url, platform, gameId, imageType }, 'Image not found (404)');
-          throw new Error('Image not found');
-        }
-        throw new Error(`Failed to download image: ${response.statusText}`);
-      }
-
-      const buffer = await response.arrayBuffer();
-      await fs.promises.writeFile(filePath, Buffer.from(buffer));
+      await fs.promises.writeFile(filePath, fileBuffer);
 
       const relativePath = this.getRelativePath(filePath);
       logger.debug({ url, filePath, relativePath }, 'Image downloaded and stored');
@@ -67,14 +200,154 @@ export class ImageStorage {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
-      
+
+      // If the URL carried MS CDN size params (?w=...&h=...) and the download failed,
+      // retry once without those params — some CDN edges don't honour resize params
+      // and return a 4xx/empty body for the sized URL while serving the original fine.
+      const strippedUrl = this.stripMSCDNSizeParams(url);
+      if (strippedUrl !== url) {
+        logger.warn({ url, strippedUrl, platform, gameId, imageType }, 'MS CDN sized URL failed — retrying without size params');
+        return this.downloadAndStore(strippedUrl, platform, gameId, achievementId, imageType, headers);
+      }
+
+      // Transient network failures ("fetch failed", ECONNRESET, ETIMEDOUT, etc.)
+      // are not actionable per-image — log at WARN, not ERROR.
+      const isNetworkError = errorMessage.includes('fetch failed') ||
+        errorMessage.includes('ECONNRESET') ||
+        errorMessage.includes('ETIMEDOUT') ||
+        errorMessage.includes('ENOTFOUND') ||
+        errorMessage.includes('socket hang up');
+
       // Don't log full error for common issues (404s, invalid URLs), just debug
       if (errorMessage.includes('not found') || errorMessage.includes('Not Found') || errorMessage.includes('not available')) {
         logger.debug({ url, platform, gameId, imageType }, 'Image not available');
+      } else if (isNetworkError) {
+        logger.warn({ url, platform, gameId, imageType, error: errorMessage }, 'Image download failed (network error, will retry on next sync)');
       } else {
         logger.error({ error: errorMessage, stack: errorStack, url, platform, gameId, imageType }, 'Failed to download image');
       }
       throw error;
+    }
+  }
+
+  /**
+   * Download an image using the system `wget` binary and store it locally.
+   *
+   * Use this instead of `downloadAndStore` when the target CDN blocks Node.js's
+   * TLS fingerprint (JA3) but allows wget — e.g. images.pcgamingwiki.com behind
+   * Cloudflare bot-protection.
+   */
+  async downloadAndStoreViaWget(
+    url: string,
+    platform: string,
+    gameId: string,
+    achievementId: string,
+    imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule',
+  ): Promise<string | undefined> {
+    // Cache hit — no download needed.
+    const cached = this.checkLocalFile(platform, gameId, achievementId, imageType);
+    if (cached) return cached;
+
+    const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
+    await fs.promises.mkdir(gameDir, { recursive: true });
+
+    // Determine extension from URL, defaulting to .jpg.
+    const rawExt = path.extname(new URL(url).pathname).toLowerCase();
+    const KNOWN = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
+    const ext = KNOWN.has(rawExt) ? rawExt : '.jpg';
+
+    const initFilename = `${this.sanitizeFilename(achievementId)}_${imageType}${ext}`;
+    let destPath = path.join(gameDir, initFilename);
+
+    try {
+      // -q: quiet, -O: write to file, -T: timeout (supported by both GNU and BusyBox wget).
+      // No --user-agent override — the default "Wget/x.y" UA is accepted by the
+      // PCGW CDN; "curl/x.y" and browser UAs trigger 403 due to Cloudflare rules.
+      //
+      // Retry up to 3 times on transient server errors (5xx).
+      // 4xx errors (403, 404) are terminal and thrown immediately.
+      const MAX_WGET_ATTEMPTS = 3;
+      const WGET_RETRY_BASE_MS = 1_000;
+      let wgetErr: unknown;
+      for (let attempt = 1; attempt <= MAX_WGET_ATTEMPTS; attempt++) {
+        try {
+          await execFileAsync('wget', ['-q', '-T', '15', '-O', destPath, url]);
+          wgetErr = undefined;
+          break;
+        } catch (err) {
+          const msg = String(err);
+          const is5xx = /HTTP\/[\d.]+ 5\d\d/.test(msg);
+          if (!is5xx || attempt === MAX_WGET_ATTEMPTS) {
+            wgetErr = err;
+            break;
+          }
+          // Clean up partial file before retry.
+          fs.rmSync(destPath, { force: true });
+          logger.warn({ url, platform, gameId, imageType, attempt, err: msg }, '[wget] Server error (5xx) — retrying');
+          await new Promise((r) => setTimeout(r, WGET_RETRY_BASE_MS * 2 ** (attempt - 1)));
+        }
+      }
+      if (wgetErr) throw wgetErr;
+
+      if (!fs.existsSync(destPath) || fs.statSync(destPath).size === 0) {
+        logger.warn({ url, platform, gameId, imageType }, '[wget] Downloaded file is empty or missing');
+        fs.rmSync(destPath, { force: true });
+        // Fallback: retry without MS CDN size params if they were present.
+        const strippedUrl = this.stripMSCDNSizeParams(url);
+        if (strippedUrl !== url) {
+          logger.warn({ url, strippedUrl, platform, gameId, imageType }, '[wget] Retrying without MS CDN size params');
+          return this.downloadAndStoreViaWget(strippedUrl, platform, gameId, achievementId, imageType);
+        }
+        return undefined;
+      }
+
+      // Resize grid images to 600×900 — same standard as downloadAndStore.
+      if (imageType === 'grid') {
+        try {
+          const raw = await fs.promises.readFile(destPath);
+          const resized = await sharp(raw)
+            .resize(600, 900, { fit: 'cover', position: 'centre' })
+            .jpeg({ quality: 90 })
+            .toBuffer();
+          fs.rmSync(destPath, { force: true });
+          destPath = path.join(gameDir, `${this.sanitizeFilename(achievementId)}_${imageType}.jpg`);
+          await fs.promises.writeFile(destPath, resized);
+        } catch (resizeErr) {
+          logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, '[wget] Failed to resize grid image, keeping original');
+        }
+      }
+
+      const relativePath = this.getRelativePath(destPath);
+      logger.debug({ url, platform, gameId, imageType, relativePath }, '[wget] Image downloaded successfully');
+      return relativePath;
+    } catch (err) {
+      // Clean up partial file if wget failed.
+      fs.rmSync(destPath, { force: true });
+      logger.warn({ url, platform, gameId, imageType, err: String(err) }, '[wget] Download failed');
+      // Fallback: retry without MS CDN size params if they were present.
+      const strippedUrl = this.stripMSCDNSizeParams(url);
+      if (strippedUrl !== url) {
+        logger.warn({ url, strippedUrl, platform, gameId, imageType }, '[wget] Retrying without MS CDN size params');
+        return this.downloadAndStoreViaWget(strippedUrl, platform, gameId, achievementId, imageType);
+      }
+      return undefined;
+    }
+  }
+
+  /**
+   * Strip `w` and `h` query params from a Microsoft CDN URL so the original
+   * (un-resized) image is fetched. Returns the same string if no such params
+   * are present, making it safe to use as a "changed?" guard.
+   */
+  private stripMSCDNSizeParams(url: string): string {
+    try {
+      const u = new URL(url);
+      if (!u.searchParams.has('w') && !u.searchParams.has('h')) return url;
+      u.searchParams.delete('w');
+      u.searchParams.delete('h');
+      return u.toString();
+    } catch {
+      return url;
     }
   }
 
@@ -122,17 +395,27 @@ export class ImageStorage {
     achievementId: string,
     imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
   ): string | undefined {
-    // Generate the expected filename and path
     const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
+    // Directory may not exist yet (first sync)
+    if (!fs.existsSync(gameDir)) return undefined;
+
     const baseFilename = `${this.sanitizeFilename(achievementId)}_${imageType}`;
-    
-    // Check for multiple possible extensions
-    const extensions = ['.jpg', '.png', '.jpeg'];
-    for (const ext of extensions) {
-      const filePath = path.join(gameDir, baseFilename + ext);
-      if (fs.existsSync(filePath)) {
-        return this.getRelativePath(filePath);
+
+    // Scan the directory for any file whose name starts with baseFilename.
+    // Using readdirSync instead of a fixed extension list handles:
+    //  - Standard images: game_grid.jpg, game_grid.png, etc.
+    //  - CDN files saved with a GUID "extension" from URL path segments
+    //    (e.g. game_grid.ed9482e8-90c6-4198-952b-9a084078cb92)
+    //  - Any future format without a separate code change.
+    try {
+      const entries = fs.readdirSync(gameDir);
+      const match = entries.find((e) => e === baseFilename || e.startsWith(`${baseFilename}.`));
+      if (match) {
+        return this.getRelativePath(path.join(gameDir, match));
       }
+    } catch {
+      // readdirSync can throw if permissions change between the existsSync check
+      // and the read — treat as cache-miss so the download chain continues.
     }
 
     return undefined;

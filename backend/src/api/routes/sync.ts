@@ -91,21 +91,30 @@ export async function getSyncStatus(
         let message = 'Preparing sync...';
 
         if (activeSyncOp.totalGames > 0) {
-          // Phase 1: Fetching achievements from Steam API (0-33% progress)
-          if (activeSyncOp.gamesCompleted < activeSyncOp.totalGames) {
+          // Phase 1: Downloading game images (0-33% progress)
+          // imagesCompleted is incremented per-title as each image resolves.
+          // gamesCompleted stays 0 until after all game images are fetched, so
+          // this phase naturally ends when gamesCompleted is set to totalGames.
+          if (activeSyncOp.gamesCompleted === 0) {
+            const imgProgress = Math.floor((activeSyncOp.imagesCompleted / activeSyncOp.totalGames) * 33);
+            progress = imgProgress;
+            message = `Downloading game images... (${activeSyncOp.imagesCompleted}/${activeSyncOp.totalGames})`;
+          }
+          // Phase 2: Fetching achievements (33-66% progress)
+          else if (activeSyncOp.gamesCompleted < activeSyncOp.totalGames) {
             const fetchProgress = Math.floor((activeSyncOp.gamesCompleted / activeSyncOp.totalGames) * 33);
-            progress = fetchProgress;
+            progress = 33 + fetchProgress;
             message = `Fetching achievements... (${activeSyncOp.gamesCompleted}/${activeSyncOp.totalGames})`;
           }
-          // Phase 2: Downloading game images (33-50% progress)
+          // Phase 3: Downloading achievement icons — starting (66%)
           else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted === 0) {
-            progress = 33;
-            message = `Fetching game images... (${activeSyncOp.gamesCompleted} games)`;
+            progress = 66;
+            message = `Fetching achievement icons... (0/${activeSyncOp.iconDownloadsPending})`;
           }
-          // Phase 3: Downloading achievement icons (50-100% progress)
+          // Phase 3: Downloading achievement icons — in progress (66-100%)
           else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted < activeSyncOp.iconDownloadsPending) {
-            const iconProgress = Math.floor((activeSyncOp.iconDownloadsCompleted / activeSyncOp.iconDownloadsPending) * 67);
-            progress = 33 + iconProgress;
+            const iconProgress = Math.floor((activeSyncOp.iconDownloadsCompleted / activeSyncOp.iconDownloadsPending) * 34);
+            progress = 66 + iconProgress;
             message = `Fetching achievement icons... (${activeSyncOp.iconDownloadsCompleted}/${activeSyncOp.iconDownloadsPending})`;
           }
           // Phase 4: Finalizing
