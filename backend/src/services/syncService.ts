@@ -1118,27 +1118,33 @@ class SyncService {
         const isXbox360Title = (title.platform ?? '').toLowerCase().includes('360');
 
         if (isXbox360Title) {
-          // Xbox 360 (GS4) achievement icons are stored on image-ssl.xboxlive.com/content/
-          // which requires first-party Microsoft OAuth credentials. Custom Azure app
-          // registrations are denied with 403 regardless of token format (XBL2.0/XBL3.0).
-          // Skip icon downloads for all 360 titles — achievements are fully tracked
-          // with name, description, and unlock status; only icons are unavailable.
-          logger.debug({ titleId: title.titleId, name: title.name, achievementCount: achievements.length }, 'Skipping GS4 icon downloads (CDN requires first-party credentials)');
+          // Xbox 360 (GS4) achievement icon URLs are now programmatically generated from
+          // the public image.xboxlive.com CDN (no auth required). They will be downloaded
+          // via the standard icon pipeline below alongside GS5 achievements.
+          logger.debug({ titleId: title.titleId, name: title.name, achievementCount: achievements.length }, 'GS4 title — icon URLs generated from public CDN, downloading below');
         }
 
-        // Download achievement icons concurrently (GS5 only; GS4 icons are unavailable)
+        // Download achievement icons concurrently (GS5 and GS4; GS4 icons via image.xboxlive.com public CDN)
         const iconPromises = achievements.map((ach) =>
           iconLimit(async () => {
             let iconPath: string | undefined;
 
-            if (!isXbox360Title && ach.iconUrl) {
+            if (ach.iconUrl) {
               try {
-                iconPath = await imageStorage.downloadAndStore(
-                  ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
-                );
+                // image.xboxlive.com (GS4/Xbox 360 icon CDN) has a legacy TLS certificate
+                // that Node.js fetch rejects with "fetch failed". wget handles it fine.
+                // GS5 icons come from xbox-en.d.ms which works with Node.js fetch normally.
+                iconPath = isXbox360Title
+                  ? await imageStorage.downloadAndStoreViaWget(
+                      ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
+                    )
+                  : await imageStorage.downloadAndStore(
+                      ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
+                    );
+                logger.debug({ url: ach.iconUrl, titleId: title.titleId, achievementId: ach.achievementId, isXbox360Title }, 'Xbox achievement icon downloaded');
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
-                logger.warn({ url: ach.iconUrl, titleId: title.titleId, achievementId: ach.achievementId, err: msg }, 'Xbox achievement icon download failed');
+                logger.warn({ url: ach.iconUrl, titleId: title.titleId, achievementId: ach.achievementId, isXbox360Title, err: msg }, 'Xbox achievement icon download failed');
                 iconPath = imageStorage.checkLocalFile('xbox', title.titleId, ach.achievementId, 'icon') || undefined;
               }
             }

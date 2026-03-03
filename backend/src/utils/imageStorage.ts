@@ -267,23 +267,29 @@ export class ImageStorage {
       // Retry up to 3 times on transient server errors (5xx).
       // 4xx errors (403, 404) are terminal and thrown immediately.
       const MAX_WGET_ATTEMPTS = 3;
-      const WGET_RETRY_BASE_MS = 1_000;
+      const WGET_RETRY_BASE_MS = 2_000;
+      // image.xboxlive.com uses a legacy TLS certificate that fails verification
+      // in modern TLS stacks (both Node.js and wget). Browsers show an "insecure"
+      // warning but still serve the content. Scoped only to that host.
+      const skipCertCheck = url.includes('image.xboxlive.com');
+      const wgetBaseArgs = ['-q', '-T', '30', ...(skipCertCheck ? ['--no-check-certificate'] : [])];
       let wgetErr: unknown;
       for (let attempt = 1; attempt <= MAX_WGET_ATTEMPTS; attempt++) {
         try {
-          await execFileAsync('wget', ['-q', '-T', '15', '-O', destPath, url]);
+          await execFileAsync('wget', [...wgetBaseArgs, '-O', destPath, url]);
           wgetErr = undefined;
           break;
         } catch (err) {
           const msg = String(err);
           const is5xx = /HTTP\/[\d.]+ 5\d\d/.test(msg);
-          if (!is5xx || attempt === MAX_WGET_ATTEMPTS) {
+          const isTimeout = msg.includes('download timed out') || msg.includes('timed out');
+          if ((!is5xx && !isTimeout) || attempt === MAX_WGET_ATTEMPTS) {
             wgetErr = err;
             break;
           }
           // Clean up partial file before retry.
           fs.rmSync(destPath, { force: true });
-          logger.warn({ url, platform, gameId, imageType, attempt, err: msg }, '[wget] Server error (5xx) — retrying');
+          logger.warn({ url, platform, gameId, imageType, attempt, err: msg }, `[wget] ${isTimeout ? 'Timeout' : 'Server error (5xx)'} — retrying`);
           await new Promise((r) => setTimeout(r, WGET_RETRY_BASE_MS * 2 ** (attempt - 1)));
         }
       }

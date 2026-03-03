@@ -85,10 +85,11 @@ export interface XboxAchievement {
   /** Timestamp of unlock. May be undefined for offline/no-timestamp GS4 earns even when isUnlocked=true */
   unlockedAt?: Date;
   /**
-   * Icon URL. Present for GS5 (Xbox One/Series/PC) achievements whose URLs are embedded in the
-   * API response. Always undefined for GS4 (Xbox 360) achievements — those icons are stored on
-   * image-ssl.xboxlive.com/content/ which requires first-party Microsoft OAuth credentials
-   * that third-party app registrations are not granted.
+   * Icon URL.
+   * - GS5 (Xbox One/Series/PC): embedded directly in the API response.
+   * - GS4 (Xbox 360): programmatically generated from titleId + imageId using the public
+   *   image.xboxlive.com CDN (`https://image.xboxlive.com/global/t.<titleHex>/ach/0/<imageHex>`).
+   *   No authentication required for this endpoint.
    */
   iconUrl?: string;
   rarityCategory?: string;
@@ -647,14 +648,28 @@ export class XboxAdapter {
           }
         }
 
-        // GS4 (Xbox 360) achievement icons are stored on image-ssl.xboxlive.com/content/
-        // under a path derived from titleId (hex) and imageId. That CDN endpoint requires
-        // Authorization: XBL2.0 x={uhs};{UserToken} — a credential only available to
-        // first-party Microsoft OAuth app registrations. Third-party custom Azure app
-        // registrations consistently receive 403 Forbidden regardless of token format.
-        // iconUrl is intentionally left undefined for GS4 achievements; the sync service
-        // will skip icon downloads for Xbox 360 titles without emitting warnings.
-        const iconUrl: string | undefined = ach.imageUrl ?? ach.unlockedImageUrl ?? ach.lockedImageUrl;
+        // GS4 (Xbox 360) achievement icons are served from a public CDN without authentication:
+        //   https://image.xboxlive.com/global/t.<titleIdHex>/ach/0/<imageIdHex>
+        // titleIdHex = decimal titleId converted to lowercase hex.
+        // imageIdHex = decimal imageId (from the `imageId` or `tileId` field) converted to lowercase hex.
+        // Example: titleId=1297580006 → 4d5307e6, imageId=37 → 25
+        //   → https://image.xboxlive.com/global/t.4d5307e6/ach/0/25
+        // If the API unexpectedly returns a full URL in one of the URL fields, prefer that.
+        let iconUrl: string | undefined = ach.imageUrl ?? ach.unlockedImageUrl ?? ach.lockedImageUrl;
+        if (!iconUrl) {
+          const rawImageId = ach.imageId ?? ach.tileId;
+          if (rawImageId !== undefined && rawImageId !== null) {
+            const imageIdNum = typeof rawImageId === 'number'
+              ? rawImageId
+              : parseInt(String(rawImageId), 10);
+            const titleIdNum = parseInt(titleId, 10);
+            if (!isNaN(imageIdNum) && !isNaN(titleIdNum)) {
+              const titleIdHex = titleIdNum.toString(16);
+              const imageIdHex = imageIdNum.toString(16);
+              iconUrl = `https://image.xboxlive.com/global/t.${titleIdHex}/ach/0/${imageIdHex}`;
+            }
+          }
+        }
 
         allAchievements.push({
           achievementId: achId,
@@ -668,7 +683,7 @@ export class XboxAdapter {
         });
       }
 
-      logger.debug({ titleId, total: allAchievements.length }, 'GS4 achievements mapped (icons not available for 360 titles)');
+      logger.debug({ titleId, total: allAchievements.length }, 'GS4 achievements mapped (icons via image.xboxlive.com public CDN)');
     } else {
       // GS5 (contract v2) — single endpoint returns full catalog with per-user progress states.
       const gs5BaseUrl = `https://achievements.xboxlive.com/users/xuid(${xuid})/achievements?titleId=${titleId}&maxItems=100`;
