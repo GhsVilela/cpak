@@ -64,6 +64,26 @@ export async function getGames(
     // Get total count for pagination metadata
     const totalCount = await Game.countDocuments(filter);
 
+    // For Xbox profiles, aggregate total gamerscore across all games (not just current page)
+    let totalCurrentGamerscore: number | undefined;
+    let totalMaxGamerscore: number | undefined;
+    if (filter.platform === 'xbox' && filter.profileId) {
+      const gsAgg = await Game.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: null,
+            totalCurrentGamerscore: { $sum: { $ifNull: ['$currentGamerscore', 0] } },
+            totalMaxGamerscore: { $sum: { $ifNull: ['$maxGamerscore', 0] } },
+          },
+        },
+      ]);
+      if (gsAgg.length > 0) {
+        totalCurrentGamerscore = gsAgg[0].totalCurrentGamerscore;
+        totalMaxGamerscore = gsAgg[0].totalMaxGamerscore;
+      }
+    }
+
     const games = await Game.find(filter)
       .collation({ locale: 'en', strength: 2 }) // Case-insensitive sorting
       .sort({ [sortField]: sortDirection })
@@ -77,7 +97,9 @@ export async function getGames(
         total: totalCount,
         limit: limitNum,
         offset: offsetNum,
-        hasMore: offsetNum + games.length < totalCount
+        hasMore: offsetNum + games.length < totalCount,
+        ...(totalCurrentGamerscore !== undefined && { totalCurrentGamerscore }),
+        ...(totalMaxGamerscore !== undefined && { totalMaxGamerscore }),
       }
     });
   } catch (error) {

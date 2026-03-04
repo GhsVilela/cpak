@@ -975,6 +975,8 @@ class SyncService {
           achievementsUnlocked: title.currentAchievements,
           completionPercent,
           devices: title.devices,
+          currentGamerscore: title.currentGamerscore ?? 0,
+          maxGamerscore: title.maxGamerscore ?? 0,
           lastSyncedAt: new Date(),
         };
 
@@ -1056,13 +1058,22 @@ class SyncService {
         // Use isUnlocked boolean — unlockedAt may be absent for GS4 offline earns.
         const unlockedCount = achievements.filter((a) => a.isUnlocked).length;
         const realCompletionPercent = Math.round((unlockedCount / realTotal) * 100);
-        await Game.findByIdAndUpdate(gameMongoId, {
-          $set: {
-            achievementsTotal: realTotal,
-            achievementsUnlocked: unlockedCount,
-            completionPercent: realCompletionPercent,
-          },
-        });
+        // Compute gamerscore from per-achievement values (covers Xbox 360 where
+        // the title history API returns maxGamerscore=0).
+        const maxGS = achievements.reduce((s, a) => s + (a.gamerscore ?? 0), 0);
+        const currentGS = achievements
+          .filter((a) => a.isUnlocked)
+          .reduce((s, a) => s + (a.gamerscore ?? 0), 0);
+        const gsUpdate: any = {
+          achievementsTotal: realTotal,
+          achievementsUnlocked: unlockedCount,
+          completionPercent: realCompletionPercent,
+        };
+        if (maxGS > 0) {
+          gsUpdate.maxGamerscore = maxGS;
+          gsUpdate.currentGamerscore = currentGS;
+        }
+        await Game.findByIdAndUpdate(gameMongoId, { $set: gsUpdate });
 
         // Authenticated image fallback: use the Microsoft Store productId returned
         // by the GS5 achievement response to attempt a direct Emerald image lookup.
@@ -1185,6 +1196,7 @@ class SyncService {
             unlockedAt: ach.unlockedAt ?? (ach.isUnlocked ? new Date(0) : undefined),
             isSecret: ach.isSecret,
           };
+          if (ach.gamerscore !== undefined) updateFields.gamerscore = ach.gamerscore;
           if (iconPath) {
             updateFields.iconPath = iconPath;
             updateFields.iconGrayPath = iconPath;

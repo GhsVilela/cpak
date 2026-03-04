@@ -165,7 +165,7 @@ export const handlers = [
   http.get(`${TEST_BASE_URL}/api/auth/xbox/callback`, () =>
     new HttpResponse(null, {
       status: 302,
-      headers: { Location: '/setup?xboxProfileId=xuid-12345&success=true' },
+      headers: { Location: '/xbox?profileId=xuid-12345&success=true' },
     }),
   ),
   http.post(`${TEST_BASE_URL}/api/auth/xbox/refresh`, async ({ request }) => {

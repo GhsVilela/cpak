@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Profile } from '../../models/profile.js';
 import { createXboxAdapter } from '../../services/adapters/xbox.js';
 import { configService } from '../../services/configService.js';
+import { syncService } from '../../services/syncService.js';
 import { logger } from '../../utils/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -157,6 +158,7 @@ export async function xboxAuthRoutes(fastify: FastifyInstance) {
       };
 
       let profile = await Profile.findOne({ platform: 'xbox', profileId: xboxProfile.xuid });
+      let isNewProfile = false;
       if (profile) {
         // Update existing profile
         profile.displayName = xboxProfile.gamertag;
@@ -172,10 +174,18 @@ export async function xboxAuthRoutes(fastify: FastifyInstance) {
           credentials,
         });
         await profile.save();
+        isNewProfile = true;
         logger.info({ profileId: xboxProfile.xuid, gamertag: xboxProfile.gamertag }, 'Created new Xbox profile');
       }
 
-      const redirectUrl = `${redirectTo}?xboxProfileId=${profile._id}&success=true`;
+      // Auto-start sync for new profiles (fire-and-forget)
+      if (isNewProfile) {
+        syncService.syncProfile(profile).catch((err) => {
+          logger.warn({ err, profileId: xboxProfile.xuid }, 'Auto-sync after new Xbox profile add failed');
+        });
+      }
+
+      const redirectUrl = `${redirectTo}?profileId=${profile._id}&success=true`;
       return reply.redirect(redirectUrl, 302);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Authentication failed';

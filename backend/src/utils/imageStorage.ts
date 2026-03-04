@@ -88,7 +88,7 @@ export class ImageStorage {
         try {
           response = await fetch(url, {
             headers: { ...defaultHeaders, ...(headers ?? {}) },
-            signal: AbortSignal.timeout(15_000),
+            signal: AbortSignal.timeout(30_000),
           });
           if (response.ok) break;
           // Terminal client errors — no point retrying.
@@ -216,7 +216,10 @@ export class ImageStorage {
         errorMessage.includes('ECONNRESET') ||
         errorMessage.includes('ETIMEDOUT') ||
         errorMessage.includes('ENOTFOUND') ||
-        errorMessage.includes('socket hang up');
+        errorMessage.includes('socket hang up') ||
+        errorMessage.includes('aborted') ||
+        errorMessage.includes('timed out') ||
+        errorMessage.includes('timeout');
 
       // Don't log full error for common issues (404s, invalid URLs), just debug
       if (errorMessage.includes('not found') || errorMessage.includes('Not Found') || errorMessage.includes('not available')) {

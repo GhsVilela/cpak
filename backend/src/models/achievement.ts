@@ -10,6 +10,8 @@ export interface IAchievement extends Document {
   unlockedAt?: Date;
   iconPath?: string;
   iconGrayPath?: string;
+  /** Xbox-specific: gamerscore value for this achievement */
+  gamerscore?: number;
 }
 
 const AchievementSchema = new Schema<IAchievement>(
@@ -27,6 +29,8 @@ const AchievementSchema = new Schema<IAchievement>(
     unlockedAt: Date,
     iconPath: String,
     iconGrayPath: String,
+    gamerscore: { type: Number },
+
   },
   { timestamps: true }
 );

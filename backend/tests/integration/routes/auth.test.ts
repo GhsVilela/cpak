@@ -7,6 +7,12 @@ import { Profile } from '../../../src/models/profile.js';
 // Mocks
 // ---------------------------------------------------------------------------
 
+vi.mock('../../../src/services/syncService.js', () => ({
+  syncService: {
+    syncProfile: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 vi.mock('../../../src/services/configService.js', () => ({
   configService: {
     getSetting: vi.fn(),
@@ -165,7 +171,7 @@ describe('GET /api/auth/xbox/callback', () => {
 
     expect(res.statusCode).toBe(302);
     const location = res.headers['location'] as string;
-    expect(location).toContain('xboxProfileId=');
+    expect(location).toContain('profileId=');
     expect(location).toContain('success=true');
 
     // Verify profile was created with the XUID

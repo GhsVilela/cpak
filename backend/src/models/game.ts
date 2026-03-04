@@ -11,6 +11,10 @@ export interface IGame extends Document {
   imagePath?: string;
   /** Xbox-specific: console generations the game supports (e.g. Xbox360, XboxOne, XboxSeries, PC) */
   devices?: string[];
+  /** Xbox-specific: how much gamerscore the user has earned for this game */
+  currentGamerscore?: number;
+  /** Xbox-specific: total gamerscore possible for this game */
+  maxGamerscore?: number;
   lastSyncedAt: Date;
 }
 
@@ -29,6 +33,8 @@ const GameSchema = new Schema<IGame>(
     completionPercent: { type: Number, required: true, default: 0 },
     imagePath: String,
     devices: { type: [String], default: undefined },
+    currentGamerscore: { type: Number },
+    maxGamerscore: { type: Number },
     lastSyncedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

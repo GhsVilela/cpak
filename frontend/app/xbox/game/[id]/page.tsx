@@ -13,6 +13,8 @@ interface Game {
   completionPercent: number;
   platform: string;
   devices?: string[];
+  currentGamerscore?: number;
+  maxGamerscore?: number;
 }
 
 interface Achievement {
@@ -24,6 +26,7 @@ interface Achievement {
   /** Xbox stores the same icon URL for locked/unlocked — CSS handles grayscale */
   iconPath?: string;
   iconGrayPath?: string;
+  gamerscore?: number;
 }
 
 // Make this page dynamic (not static)
@@ -117,6 +120,14 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
               {game.achievementsUnlocked} / {game.achievementsTotal}
             </span>
           </div>
+          {game.maxGamerscore !== undefined && game.maxGamerscore > 0 && (
+            <div>
+              <span className="text-gray-400">Gamerscore: </span>
+              <span className="font-semibold text-[var(--xbox-accent)]">
+                {(game.currentGamerscore ?? 0).toLocaleString()} / {game.maxGamerscore.toLocaleString()}
+              </span>
+            </div>
+          )}
           <div>
             <span className="text-gray-400">Completion: </span>
             <span className="font-semibold text-[var(--xbox-accent)]">
@@ -164,7 +175,14 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-lg">{achievement.name}</h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-semibold text-lg">{achievement.name}</h3>
+                      {achievement.gamerscore !== undefined && achievement.gamerscore > 0 && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-[var(--xbox-accent)]/20 text-[var(--xbox-accent)] border border-[var(--xbox-accent)]/30">
+                          {achievement.gamerscore}G
+                        </span>
+                      )}
+                    </div>
                     {achievement.description && (
                       <p className="text-sm text-gray-400 mt-1">{achievement.description}</p>
                     )}
@@ -205,7 +223,14 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-lg text-gray-400">{achievement.name}</h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-semibold text-lg text-gray-400">{achievement.name}</h3>
+                      {achievement.gamerscore !== undefined && achievement.gamerscore > 0 && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-gray-700 text-gray-500 border border-gray-600">
+                          {achievement.gamerscore}G
+                        </span>
+                      )}
+                    </div>
                     {achievement.description && (
                       <p className="text-sm text-gray-500 mt-1">{achievement.description}</p>
                     )}

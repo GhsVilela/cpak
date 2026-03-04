@@ -93,6 +93,8 @@ export interface XboxAchievement {
    */
   iconUrl?: string;
   rarityCategory?: string;
+  /** Gamerscore value for this individual achievement */
+  gamerscore?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +118,9 @@ export class XboxAdapter {
       redirect_uri: redirectUri,
       scope: XBOX_SCOPE,
       response_mode: 'query',
+      // Force the account picker every time so users can choose which Microsoft
+      // account to link instead of silently reusing the browser's active session.
+      prompt: 'select_account',
       ...(state ? { state } : {}),
     });
     return `https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?${params.toString()}`;
@@ -680,6 +685,9 @@ export class XboxAdapter {
           isUnlocked: isEarned,
           unlockedAt,
           iconUrl, // always undefined for GS4 unless the API unexpectedly returns a URL field
+          gamerscore: ach.gamerscore !== undefined
+            ? (parseInt(String(ach.gamerscore), 10) || undefined)
+            : undefined,
         });
       }
 
@@ -738,6 +746,9 @@ export class XboxAdapter {
             isUnlocked,
             unlockedAt: isUnlocked && unlockedAt ? unlockedAt : undefined,
             iconUrl: iconAsset?.url,
+            gamerscore: ach.rewards?.find((r) => r.type === 'Gamerscore')
+              ? (parseInt(ach.rewards.find((r) => r.type === 'Gamerscore')!.value ?? '0', 10) || undefined)
+              : undefined,
           });
         }
 

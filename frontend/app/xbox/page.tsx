@@ -27,6 +27,8 @@ interface GamesResponse {
     limit: number;
     offset: number;
     hasMore: boolean;
+    totalCurrentGamerscore?: number;
+    totalMaxGamerscore?: number;
   };
 }
 
@@ -77,6 +79,8 @@ function XboxPageContent() {
   const [itemsPerPage, setItemsPerPage] = useState(100);
   const [reloadTrigger, setReloadTrigger] = useState(0);
   const [generationFilter, setGenerationFilter] = useState('');
+  const [totalCurrentGamerscore, setTotalCurrentGamerscore] = useState<number | undefined>(undefined);
+  const [totalMaxGamerscore, setTotalMaxGamerscore] = useState<number | undefined>(undefined);
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(
     searchParams.get('profileId') || undefined
   );
@@ -286,6 +290,8 @@ function XboxPageContent() {
       const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
       setGames(response.data);
       setTotalCount(response.pagination.total);
+      setTotalCurrentGamerscore(response.pagination.totalCurrentGamerscore);
+      setTotalMaxGamerscore(response.pagination.totalMaxGamerscore);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load games');
     } finally {
@@ -361,13 +367,26 @@ function XboxPageContent() {
 
         {/* Last Sync Info */}
         {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
-          <div className="mb-4 text-sm text-gray-400">
-            Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
-            {syncStatus.lastCompleted.status === 'success' ? (
-              <span className="text-green-400 ml-2">✓</span>
-            ) : (
-              <span className="text-red-400 ml-2">✗</span>
+          <div className="mb-4 flex items-center gap-3 text-sm text-gray-400 flex-wrap">
+            {totalMaxGamerscore !== undefined && totalMaxGamerscore > 0 && (
+              <>
+                <span>
+                  <span>Gamerscore: </span>
+                  <span className="font-bold text-[var(--xbox-accent)]">
+                    {(totalCurrentGamerscore ?? 0).toLocaleString()}G
+                  </span>
+                </span>
+                <span className="text-gray-600">|</span>
+              </>
             )}
+            <span>
+              Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
+              {syncStatus.lastCompleted.status === 'success' ? (
+                <span className="text-green-400 ml-2">✓</span>
+              ) : (
+                <span className="text-red-400 ml-2">✗</span>
+              )}
+            </span>
           </div>
         )}
 

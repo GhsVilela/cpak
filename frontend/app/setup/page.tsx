@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { apiClient } from '../../services/apiClient';
 
 type Platform = 'steam' | 'xbox' | 'playstation';
@@ -14,6 +14,19 @@ export default function SetupPage() {
   const [steamId, setSteamId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Xbox OAuth config check
+  const [xboxConfigured, setXboxConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    apiClient.getAllSettings().then(({ settings }) => {
+      const map = Object.fromEntries(settings.map((s) => [s.key, s]));
+      const hasClientId = !!(map['xbox_client_id']?.value);
+      const hasSecret = !!(map['xbox_client_secret']); // secret: present = configured
+      const hasRedirectUri = !!(map['xbox_redirect_uri']?.value);
+      setXboxConfigured(hasClientId && hasSecret && hasRedirectUri);
+    }).catch(() => setXboxConfigured(false));
+  }, []);
 
   const handleSteamSetup = async () => {
     if (!steamApiKey || !steamId) {
@@ -52,7 +65,7 @@ export default function SetupPage() {
     setLoading(true);
     setError('');
     try {
-      const response = await apiClient.get<{ url: string }>('/auth/xbox/url?redirectTo=/setup');
+      const response = await apiClient.get<{ url: string }>('/auth/xbox/url?redirectTo=/xbox');
       window.location.href = response.url;
     } catch (err: any) {
       if (err?.status === 400 || err?.message?.includes('not configured')) {
@@ -224,9 +237,18 @@ export default function SetupPage() {
                 </div>
               )}
 
+              {xboxConfigured === false && (
+                <div className="bg-yellow-900/20 border border-yellow-600/40 rounded px-4 py-3 text-yellow-300 text-sm">
+                  Xbox OAuth is not configured. Please go to{' '}
+                  <a href="/settings" className="underline hover:text-yellow-100">Settings → Xbox OAuth Settings</a>{' '}
+                  and enter your <strong>Client ID</strong>, <strong>Client Secret</strong>, and <strong>Redirect URI</strong> before signing in.
+                </div>
+              )}
+
               <button
                 onClick={handleXboxSignIn}
-                disabled={loading}
+                disabled={loading || xboxConfigured !== true}
+                title={xboxConfigured !== true ? 'Configure Xbox OAuth settings first' : undefined}
                 className="w-full bg-[var(--xbox-accent)] hover:opacity-90 text-white font-semibold px-6 py-3 rounded disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
               >
                 {loading ? (
