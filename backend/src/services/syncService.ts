@@ -987,9 +987,16 @@ class SyncService {
             ? Math.round((title.currentAchievements / title.totalAchievements) * 100)
             : 0;
 
+        // Strip C0/C1 control characters (e.g. U+009E in "Rush: A Disney\u009EPixar Adventure")
+        // while preserving all printable characters including ™ (U+2122).
+        const cleanTitle = title.name
+          .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, '')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+
         const updateData: any = {
           platform: 'xbox',
-          title: title.name,
+          title: cleanTitle,
           achievementsTotal: title.totalAchievements,
           achievementsUnlocked: title.currentAchievements,
           completionPercent,
