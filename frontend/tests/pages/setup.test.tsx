@@ -11,7 +11,13 @@ vi.mock('../../services/apiClient', () => ({
   apiClient: {
     get: mockApiGet,
     post: mockApiPost,
-    getAllSettings: vi.fn().mockResolvedValue({ settings: [] }),
+    getAllSettings: vi.fn().mockResolvedValue({
+      settings: [
+        { key: 'xbox_client_id', value: 'test-client-id' },
+        { key: 'xbox_client_secret', value: 'test-client-secret' },
+        { key: 'xbox_redirect_uri', value: 'http://localhost/api/auth/xbox/callback' },
+      ],
+    }),
   },
 }));
 

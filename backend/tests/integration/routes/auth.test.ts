@@ -258,6 +258,7 @@ describe('POST /api/auth/xbox/refresh', () => {
     vi.mocked(configService.getSetting).mockImplementation(async (key: string) => {
       if (key === 'xbox_client_id') return 'test-client-id';
       if (key === 'xbox_client_secret') return 'test-client-secret';
+      if (key === 'xbox_redirect_uri') return 'http://localhost/api/auth/xbox/callback';
       return undefined;
     });
 
