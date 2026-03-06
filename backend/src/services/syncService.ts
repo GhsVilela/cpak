@@ -807,25 +807,39 @@ class SyncService {
         // Works for cross-platform (Xbox + PC) titles indexed in the Store.
         // Returns { imageUrl, productId } so Priority 4 can use the productId directly.
         let storeProductId: string | undefined;
+        // Canonical title resolved from the MS Store search. When the Xbox API
+        // uses an abbreviated name (e.g. "Lara Croft: GoL") but the Store search
+        // finds the real product, this captures the Store's full title
+        // (e.g. "Lara Croft and the Guardian of Light") for use in P5-P7 lookups.
+        let storeCanonicalTitle: string | undefined;
+
         if (!imagePath) {
           logger.info({ titleId: title.titleId, name: title.name }, '[IMG P3] Searching Microsoft Store');
           try {
             const storeResult = await adapter.fetchMicrosoftStoreGridUrl(title.name, title.titleId);
             if (storeResult) {
               storeProductId = storeResult.productId || undefined;
-              logger.info({ titleId: title.titleId, name: title.name, storeProductId, imageUrl: storeResult.imageUrl }, '[IMG P3] MS Store match found — downloading image');
-              try {
-                imagePath = await imageStorage.downloadAndStore(
-                  storeResult.imageUrl, 'xbox', title.titleId, 'game', 'grid',
-                );
-                if (imagePath) {
-                  imageSource = 'ms-store';
-                  logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P3] MS Store image downloaded successfully');
-                } else {
-                  logger.warn({ titleId: title.titleId, name: title.name, imageUrl: storeResult.imageUrl }, '[IMG P3] MS Store image download returned no path');
+              storeCanonicalTitle = storeResult.canonicalTitle;
+              if (storeCanonicalTitle && storeCanonicalTitle !== title.name) {
+                logger.info({ titleId: title.titleId, original: title.name, canonical: storeCanonicalTitle }, '[IMG P3] Resolved canonical title from Store');
+              }
+              if (storeResult.imageUrl) {
+                logger.info({ titleId: title.titleId, name: title.name, storeProductId, imageUrl: storeResult.imageUrl }, '[IMG P3] MS Store match found — downloading image');
+                try {
+                  imagePath = await imageStorage.downloadAndStore(
+                    storeResult.imageUrl, 'xbox', title.titleId, 'game', 'grid',
+                  );
+                  if (imagePath) {
+                    imageSource = 'ms-store';
+                    logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P3] MS Store image downloaded successfully');
+                  } else {
+                    logger.warn({ titleId: title.titleId, name: title.name, imageUrl: storeResult.imageUrl }, '[IMG P3] MS Store image download returned no path');
+                  }
+                } catch (dlErr) {
+                  logger.warn({ titleId: title.titleId, name: title.name, imageUrl: storeResult.imageUrl, error: (dlErr as any)?.message ?? String(dlErr) }, '[IMG P3] MS Store image download threw — will try Emerald with productId');
                 }
-              } catch (dlErr) {
-                logger.warn({ titleId: title.titleId, name: title.name, imageUrl: storeResult.imageUrl, error: (dlErr as any)?.message ?? String(dlErr) }, '[IMG P3] MS Store image download threw — will try Emerald with productId');
+              } else {
+                logger.info({ titleId: title.titleId, name: title.name, storeProductId }, '[IMG P3] MS Store matched product but no image — will use canonical title for fallback sources');
               }
             } else {
               logger.info({ titleId: title.titleId, name: title.name }, '[IMG P3] MS Store: no confident match found');
@@ -871,11 +885,14 @@ class SyncService {
         }
 
         // Priority 5: SteamGridDB by name
+        // When the MS Store resolved a canonical title (e.g. "Lara Croft and the
+        // Guardian of Light" instead of "Lara Croft: GoL"), use it for better matches.
         if (!imagePath && hasSteamGridDB) {
-          logger.info({ titleId: title.titleId, name: title.name }, '[IMG P5] Trying SteamGridDB by name');
+          const p5SearchName = storeCanonicalTitle || adapter.normalizeForSearch(title.name);
+          logger.info({ titleId: title.titleId, name: title.name, searchName: p5SearchName }, '[IMG P5] Trying SteamGridDB by name');
           try {
             imagePath = await steamGridDBAdapter!.downloadGameImageByName(
-              adapter.stripPlatformSuffix(title.name), 'xbox', title.titleId,
+              p5SearchName, 'xbox', title.titleId,
             ) || undefined;
             if (imagePath) {
               imageSource = 'steamgriddb';
@@ -894,9 +911,10 @@ class SyncService {
         // Gaming-specific database — better coverage than Wikipedia for older/niche
         // PC titles. Uses wget to bypass Cloudflare's Node.js TLS fingerprint block.
         if (!imagePath) {
-          logger.info({ titleId: title.titleId, name: title.name }, '[IMG P6] Trying PCGamingWiki');
+          const p6SearchName = storeCanonicalTitle || title.name;
+          logger.info({ titleId: title.titleId, name: title.name, searchName: p6SearchName }, '[IMG P6] Trying PCGamingWiki');
           try {
-            const pcgwUrl = await adapter.fetchPCGamingWikiImageUrl(title.name);
+            const pcgwUrl = await adapter.fetchPCGamingWikiImageUrl(p6SearchName);
             if (pcgwUrl) {
               logger.info({ titleId: title.titleId, name: title.name, pcgwUrl }, '[IMG P6] PCGamingWiki image URL found — downloading');
               // Use wget instead of fetch: the PCGW CDN's Cloudflare layer blocks
@@ -922,9 +940,10 @@ class SyncService {
         // Broad fallback — covers virtually all commercially released games but
         // articles don't always have box art images.
         if (!imagePath) {
-          logger.info({ titleId: title.titleId, name: title.name }, '[IMG P7] Trying Wikipedia');
+          const p7SearchName = storeCanonicalTitle || title.name;
+          logger.info({ titleId: title.titleId, name: title.name, searchName: p7SearchName }, '[IMG P7] Trying Wikipedia');
           try {
-            const wikiUrl = await adapter.fetchWikipediaImageUrl(title.name);
+            const wikiUrl = await adapter.fetchWikipediaImageUrl(p7SearchName);
             if (wikiUrl) {
               logger.info({ titleId: title.titleId, name: title.name, wikiUrl }, '[IMG P7] Wikipedia image URL found — downloading');
               imagePath = await imageStorage.downloadAndStoreViaWget(
@@ -1031,7 +1050,14 @@ class SyncService {
           achievementsTotalInCatalog = result.totalInCatalog;
           achievementStoreProductId = result.storeProductId;
         } catch (error) {
-          logger.warn({ error, titleId: title.titleId }, 'Failed to fetch Xbox achievements, skipping game');
+          logger.warn({ error, titleId: title.titleId, name: title.name, inEarnedScan: title.inEarnedScan }, 'Failed to fetch Xbox achievements for title');
+          // Remove the game from the DB so it doesn't linger with 0 achievements,
+          // unless the GS5 earned-scan confirms the user has earned something for it
+          // (in which case we keep it and it will be fixed on the next sync).
+          if (!title.inEarnedScan) {
+            const gId = gameIdToMongoId.get(title.titleId);
+            if (gId) await Game.deleteOne({ _id: gId }).catch(() => {});
+          }
           return;
         }
 
@@ -1041,11 +1067,30 @@ class SyncService {
           'Xbox achievements fetched for title',
         );
 
-        if (achievements.length === 0) return;
-
         const gameMongoId = gameIdToMongoId.get(title.titleId);
         if (!gameMongoId) {
           logger.warn({ titleId: title.titleId }, 'Xbox game not found after upsert, skipping achievements');
+          return;
+        }
+
+        // If the per-title achievements API returned an empty array:
+        // - GS4 (Xbox 360): endpoint returns ONLY earned achievements, so 0 = user genuinely has none.
+        // - GS5: endpoint returns all achievements, so 0 = title has no achievement catalogue (or API error).
+        // Either way delete the game, unless the GS5 all-earned-scan confirms the user earned something
+        // (in which case the empty response is likely stale and will correct on the next sync).
+        if (achievements.length === 0) {
+          if (title.inEarnedScan) {
+            logger.warn(
+              { titleId: title.titleId, name: title.name },
+              'Per-title achievements API returned empty array but title is in GS5 earned-scan — preserving game (API may be stale)',
+            );
+            return;
+          }
+          logger.info(
+            { titleId: title.titleId, name: title.name },
+            'Removing game — per-title achievements API returned 0 achievements',
+          );
+          await Game.deleteOne({ _id: gameMongoId });
           return;
         }
 
@@ -1057,6 +1102,30 @@ class SyncService {
         const realTotal = achievementsTotalInCatalog || achievements.length;
         // Use isUnlocked boolean — unlockedAt may be absent for GS4 offline earns.
         const unlockedCount = achievements.filter((a) => a.isUnlocked).length;
+
+        // Authoritative 0-earned check: if the achievements API confirms the user
+        // has not unlocked a single achievement for this title, remove it from the DB.
+        // This is more reliable than the title history API fields (earnedAchievements /
+        // currentGamerscore), which are often 0 even for games the user has played.
+        if (unlockedCount === 0) {
+          if (title.inEarnedScan) {
+            // The all-achievements scan (authoritative) confirms this title has earned
+            // achievements — the per-title API result may be stale/cached. Keep the
+            // game in DB to avoid losing it; it will re-sync correctly next run.
+            logger.warn(
+              { titleId: title.titleId, name: title.name, totalInCatalog: realTotal },
+              'Per-title achievements API returned 0 unlocked but title is in earned-scan — preserving game (API may be stale)',
+            );
+            return;
+          }
+          logger.info(
+            { titleId: title.titleId, name: title.name, totalInCatalog: realTotal },
+            'Removing game — achievements API confirms 0 earned achievements',
+          );
+          await Game.deleteOne({ _id: gameMongoId });
+          return;
+        }
+
         const realCompletionPercent = Math.round((unlockedCount / realTotal) * 100);
         // Compute gamerscore from per-achievement values (covers Xbox 360 where
         // the title history API returns maxGamerscore=0).

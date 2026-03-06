@@ -11,6 +11,8 @@ interface GamesQuery {
   offset?: string;
   sortBy?: string;
   sortOrder?: string;
+  /** Console generation filter for Xbox games: Xbox360 | XboxOne | XboxSeries | PC */
+  device?: string;
 }
 
 export async function getGames(
@@ -25,7 +27,8 @@ export async function getGames(
       limit = '50', 
       offset = '0',
       sortBy = 'title',
-      sortOrder = 'asc'
+      sortOrder = 'asc',
+      device,
     } = req.query;
 
     // Parse and validate pagination params
@@ -54,6 +57,11 @@ export async function getGames(
     // Filter by completion (100% only)
     if (onlyCompleted === 'true') {
       filter.completionPercent = 100;
+    }
+
+    // Filter by console generation (Xbox only — matches against the devices[] array field)
+    if (device) {
+      filter.devices = device;
     }
 
     // Validate and build sort object

@@ -72,6 +72,13 @@ export interface XboxTitleHistory {
   /** Raw platform string returned by the API, used to select the correct contract version */
   platform?: string;
   titleImageUrl?: string;
+  /**
+   * True when this titleId appeared in the GS5 or GS4 all-earned-achievements scan.
+   * The scan only surfaces titles where the user has actually earned at least one achievement.
+   * Used in Phase 5 as a guard: if the per-title achievements API temporarily returns
+   * 0 unlocked (stale/cached data), we preserve the game rather than deleting it.
+   */
+  inEarnedScan?: boolean;
 }
 
 export interface XboxAchievement {
@@ -200,6 +207,33 @@ export class XboxAdapter {
    * Internal helper: Exchange a Live access token through the full Xbox pipeline
    * (User Token → XSTS Token) to produce a complete token bundle.
    */
+  /**
+   * Retry helper for Xbox auth token exchanges.
+   * The @xboxreplay/xboxlive-auth library has a hardcoded 10s timeout per request.
+   * Microsoft auth endpoints are occasionally slow — a single retry on timeout
+   * is usually sufficient to succeed.
+   */
+  private async _authWithRetry<T>(fn: () => Promise<T>, label: string, maxAttempts = 3): Promise<T> {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        const isTimeout =
+          err?.message?.includes('timeout') ||
+          err?.message?.includes('aborted') ||
+          err?.name === 'TimeoutError' ||
+          err?.name === 'AbortError';
+        if (!isTimeout || attempt === maxAttempts) throw err;
+        lastErr = err;
+        const backoff = attempt * 2000;
+        logger.warn({ label, attempt, backoff }, `Xbox auth step timed out — retrying in ${backoff}ms`);
+        await _sleep(backoff);
+      }
+    }
+    throw lastErr;
+  }
+
   private async _exchangeLiveAccessTokenForBundle(
     accessToken: string,
     refreshToken: string | null,
@@ -207,11 +241,17 @@ export class XboxAdapter {
     // Step 2: Exchange Live access token for Xbox User Token
     // Preamble 'd' means the access_token is used directly as RPS ticket.
     // We keep the User Token — it is needed for XBL2.0 auth (image CDN).
-    const userTokenResponse = await xnet.exchangeRpsTicketForUserToken(accessToken, 'd');
+    const userTokenResponse = await this._authWithRetry(
+      () => xnet.exchangeRpsTicketForUserToken(accessToken, 'd'),
+      'exchangeRpsTicketForUserToken',
+    );
     const userToken = userTokenResponse.Token;
 
     // Step 3: Exchange User Token for XSTS Token (used for all Xbox Live API calls)
-    const xstsResponse = await xnet.exchangeTokenForXSTSToken(userToken);
+    const xstsResponse = await this._authWithRetry(
+      () => xnet.exchangeTokenForXSTSToken(userToken),
+      'exchangeTokenForXSTSToken',
+    );
 
     // Extract XUID and UHS (user hash) from XSTS claims
     const claims = xstsResponse.DisplayClaims.xui[0];
@@ -350,25 +390,371 @@ export class XboxAdapter {
       return collected;
     };
 
-    // Fetch both contract versions in parallel.
-    // v2 = Xbox One / Series / modern PC (GS5)
-    // v1 = Xbox 360 legacy titles (GS4) — these often appear ONLY in the v1 response or
-    //      appear in v2 with maxGamerscore=0 (gamerscore not surfaced for legacy schema)
-    const [v2Titles, v1Titles] = await Promise.all([
+    // Fetch both contract versions of history AND a full GS5 achievement scan in parallel.
+    // v2 history = Xbox One / Series / modern PC (GS5)
+    // v1 history = Xbox 360 legacy titles (GS4)
+    // GS5 all-achievements scan = hits every title the user has EVER earned an achievement
+    //   in, including titles that no longer appear in the history endpoint (e.g. older
+    //   PC/UWP titles like RUSH: A Disney•PIXAR Adventure). Each GS5 achievement record
+    //   carries a `titleAssociations` array with the game title name and ID, allowing us
+    //   to reconstruct the title list without a separate title-info lookup.
+
+    /** Minimal shape we need from the GS5 all-achievements scan. */
+    type GS5TitleScanAchievement = {
+      titleAssociations?: Array<{ name: string; id: string | number }>;
+      /**
+       * 'Achieved' | 'InProgress' | 'NotStarted'
+       * The scan endpoint returns progress records for every game the user has ever
+       * launched, not just earned achievements. We MUST check this field to distinguish
+       * games where the user has actually earned something.
+       */
+      progressState?: string;
+    };
+    type GS5TitleScanResponse = {
+      achievements?: GS5TitleScanAchievement[];
+      pagingInfo?: { continuationToken?: string; totalRecords?: number };
+    };
+
+    /** Minimal shape we need from the GS4 (Xbox 360) all-achievements scan. */
+    type GS4TitleScanAchievement = {
+      /** GS4: titleId is directly on the achievement object (contract v1) */
+      titleId?: string | number;
+      /** Some v1 responses may also carry titleAssociations; handle both shapes */
+      titleAssociations?: Array<{ name: string; id: string | number }>;
+    };
+    type GS4TitleScanResponse = {
+      achievements?: GS4TitleScanAchievement[];
+      pagingInfo?: { continuationToken?: string; totalRecords?: number };
+    };
+
+    const fetchAllGS5TitlesFromAchievements = async (): Promise<Map<string, string>> => {
+      const titleMap = new Map<string, string>(); // titleId → name
+      let token: string | null = null;
+      // Use maxItems=1000 to reduce page count (~10 pages vs ~100 at 100/page).
+      // If the API caps lower, it simply returns fewer items — no harm done.
+      const baseAchUrl = `https://achievements.xboxlive.com/users/xuid(${xuid})/achievements?maxItems=1000`;
+      let pageNum = 0;
+      const MAX_PAGE_ATTEMPTS = 5; // per-page retry budget (on top of rateLimiter retries)
+      let consecutiveFailures = 0;
+      const MAX_CONSECUTIVE_FAILURES = 3; // give up after 3 consecutive page-level failures
+      do {
+        const url: string = token
+          ? `${baseAchUrl}&continuationToken=${encodeURIComponent(token)}`
+          : baseAchUrl;
+
+        let result: GS5TitleScanResponse | null = null;
+        let pageSuccess = false;
+        for (let pageAttempt = 1; pageAttempt <= MAX_PAGE_ATTEMPTS; pageAttempt++) {
+          try {
+            result = await rateLimiter.executeWithRetry<GS5TitleScanResponse>(
+              'xbox',
+              async (): Promise<GS5TitleScanResponse> => {
+                // Let errors propagate so executeWithRetry can retry on timeout/429
+                const resp = await XSAPIClient.get<GS5TitleScanResponse>(url, {
+                  options: { XSTSToken: xstsToken, userHash, contractVersion: '2' },
+                });
+                return resp.data;
+              },
+              `gs5scan:${xuid}:${pageNum}`,
+            );
+            pageSuccess = true;
+            consecutiveFailures = 0;
+            break;
+          } catch (err: any) {
+            logger.warn(
+              { err: err?.message ?? String(err), xuid, page: pageNum, pageAttempt, maxPageAttempts: MAX_PAGE_ATTEMPTS },
+              'GS5 all-achievements scan page failed — retrying',
+            );
+            if (pageAttempt < MAX_PAGE_ATTEMPTS) {
+              // Exponential backoff: 2s, 4s, 8s, 16s
+              await _sleep(2000 * Math.pow(2, pageAttempt - 1));
+            }
+          }
+        }
+
+        if (!pageSuccess || !result) {
+          consecutiveFailures++;
+          logger.error(
+            { xuid, page: pageNum, consecutiveFailures, maxConsecutive: MAX_CONSECUTIVE_FAILURES },
+            'GS5 all-achievements scan page exhausted all retries',
+          );
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            logger.error({ xuid, page: pageNum }, 'GS5 scan: too many consecutive failures — stopping');
+            break;
+          }
+          // Can't skip pages with continuationToken pagination — must stop
+          break;
+        }
+
+        pageNum++;
+        for (const ach of result.achievements ?? []) {
+          const assoc = ach.titleAssociations?.[0];
+          if (assoc && assoc.id !== undefined && assoc.name) {
+            const tid = String(assoc.id);
+            // Only consider a title "earned" when at least one of its achievements
+            // has progressState === 'Achieved'. The endpoint returns progress records
+            // for every game ever launched, including games with 0 earned achievements.
+            if (ach.progressState === 'Achieved') {
+              titleMap.set(tid, assoc.name);
+            }
+          }
+        }
+        token = result.pagingInfo?.continuationToken ?? null;
+        if (pageNum === 1) {
+          logger.info(
+            { xuid, totalRecords: result.pagingInfo?.totalRecords, firstPageCount: result.achievements?.length },
+            'GS5 all-achievements scan first page',
+          );
+        }
+      } while (token !== null);
+      logger.info(
+        { xuid, earnedTitleCount: titleMap.size, pagesScanned: pageNum, earnedTitles: [...titleMap.entries()].map(([id, name]) => ({ id, name })) },
+        'GS5 all-achievements scan complete — earned titles',
+      );
+      return titleMap;
+    };
+
+    const fetchAllGS4TitlesFromAchievements = async (): Promise<Map<string, string>> => {
+      // GS4 (Xbox 360) all-earned-achievements scan using contract version 1.
+      // The v1 endpoint carries titleId directly on each achievement object (no
+      // titleAssociations). We primarily use this to build the earnedScanSet —
+      // a guard that prevents Phase 5 from deleting titles the user has genuinely
+      // earned achievements for, even if the per-title API temporarily returns 0.
+      // If a title also has titleAssociations with a name, we add it to byTitleId
+      // so it can appear in the library even if absent from the v1 history endpoint.
+      const titleMap = new Map<string, string>(); // titleId → name (may be '' for v1)
+      let token: string | null = null;
+      // Use maxItems=1000 to reduce page count. If the API caps lower, no harm.
+      const baseAchUrl = `https://achievements.xboxlive.com/users/xuid(${xuid})/achievements?maxItems=1000`;
+      let pageNum = 0;
+      const MAX_PAGE_ATTEMPTS = 5;
+      let consecutiveFailures = 0;
+      const MAX_CONSECUTIVE_FAILURES = 3;
+      do {
+        const url: string = token
+          ? `${baseAchUrl}&continuationToken=${encodeURIComponent(token)}`
+          : baseAchUrl;
+
+        let result: GS4TitleScanResponse | null = null;
+        let pageSuccess = false;
+        let is403or404 = false;
+        for (let pageAttempt = 1; pageAttempt <= MAX_PAGE_ATTEMPTS; pageAttempt++) {
+          try {
+            result = await rateLimiter.executeWithRetry<GS4TitleScanResponse>(
+              'xbox',
+              async (): Promise<GS4TitleScanResponse> => {
+                const resp = await XSAPIClient.get<GS4TitleScanResponse>(url, {
+                  options: { XSTSToken: xstsToken, userHash, contractVersion: '1' },
+                });
+                return resp.data;
+              },
+              `gs4scan:${xuid}:${pageNum}`,
+            );
+            pageSuccess = true;
+            consecutiveFailures = 0;
+            break;
+          } catch (err: any) {
+            const status = err?.response?.status;
+            if (status === 403 || status === 404) {
+              logger.info({ xuid }, 'GS4 all-achievements scan: endpoint returned 403/404 — no Xbox 360 achievements or not supported');
+              is403or404 = true;
+              break;
+            }
+            logger.warn(
+              { err: err?.message ?? String(err), xuid, page: pageNum, pageAttempt, maxPageAttempts: MAX_PAGE_ATTEMPTS },
+              'GS4 all-achievements scan page failed — retrying',
+            );
+            if (pageAttempt < MAX_PAGE_ATTEMPTS) {
+              await _sleep(2000 * Math.pow(2, pageAttempt - 1));
+            }
+          }
+        }
+
+        if (is403or404) break;
+
+        if (!pageSuccess || !result) {
+          consecutiveFailures++;
+          logger.error(
+            { xuid, page: pageNum, consecutiveFailures, maxConsecutive: MAX_CONSECUTIVE_FAILURES },
+            'GS4 all-achievements scan page exhausted all retries',
+          );
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            logger.error({ xuid, page: pageNum }, 'GS4 scan: too many consecutive failures — stopping');
+            break;
+          }
+          break;
+        }
+
+        pageNum++;
+        for (const ach of result.achievements ?? []) {
+          // Try titleAssociations first (some v1 responses mirror v2 shape),
+          // then fall back to the titleId field directly on the achievement.
+          const assoc = ach.titleAssociations?.[0];
+          if (assoc && assoc.id !== undefined) {
+            titleMap.set(String(assoc.id), assoc.name ?? '');
+          } else if (ach.titleId !== undefined) {
+            const tid = String(ach.titleId);
+            if (!titleMap.has(tid)) titleMap.set(tid, '');
+          }
+        }
+        token = result.pagingInfo?.continuationToken ?? null;
+        if (pageNum === 1) {
+          logger.info(
+            { xuid, totalRecords: result.pagingInfo?.totalRecords, firstPageCount: result.achievements?.length },
+            'GS4 all-achievements scan first page',
+          );
+        }
+      } while (token !== null);
+      logger.info(
+        { xuid, gs4TitleCount: titleMap.size, pagesScanned: pageNum },
+        'GS4 all-achievements scan complete',
+      );
+      return titleMap;
+    };
+
+    const [v2Titles, v1Titles, gs5ScanMap, gs4ScanMap] = await Promise.all([
       fetchAllPages('2'),
       fetchAllPages('1'),
+      fetchAllGS5TitlesFromAchievements(),
+      fetchAllGS4TitlesFromAchievements(),
     ]);
 
-    logger.info({ xuid, v2Count: v2Titles.length, v1Count: v1Titles.length }, 'Xbox title history raw totals');
+    logger.info(
+      { xuid, v2Count: v2Titles.length, v1Count: v1Titles.length, gs5ScanUniqueGames: gs5ScanMap.size, gs4ScanUniqueGames: gs4ScanMap.size },
+      'Xbox title history raw totals',
+    );
 
-    // Merge: deduplicate by titleId, preferring v2 entry if present (has more fields)
+    // Merge: deduplicate by titleId, preferring v2 entry if present (has more fields).
+    // Exception: for Xbox 360 titles, v2 always returns currentGamerscore/maxGamerscore=0
+    // because the v2 history endpoint doesn't surface legacy GS4 gamerscore. When a title
+    // exists in both responses, patch the v2 entry with v1's gamerscore fields so we don't
+    // lose earned gamerscore data.
     const byTitleId = new Map<string, RawTitle & { _contractVersion: '1' | '2' }>();
     for (const t of v2Titles) byTitleId.set(String(t.titleId), { ...t, _contractVersion: '2' });
-    // Add v1 titles that aren't already in v2
     for (const t of v1Titles) {
       const key = String(t.titleId);
-      if (!byTitleId.has(key)) byTitleId.set(key, { ...t, _contractVersion: '1' });
+      if (!byTitleId.has(key)) {
+        byTitleId.set(key, { ...t, _contractVersion: '1' });
+      } else {
+        // In both v1 and v2 — patch v2 entry with v1 gamerscore if v2 shows zeros
+        const existing = byTitleId.get(key)!;
+        const v2HasNoGS = (existing.currentGamerscore ?? 0) === 0;
+        const v1HasGS = (t.currentGamerscore ?? 0) > 0;
+        if (v2HasNoGS && v1HasGS) {
+          existing.currentGamerscore = t.currentGamerscore;
+          existing.maxGamerscore = t.maxGamerscore ?? existing.maxGamerscore;
+          existing.earnedAchievements = t.earnedAchievements ?? existing.earnedAchievements;
+          logger.info(
+            { titleId: key, name: existing.name, v1GS: t.currentGamerscore },
+            'Patched v2 title entry with v1 gamerscore data',
+          );
+        }
+      }
     }
+
+    // Merge GS5 all-achievements scan: add any titleId not already discovered via the
+    // history endpoint. These are genuine games the user has played but that no longer
+    // appear in /history/titles (old PC titles, platform-specific games, etc.).
+    // We have no platform or GS info at this stage — Phase 5 will compute all of that
+    // from the per-achievement data. We assume titleType=Game since they came from the
+    // achievements API (apps/media don't have GS5 achievements).
+    //
+    // IMPORTANT: For titles that already exist in byTitleId from the history endpoint,
+    // we override titleType to 'Game'. The history endpoint sometimes misclassifies
+    // genuine games as "App" or other types (e.g. Anthem, Titanfall, Rare Replay, etc.),
+    // causing them to be filtered out in the titleType check below.  The achievements
+    // scan is authoritative: if a title has earned achievements, it IS a game.
+    let gs5ScanAdded = 0;
+    let gs5ScanTypeFixed = 0;
+    const gs5ScanAddedTitles: Array<{ titleId: string; name: string }> = [];
+    for (const [titleId, name] of gs5ScanMap) {
+      if (!byTitleId.has(titleId)) {
+        byTitleId.set(titleId, {
+          titleId,
+          name,
+          _contractVersion: '2',
+          titleType: 'Game',    // safe assumption: came from achievements endpoint
+          platform: undefined,
+          earnedAchievements: undefined,
+          currentGamerscore: undefined,
+          maxGamerscore: undefined,
+        });
+        gs5ScanAdded++;
+        gs5ScanAddedTitles.push({ titleId, name });
+      } else {
+        // Title exists from history — force titleType to 'Game' since the GS5
+        // achievements scan proves it has game achievements.
+        const existing = byTitleId.get(titleId)!;
+        const rawType = existing.titleType;
+        const isAlreadyGame =
+          rawType === 1 || String(rawType ?? '').toLowerCase() === 'game';
+        if (!isAlreadyGame && rawType !== undefined && rawType !== null) {
+          logger.info(
+            { titleId, name: existing.name, oldTitleType: rawType },
+            'GS5 scan: overriding non-game titleType → Game (achievements confirm this is a game)',
+          );
+          existing.titleType = 'Game';
+          gs5ScanTypeFixed++;
+        }
+      }
+    }
+    if (gs5ScanAdded > 0 || gs5ScanTypeFixed > 0) {
+      logger.info(
+        { xuid, gs5ScanAdded, gs5ScanTypeFixed, addedTitles: gs5ScanAddedTitles },
+        'GS5 all-achievements scan merge: added new titles and/or fixed titleType for existing ones',
+      );
+    }
+
+    // Merge GS4 all-achievements scan: add Xbox 360 titles not already in byTitleId.
+    // Only add if we have a non-empty name (GS4 achievements often carry only the
+    // achievement name, not the game title, so most GS4 scan entries will have name='';
+    // those are collected into earnedScanSet only, not added as browse-able titles).
+    let gs4ScanAdded = 0;
+    let gs4ScanTypeFixed = 0;
+    for (const [titleId, name] of gs4ScanMap) {
+      if (!byTitleId.has(titleId)) {
+        if (name) {
+          byTitleId.set(titleId, {
+            titleId,
+            name,
+            _contractVersion: '1',
+            titleType: 1, // v1 numeric Game type
+            platform: undefined,
+            earnedAchievements: undefined,
+            currentGamerscore: undefined,
+            maxGamerscore: undefined,
+          });
+          gs4ScanAdded++;
+        }
+      } else {
+        // Same titleType override logic as GS5: if the GS4 achievements scan returned
+        // this title, it's a game, regardless of what the history endpoint says.
+        const existing = byTitleId.get(titleId)!;
+        const rawType = existing.titleType;
+        const isAlreadyGame =
+          rawType === 1 || String(rawType ?? '').toLowerCase() === 'game';
+        if (!isAlreadyGame && rawType !== undefined && rawType !== null) {
+          existing.titleType = existing._contractVersion === '1' ? 1 : 'Game';
+          gs4ScanTypeFixed++;
+        }
+      }
+    }
+    if (gs4ScanAdded > 0 || gs4ScanTypeFixed > 0) {
+      logger.info({ xuid, gs4ScanAdded, gs4ScanTypeFixed }, 'GS4 all-achievements scan merge results');
+    }
+
+    // Build the GS5 earned-scan set: titleIds that appeared in the GS5
+    // all-earned-achievements scan (contract v2, no titleId filter). This endpoint
+    // ONLY returns achievements the user has already earned, so every titleId here
+    // is a confirmed game with at least one unlocked achievement. Used in Phase 5
+    // as a guard against false-positive 0-earned deletes (e.g. per-title API
+    // returning stale 0-unlocked data for a game the user has actually played).
+    //
+    // We intentionally do NOT include the GS4 scan here: the v1 all-achievements
+    // endpoint may return unearned achievements and is less reliable as a guard.
+    // GS4 entries are used only for title discovery (adding new titles to byTitleId),
+    // not for protection against deletion.
+    const earnedScanSet = new Set<string>(gs5ScanMap.keys());
 
     // Log a sample of titles with their platform strings so we can verify 360 detection
     const sampleTitles = [...byTitleId.values()].slice(0, 20).map((t) => ({
@@ -406,33 +792,20 @@ export class XboxAdapter {
 
       // Skip games where the user has earned zero achievements.
       // Primary check: earnedAchievements field explicitly 0.
-      // Fallback check: currentGamerscore explicitly 0. For Xbox 360 v1-only titles, the
-      // earnedAchievements field is often absent (undefined) in the API response, so the
-      // primary check misses them. currentGamerscore === 0 means the user has earned nothing;
-      // this is reliable for both v1 and v2 responses.
-      const earnedCount = title.earnedAchievements;
-      const currentGs = title.currentGamerscore;
-      const hasZeroEarned = (earnedCount !== undefined && earnedCount !== null && earnedCount === 0);
-      const hasZeroGS = (currentGs !== undefined && currentGs !== null && currentGs === 0);
-      if (hasZeroEarned || hasZeroGS) {
-        filtered++;
-        logger.debug(
-          { titleId: title.titleId, name: title.name, earnedAchievements: earnedCount, currentGamerscore: currentGs },
-          'Filtered out title with 0 earned achievements',
-        );
-        continue;
-      }
-
-      // For 360 titles the v2 history endpoint often returns maxGamerscore=0.
-      // Accept them as long as they're clearly 360 games (v1-only or platform=Xbox360).
-      if (maxGs === 0 && !isXbox360) {
-        filtered++;
-        logger.debug(
-          { titleId: title.titleId, name: title.name, platform: title.platform },
-          'Filtered out title with maxGamerscore=0',
-        );
-        continue;
-      }
+      // Fallback check: currentGamerscore explicitly 0 — but ONLY when:
+      //   (a) it is not an Xbox 360 title: the v2 history endpoint always reports
+      //       currentGamerscore=0 for legacy GS4 titles even when the user has earned GS.
+      //   (b) earnedAchievements is not explicitly > 0: some PC/UWP titles (e.g. RUSH:
+      //       A Disney•PIXAR Adventure) report currentGamerscore=0 in the history API
+      //       even though the user has earned achievements and gamerscore. In that case
+      //       earnedAchievements is the reliable signal.
+      //
+      // NOTE: The title history API returns earnedAchievements=0 and currentGamerscore=0
+      // for many games the user has actually played (especially Xbox 360 titles via v1,
+      // and some PC titles). These fields are NOT reliable. The authoritative check is
+      // done in Phase 5 of the sync via the achievements API. We therefore do NOT
+      // pre-filter on these fields here — all games that pass the titleType check get
+      // through and are evaluated against real achievement data in Phase 5.
 
       kept++;
       const platform = title.platform ?? (isXbox360 ? 'Xbox360' : '');
@@ -464,6 +837,10 @@ export class XboxAdapter {
         titleImageUrl: title.displayImage ?? title.largeBoxArt ?? undefined,
         // Note: Xbox 360 tile CDN URLs (image-ssl.xboxlive.com/global/t.{hex}/tile/...)
         // consistently return 404. 360 game art is sourced via SteamGridDB instead.
+        // Confirmed-earned flag: true when this title appeared in either the GS5 or
+        // GS4 all-earned-achievements endpoint scan (meaning the user genuinely has
+        // at least one unlocked achievement for this title per that authoritative source).
+        inEarnedScan: earnedScanSet.has(String(title.titleId)),
       });
     }
 
@@ -804,7 +1181,14 @@ export class XboxAdapter {
    * Returns the expanded string, or undefined if no expansion was made.
    */
   expandAbbreviations(name: string): string | undefined {
-    let r = name;
+    // Split CamelCase/PascalCase sequences so "SplinterCellConviction" becomes
+    // "Splinter Cell Conviction" and "EarthDefenseForce" → "Earth Defense Force".
+    // Only split when the uppercase letter starts a real word (followed by at least
+    // one lowercase letter). This prevents short abbreviations like "GoL", "WaW",
+    // "BiB" from being broken into "Go L", "Wa W", "Bi B".
+    let r = name.replace(/([a-z])([A-Z][a-z]+)/g, '$1 $2');
+
+    // Known Xbox library abbreviation → full title mappings
     r = r.replace(/^MOH\s+(.+)/i, 'Medal of Honor: $1');
     r = r.replace(/^Spidey\s*:/i, 'Spider-Man:');
     r = r.replace(/^TC[''\'`\u2019]?s\s+/i, "Tom Clancy's ");
@@ -812,8 +1196,67 @@ export class XboxAdapter {
     r = r.replace(/\s+FS\s*$/i, ': Future Soldier');
     r = r.replace(/^GTA\s+/i, 'Grand Theft Auto ');
     r = r.replace(/^Dark Alliance$/i, 'Dungeons \u0026 Dragons: Dark Alliance');
+    // Xbox 360 abbreviated series titles
+    r = r.replace(/^FC\s+/i, 'Far Cry ');
+    r = r.replace(/:\s*TFS\s*$/i, ': The Forgotten Sands');
+    r = r.replace(/:\s*WaW\s*$/i, ': World at War');
+    r = r.replace(/:\s*ORC\s*$/i, ': Operation Raccoon City');
+    r = r.replace(/:\s*BiB\s*$/i, ': Bound in Blood');
+    r = r.replace(/:\s*GoL\s*$/i, ': Guardian of Light');
+    r = r.replace(/^R\.E\.\s+CODE\s*:/i, 'Resident Evil Code:');
+
     const trimmed = r.trim();
     return trimmed !== name.trim() ? trimmed : undefined;
+  }
+
+  /**
+   * Strip trademark symbols (™ ® ©), C0/C1 control characters, and other
+   * non-printable code-points that the Xbox API embeds in some game titles.
+   * Also collapses runs of whitespace into a single space.
+   *
+   * Examples:
+   *   "HITMAN™"                      → "HITMAN"
+   *   "Rush: A Disney\u009EPixar Adventure" → "Rush: A Disney Pixar Adventure"
+   *   "Battlefield™ Hardline"        → "Battlefield Hardline"
+   */
+  sanitizeTitle(name: string): string {
+    return name
+      // Remove trademark / copyright symbols
+      .replace(/[™®©]/g, '')
+      // Replace C0/C1 control characters (U+0000–U+001F, U+007F–U+009F) and
+      // other invisible/zero-width code-points with a space
+      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, ' ')
+      // Collapse multiple spaces into one
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Strip edition qualifiers ("Remastered", "Remaster", "Remake", "Definitive Edition")
+   * that prevent image databases from matching the base game title.
+   * Only removed when at the END of the title so "Remastered Collection" is untouched.
+   *
+   * Examples:
+   *   "XIII Remaster"                 → "XIII"
+   *   "Crysis Remastered"             → "Crysis"
+   *   "Alan Wake Remastered"          → "Alan Wake"
+   */
+  stripEditionSuffix(name: string): string {
+    return name
+      .replace(/\s+(Remaster(ed)?|Remake)\s*$/i, '')
+      .trim();
+  }
+
+  /**
+   * Normalise a raw Xbox API title name for external image searches.
+   * Pipeline: sanitize → abbreviation expansion → platform suffix strip → edition suffix strip.
+   * Used wherever a game title is passed to SteamGridDB / Wikipedia / PCGW.
+   */
+  normalizeForSearch(name: string): string {
+    const clean = this.sanitizeTitle(name);
+    const expanded = this.expandAbbreviations(clean);
+    const stripped = this.stripPlatformSuffix(expanded ?? clean);
+    return this.stripEditionSuffix(stripped);
   }
 
   /**
@@ -844,17 +1287,21 @@ export class XboxAdapter {
    *
    * Image priority: posterArtUrl (direct) → Poster → BrandedKeyArt → BoxArt
    *
-   * Returns both the best image URL and the Store productId so callers can
-   * use the productId for a direct Emerald lookup if needed (Priority 4).
+   * Returns:
+   * - `imageUrl`       – best portrait image URL (empty string if match found but no image)
+   * - `productId`      – Store product ID for Emerald fallback (Priority 4)
+   * - `canonicalTitle`  – the Store's canonical full title for the game, useful as
+   *                       an improved search query for SteamGridDB / PCGamingWiki /
+   *                       Wikipedia when the Xbox API name is abbreviated.
    */
   async fetchMicrosoftStoreGridUrl(
     titleName: string,
     titleId?: string,
-  ): Promise<{ imageUrl: string; productId: string } | undefined> {
-    // Strip trailing platform qualifiers before searching so that
-    // "GTA IV PC" searches as "GTA IV", "Cult of the Lamb Xbox" as
-    // "Cult of the Lamb", etc.
+  ): Promise<{ imageUrl: string; productId: string; canonicalTitle?: string } | undefined> {
+    // Sanitize: strip ™®©, control chars, then platform qualifiers
+    titleName = this.sanitizeTitle(titleName);
     titleName = this.stripPlatformSuffix(titleName);
+    titleName = this.stripEditionSuffix(titleName);
 
     // Expand known abbreviations so the Store can match them. This mirrors
     // the same expansion used for Wikipedia lookups. e.g.:
@@ -876,8 +1323,14 @@ export class XboxAdapter {
     };
 
     // Tokenise a string into lowercase alphanumeric tokens.
+    // Tokenise: split CamelCase ("DisneyPixar" → "Disney Pixar"), then
+    // lowercase and keep only alphanumeric tokens.
     const tokenise = (s: string) =>
-      s.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean);
+      s.replace(/([a-z])([A-Z])/g, '$1 $2')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean);
 
     // Fetch the productsList for a given query string; logs the URL so it can be
     // opened manually in a browser to diagnose missing or wrong results.
@@ -1008,9 +1461,14 @@ export class XboxAdapter {
       'guide', 'guides', 'walkthrough', 'walkthroughs', 'tips', 'hints', 'cheats',
       'cheat', 'strategy', 'strategies', 'companion', 'handbook', 'manual', 'demo',
       'demos', 'preview', 'previews', 'tutorial', 'tutorials', 'achievement',
-      'achievements','trophy', 'trophies', 'wiki', 'unofficial', 'server', 'servers',
-      'mod', 'mods', 'dlc', 'expansion','expansions', 'season pass', 'Add-Ons', 'Add-On',
-      'vip', 'bundle', 'bundles'
+      'achievements', 'trophy', 'trophies', 'wiki', 'unofficial', 'server', 'servers',
+      'mod', 'mods', 'dlc', 'expansion', 'expansions', 'season', 'pass', 'add-ons',
+      'add-on', 'vip', 'bundle', 'bundles',
+      // Utility / companion-app words — prevents matching "Destiny Item Manager"
+      // when the needle is just "Destiny".
+      'manager', 'tracker', 'tool', 'tools', 'app', 'editor', 'viewer', 'browser',
+      'organizer', 'planner', 'helper', 'calculator', 'database', 'wallpaper',
+      'wallpapers', 'theme', 'themes', 'soundtrack', 'soundtracks',
     ]);
     const findBestMatch = (results: MSProduct[], needle: string): { match: MSProduct; score: number } | undefined => {
       const needleTokens = tokenise(needle);
@@ -1051,12 +1509,31 @@ export class XboxAdapter {
         // e.g. "Cult of the Lamb: The Ultimate Guide" rejected for needle "Cult of the Lamb".
         if (hayTokens.some((t) => COMPANION_WORDS.has(t) && !needleWordSet.has(t))) continue;
 
+        // First-word anchor: the first meaningful word of the needle must appear
+        // in the candidate. This prevents false positives like "Doom & Destiny"
+        // matching needle "Destiny" — "destiny" is not the leading word of the
+        // candidate so the context is wrong. For multi-word needles the anchor is
+        // the very first meaningful token (e.g. "gears" for "Gears of War 3").
+        const firstNeedleWord = scoringNeedleWords[0];
+        const firstHayWord = scoringHayWords[0];
+        if (firstNeedleWord && firstHayWord && firstNeedleWord !== firstHayWord) continue;
+
         const intersection = scoringNeedleWords.filter((t) => scoringHaySet.has(t)).length;
         const recall    = scoringNeedleSet.size > 0 ? intersection / scoringNeedleSet.size : 1;
         const precision = scoringHaySet.size   > 0 ? intersection / scoringHaySet.size    : 0;
         const f1 = (recall + precision) > 0 ? 2 * recall * precision / (recall + precision) : 0;
 
-        if (recall >= RECALL_THRESHOLD && f1 >= F1_THRESHOLD && f1 > bestScore) {
+        // Prefix-match relaxation: when ALL scoring-needle tokens form the opening
+        // of the candidate's scoring tokens (same order), the candidate is likely a
+        // rebranded / expanded title of the same game.  Accept these with a lower
+        // F1 bar because the first-word anchor + companion gates already protect
+        // against false positives.
+        // e.g. needle "HITMAN" → candidate "HITMAN World of Assassination" (prefix)
+        const needleIsPrefix = scoringNeedleWords.length > 0
+          && scoringNeedleWords.every((w, i) => i < scoringHayWords.length && scoringHayWords[i] === w);
+        const effectiveF1 = needleIsPrefix ? 0.4 : F1_THRESHOLD;
+
+        if (recall >= RECALL_THRESHOLD && f1 >= effectiveF1 && f1 > bestScore) {
           bestScore = f1;
           bestMatch = result;
         }
@@ -1234,7 +1711,7 @@ export class XboxAdapter {
               '[DisplayCatalog] Title matched',
             );
             if (dcMatch.posterArtUrl) {
-              return { imageUrl: dcMatch.posterArtUrl, productId: dcProductId };
+              return { imageUrl: dcMatch.posterArtUrl, productId: dcProductId, canonicalTitle: dcMatch.title ?? undefined };
             }
             logger.info({ titleName, probe, productId: dcProductId }, '[DisplayCatalog] Match found but no suitable image in result');
           }
@@ -1252,7 +1729,7 @@ export class XboxAdapter {
       if (bestMatch.posterArtUrl) {
         const sizedUrl = this.addMSCDNSize(bestMatch.posterArtUrl);
         logger.info({ titleName, matchedTitle: bestMatch.title, productId, url: sizedUrl }, 'Found Microsoft Store grid image (posterArtUrl)');
-        return { imageUrl: sizedUrl, productId };
+        return { imageUrl: sizedUrl, productId, canonicalTitle: bestMatch.title ?? undefined };
       }
 
       // Fall back to the images array
@@ -1263,12 +1740,12 @@ export class XboxAdapter {
         if (img?.url) {
           const sizedUrl = this.addMSCDNSize(img.url);
           logger.info({ titleName, matchedTitle: bestMatch.title, productId, type, url: sizedUrl }, 'Found Microsoft Store grid image');
-          return { imageUrl: sizedUrl, productId };
+          return { imageUrl: sizedUrl, productId, canonicalTitle: bestMatch.title ?? undefined };
         }
       }
 
-      logger.info({ titleName, availableTypes: images.map((i) => i.imageType) }, '[MSStore] No suitable image type in result');
-      return undefined;
+      logger.info({ titleName, availableTypes: images.map((i) => i.imageType) }, '[MSStore] No suitable image type — returning match without image');
+      return { imageUrl: '', productId, canonicalTitle: bestMatch.title ?? undefined };
     } catch (err) {
       logger.warn({ titleName, err: String(err) }, '[MSStore] Search threw unexpected error');
       return undefined;
@@ -1376,11 +1853,19 @@ export class XboxAdapter {
     };
     const TIMEOUT = 10_000;
     const RECALL_THRESHOLD = 0.8;
+    const F1_THRESHOLD = 0.7;
     const STOPWORDS = new Set(['the', 'a', 'an', 'of', 'in', 'on', 'at', 'to', 'for', 'and', 'or', 'de']);
+    // CamelCase split so "DisneyPixar" → ["disney", "pixar"]
     const tokenise = (s: string) =>
-      s.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean);
+      s.replace(/([a-z])([A-Z])/g, '$1 $2')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean);
 
+    gameName = this.sanitizeTitle(gameName);
     gameName = this.stripPlatformSuffix(gameName);
+    gameName = this.stripEditionSuffix(gameName);
     const needle = this.expandAbbreviations(gameName) ?? gameName;
     const needleAllTokens = tokenise(needle);
     const needleNumbers = needleAllTokens.filter((t) => /^\d+$/.test(t));
@@ -1397,21 +1882,34 @@ export class XboxAdapter {
       const hits = searchJson.query?.search ?? [];
       if (hits.length === 0) return undefined;
 
+      // Score ALL hits and pick the best F1 match (not just the first passing one).
+      // Also strip parenthetical wiki disambiguators like "(2016)" or "(video game)"
+      // from candidate titles before scoring — they inflate token counts and trigger
+      // the reverse-number gate when the year appears only in the disambiguation.
       let bestHit: { title: string; pageid: number } | undefined;
+      let bestF1 = -1;
       for (const hit of hits) {
-        const hitAllTokens = tokenise(hit.title);
+        // Strip parenthetical disambiguator at end: "Hitman (2016)" → "Hitman"
+        const cleanTitle = hit.title.replace(/\s*\([^)]+\)\s*$/, '');
+        const hitAllTokens = tokenise(cleanTitle);
         const hitSet = new Set(hitAllTokens);
         const hitNumbers = hitAllTokens.filter((t) => /^\d+$/.test(t));
         // Hard gate: every number in the needle must appear in the candidate.
-        // e.g. "Forza Horizon 3" must not match "Forza Horizon 6".
         if (needleNumbers.some((n) => !hitSet.has(n))) continue;
         // Reverse hard gate: every number in the candidate must appear in the needle.
-        // e.g. "Forza Horizon" (no numbers) must not match "Forza Horizon 5".
         if (hitNumbers.some((n) => !needleNumberSet.has(n))) continue;
-        const hitTokens = new Set(hitAllTokens.filter((t) => !STOPWORDS.has(t) && t.length >= 2));
-        const matchCount = needleTokens.filter((t) => hitTokens.has(t)).length;
+        const hitMeaningful = hitAllTokens.filter((t) => !STOPWORDS.has(t) && t.length >= 2);
+        const hitTokenSet = new Set(hitMeaningful);
+        // First-word anchor: prevent "Doom & Destiny" matching needle "Destiny".
+        if (needleTokens[0] && hitMeaningful[0] && needleTokens[0] !== hitMeaningful[0]) continue;
+        const matchCount = needleTokens.filter((t) => hitTokenSet.has(t)).length;
         const recall = needleTokens.length > 0 ? matchCount / needleTokens.length : 1;
-        if (recall >= RECALL_THRESHOLD) { bestHit = hit; break; }
+        const precision = hitTokenSet.size > 0 ? matchCount / hitTokenSet.size : 0;
+        const f1 = (recall + precision) > 0 ? 2 * recall * precision / (recall + precision) : 0;
+        if (recall >= RECALL_THRESHOLD && f1 >= F1_THRESHOLD && f1 > bestF1) {
+          bestF1 = f1;
+          bestHit = hit;
+        }
       }
       if (!bestHit) {
         logger.info({ gameName: needle, hits: hits.map((h) => h.title) }, '[PCGW] No confident title match');
@@ -1470,9 +1968,17 @@ export class XboxAdapter {
    * Image priority: originalimage (full-res box art) → thumbnail.
    */
   async fetchWikipediaImageUrl(gameName: string): Promise<string | undefined> {
+    // Sanitize: strip ™®© and control chars before building Wikipedia slugs.
+    gameName = this.sanitizeTitle(gameName);
     // Strip platform suffixes before building Wikipedia slugs so
     // "Cult of the Lamb Xbox" searches as "Cult of the Lamb" etc.
     gameName = this.stripPlatformSuffix(gameName);
+    // Strip edition suffixes (Remastered, Remake)
+    gameName = this.stripEditionSuffix(gameName);
+    // Expand abbreviations (which also splits CamelCase) so that titles like
+    // "Call of Duty: WaW" → "Call of Duty: World at War" are correctly resolved.
+    const wikiExpanded = this.expandAbbreviations(gameName);
+    if (wikiExpanded) gameName = wikiExpanded;
 
     /**
      * Small words kept lowercase in slugs (unless they are the first word).
