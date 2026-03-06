@@ -84,7 +84,7 @@ export default function PlayStationPage() {
               onChange={(e) => setOnlyCompleted(e.target.checked)}
               className="w-4 h-4"
             />
-            <span>100% Complete Only</span>
+            <span>100% Only</span>
           </label>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-400">Sort by:</label>

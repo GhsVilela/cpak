@@ -15,6 +15,10 @@ export interface IGame extends Document {
   currentGamerscore?: number;
   /** Xbox-specific: total gamerscore possible for this game */
   maxGamerscore?: number;
+  /** Xbox-specific: last played / last achievement unlock timestamp */
+  lastPlayed?: Date;
+  /** Xbox-specific: total minutes played (from TitleHub API) */
+  playTimeMinutes?: number;
   lastSyncedAt: Date;
 }
 
@@ -35,6 +39,8 @@ const GameSchema = new Schema<IGame>(
     devices: { type: [String], default: undefined },
     currentGamerscore: { type: Number },
     maxGamerscore: { type: Number },
+    lastPlayed: { type: Date },
+    playTimeMinutes: { type: Number },
     lastSyncedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

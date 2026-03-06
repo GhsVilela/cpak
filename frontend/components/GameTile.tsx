@@ -13,6 +13,8 @@ interface GameTileProps {
     completionPercent: number;
     imagePath?: string;
     profileId: string;
+    currentGamerscore?: number;
+    maxGamerscore?: number;
   };
 }
 
@@ -108,7 +110,9 @@ export default function GameTile({ game }: GameTileProps) {
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs sm:text-sm">
             <span className="text-gray-400">
-              {game.achievementsUnlocked} / {game.achievementsTotal}
+              {game.platform === 'xbox' && game.maxGamerscore !== undefined && game.maxGamerscore > 0
+                ? <>{(game.currentGamerscore ?? 0).toLocaleString()}&thinsp;/&thinsp;{game.maxGamerscore.toLocaleString()}</>
+                : <>{game.achievementsUnlocked} / {game.achievementsTotal}</>}
             </span>
             <span className={`font-semibold ${getCompletionColor(game.completionPercent)}`}>
               {game.completionPercent}%

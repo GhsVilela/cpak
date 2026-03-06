@@ -11,7 +11,7 @@ interface GamesQuery {
   offset?: string;
   sortBy?: string;
   sortOrder?: string;
-  /** Console generation filter for Xbox games: Xbox360 | XboxOne | XboxSeries | PC */
+  /** Console generation / platform filter for Xbox games: Xbox360 | XboxOne | XboxSeries | PC | PlayAnywhere | ConsoleOnly */
   device?: string;
 }
 
@@ -59,8 +59,21 @@ export async function getGames(
       filter.completionPercent = 100;
     }
 
-    // Filter by console generation (Xbox only — matches against the devices[] array field)
-    if (device) {
+    // Filter by console generation / platform (Xbox only — matches devices[] array field)
+    if (device === 'PlayAnywhere') {
+      // Games available on both PC and at least one Xbox console
+      filter.$and = [
+        { devices: 'PC' },
+        { devices: { $in: ['XboxSeries', 'XboxOne', 'Xbox360'] } },
+      ];
+    } else if (device === 'ConsoleOnly') {
+      // Games on Xbox consoles but NOT on PC
+      filter.$and = [
+        { devices: { $in: ['XboxSeries', 'XboxOne', 'Xbox360'] } },
+        { devices: { $nin: ['PC'] } },
+      ];
+    } else if (device) {
+      // Inclusive match: games that include this platform (e.g. XboxSeries includes Play Anywhere)
       filter.devices = device;
     }
 

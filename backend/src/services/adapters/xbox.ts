@@ -73,6 +73,12 @@ export interface XboxTitleHistory {
   platform?: string;
   titleImageUrl?: string;
   /**
+   * Last played/unlocked timestamp.
+   * v1 (Xbox 360): `lastPlayed` field from the title history response.
+   * v2 (modern Xbox): `lastUnlock` field (last achievement unlock — closest available proxy).
+   */
+  lastPlayed?: string;
+  /**
    * True when this titleId appeared in the GS5 or GS4 all-earned-achievements scan.
    * The scan only surfaces titles where the user has actually earned at least one achievement.
    * Used in Phase 5 as a guard: if the per-title achievements API temporarily returns
@@ -346,6 +352,8 @@ export class XboxAdapter {
       displayImage?: string;
       /** v2 response: alternative cover art field */
       largeBoxArt?: string;
+      /** v1: actual last played timestamp; absent in v2 (v2 uses lastUnlock) */
+      lastPlayed?: string;
     };
     type TitleHistoryResponse = {
       titles: RawTitle[];
@@ -837,6 +845,8 @@ export class XboxAdapter {
         titleImageUrl: title.displayImage ?? title.largeBoxArt ?? undefined,
         // Note: Xbox 360 tile CDN URLs (image-ssl.xboxlive.com/global/t.{hex}/tile/...)
         // consistently return 404. 360 game art is sourced via SteamGridDB instead.
+        // v1 exposes `lastPlayed`; v2 exposes `lastUnlock` (last achievement unlock).
+        lastPlayed: title.lastPlayed ?? title.lastUnlock,
         // Confirmed-earned flag: true when this title appeared in either the GS5 or
         // GS4 all-earned-achievements endpoint scan (meaning the user genuinely has
         // at least one unlocked achievement for this title per that authoritative source).
@@ -846,6 +856,67 @@ export class XboxAdapter {
 
     logger.info({ xuid, kept, filtered, totalTitles: allTitles.length }, 'Fetched Xbox title history');
     return allTitles;
+  }
+
+  /**
+   * Fetch platform/devices data from the TitleHub API for all of a user's titles.
+   * Returns a Map of titleId → devices[] (e.g. ["PC", "XboxSeries"] for Play Anywhere games).
+   * This is the only API that exposes multi-platform classification for a title.
+   */
+  async getTitleHubDevices(
+    xuid: string,
+    xstsToken: string,
+    userHash: string,
+  ): Promise<Map<string, string[]>> {
+    const devicesMap = new Map<string, string[]>();
+    const baseUrl = `https://titlehub.xboxlive.com/users/xuid(${xuid})/titles/titlehistory/decoration/detail`;
+
+    type TitleHubTitle = { titleId: string | number; devices?: string[] };
+    type TitleHubResponse = {
+      titles?: TitleHubTitle[];
+      pagingInfo?: { continuationToken?: string };
+    };
+
+    try {
+      let continuationToken: string | null = null;
+      do {
+        const url: string = continuationToken
+          ? `${baseUrl}?continuationToken=${encodeURIComponent(continuationToken)}`
+          : baseUrl;
+
+        const result: TitleHubResponse | undefined = await rateLimiter.executeWithRetry<TitleHubResponse | undefined>(
+          'xbox',
+          async (): Promise<TitleHubResponse | undefined> => {
+            try {
+              const response = await XSAPIClient.get<TitleHubResponse>(url, {
+                options: { XSTSToken: xstsToken, userHash, contractVersion: '2' },
+              });
+              return response.data;
+            } catch (error) {
+              logger.warn({ error, xuid }, 'TitleHub devices fetch failed');
+              return undefined;
+            }
+          },
+          `titlehub-devices:${xuid}:${continuationToken ?? '0'}`,
+        );
+
+        if (!result?.titles) break;
+
+        for (const title of result.titles) {
+          if (title.devices && title.devices.length > 0) {
+            devicesMap.set(String(title.titleId), title.devices);
+          }
+        }
+
+        continuationToken = result.pagingInfo?.continuationToken ?? null;
+      } while (continuationToken);
+
+      logger.info({ xuid, titlesWithDevices: devicesMap.size }, 'TitleHub devices fetched');
+    } catch (error) {
+      logger.warn({ error, xuid }, 'TitleHub devices fetch failed (outer)');
+    }
+
+    return devicesMap;
   }
 
   /**

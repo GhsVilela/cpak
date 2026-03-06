@@ -747,6 +747,16 @@ class SyncService {
 
     const titles = await adapter.getTitleHistory(xuid, xstsToken, userHash);
 
+    // Enrich devices from TitleHub — the only source that returns the full devices array,
+    // which correctly classifies Play Anywhere games as both PC and XboxSeries.
+    const titleHubDevicesMap = await adapter.getTitleHubDevices(xuid, xstsToken, userHash);
+    for (const title of titles) {
+      const hubDevices = titleHubDevicesMap.get(title.titleId);
+      if (hubDevices && hubDevices.length > 0) {
+        title.devices = hubDevices;
+      }
+    }
+
     const totalAchievements = titles.reduce((sum, t) => sum + t.totalAchievements, 0);
 
     syncOperation.totalGames = titles.length;
@@ -1003,6 +1013,7 @@ class SyncService {
           devices: title.devices,
           currentGamerscore: title.currentGamerscore ?? 0,
           maxGamerscore: title.maxGamerscore ?? 0,
+          ...(title.lastPlayed !== undefined && { lastPlayed: new Date(title.lastPlayed) }),
           lastSyncedAt: new Date(),
         };
 

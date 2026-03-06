@@ -15,6 +15,8 @@ interface Game {
   devices?: string[];
   currentGamerscore?: number;
   maxGamerscore?: number;
+  lastPlayed?: string;
+  playTimeMinutes?: number;
 }
 
 interface Achievement {
@@ -27,6 +29,25 @@ interface Achievement {
   iconPath?: string;
   iconGrayPath?: string;
   gamerscore?: number;
+}
+
+function formatLastPlayed(iso: string): string {
+  const date = new Date(iso);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / 86_400_000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) === 1 ? '' : 's'} ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) === 1 ? '' : 's'} ago`;
+  return date.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function formatPlaytime(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
 // Make this page dynamic (not static)
@@ -113,31 +134,45 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
       {/* Game header */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-4">{game.title}</h1>
-        <div className="flex gap-8 text-sm flex-wrap">
-          <div>
-            <span className="text-gray-400">Achievements: </span>
-            <span className="font-semibold">
+        <div className="flex items-center gap-0 text-sm divide-x divide-gray-600 overflow-x-auto flex-nowrap">
+          <div className="pr-5 shrink-0 whitespace-nowrap">
+            <div className="text-gray-400 text-xs uppercase tracking-wide">Achievements</div>
+            <div className="font-semibold mt-0.5">
               {game.achievementsUnlocked} / {game.achievementsTotal}
-            </span>
+            </div>
           </div>
           {game.maxGamerscore !== undefined && game.maxGamerscore > 0 && (
-            <div>
-              <span className="text-gray-400">Gamerscore: </span>
-              <span className="font-semibold text-[var(--xbox-accent)]">
+            <div className="px-5 shrink-0 whitespace-nowrap">
+              <div className="text-gray-400 text-xs uppercase tracking-wide">Gamerscore</div>
+              <div className="font-semibold mt-0.5">
                 {(game.currentGamerscore ?? 0).toLocaleString()} / {game.maxGamerscore.toLocaleString()}
-              </span>
+              </div>
             </div>
           )}
-          <div>
-            <span className="text-gray-400">Completion: </span>
-            <span className="font-semibold text-[var(--xbox-accent)]">
+          <div className="px-5 shrink-0 whitespace-nowrap">
+            <div className="text-gray-400 text-xs uppercase tracking-wide">Completion</div>
+            <div className="font-semibold mt-0.5">
               {game.completionPercent}%
-            </span>
+            </div>
           </div>
+          {game.lastPlayed && (
+            <div className="px-5 shrink-0 whitespace-nowrap">
+              <div className="text-gray-400 text-xs uppercase tracking-wide">Last Played</div>
+              <div className="font-semibold mt-0.5" title={new Date(game.lastPlayed).toLocaleString()}>
+                {formatLastPlayed(game.lastPlayed)}
+              </div>
+            </div>
+          )}
+          {game.playTimeMinutes !== undefined && game.playTimeMinutes > 0 && (
+            <div className="px-5 shrink-0 whitespace-nowrap">
+              <div className="text-gray-400 text-xs uppercase tracking-wide">Time Played</div>
+              <div className="font-semibold mt-0.5">{formatPlaytime(game.playTimeMinutes)}</div>
+            </div>
+          )}
           {game.devices && game.devices.length > 0 && (
-            <div>
-              <span className="text-gray-400">Platforms: </span>
-              <span className="font-semibold">{game.devices.join(', ')}</span>
+            <div className="pl-5 shrink-0 whitespace-nowrap">
+              <div className="text-gray-400 text-xs uppercase tracking-wide">Platforms</div>
+              <div className="font-semibold mt-0.5">{game.devices.join(', ')}</div>
             </div>
           )}
         </div>
@@ -178,8 +213,8 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-semibold text-lg">{achievement.name}</h3>
                       {achievement.gamerscore !== undefined && achievement.gamerscore > 0 && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-[var(--xbox-accent)]/20 text-[var(--xbox-accent)] border border-[var(--xbox-accent)]/30">
-                          {achievement.gamerscore}G
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-gray-700 text-white border border-gray-500">
+                          {achievement.gamerscore} G
                         </span>
                       )}
                     </div>
@@ -188,7 +223,7 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
                     )}
                     {achievement.unlockedAt && (
                       <p className="text-xs text-gray-500 mt-2">
-                        Unlocked: {new Date(achievement.unlockedAt).toLocaleDateString()}
+                        Unlocked: {new Date(achievement.unlockedAt).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}
                       </p>
                     )}
                   </div>

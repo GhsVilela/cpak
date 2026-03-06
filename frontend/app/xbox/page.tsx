@@ -58,11 +58,13 @@ interface XboxProfile {
 }
 
 const GENERATION_FILTERS = [
-  { value: '', label: 'All Generations' },
+  { value: '', label: 'All Platforms' },
   { value: 'XboxSeries', label: 'Xbox Series X|S' },
   { value: 'XboxOne', label: 'Xbox One' },
   { value: 'Xbox360', label: 'Xbox 360' },
   { value: 'PC', label: 'PC' },
+  { value: 'PlayAnywhere', label: 'Play Anywhere' },
+  { value: 'ConsoleOnly', label: 'Console Only' },
 ];
 
 function XboxPageContent() {
@@ -225,7 +227,7 @@ function XboxPageContent() {
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    return date.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
   // Cancel sync
@@ -373,7 +375,7 @@ function XboxPageContent() {
                 <span>
                   <span>Gamerscore: </span>
                   <span className="font-bold text-[var(--xbox-accent)]">
-                    {(totalCurrentGamerscore ?? 0).toLocaleString()}G
+                    {(totalCurrentGamerscore ?? 0).toLocaleString()}
                   </span>
                 </span>
                 <span className="text-gray-600">|</span>
@@ -405,7 +407,7 @@ function XboxPageContent() {
 
             {/* Generation filter */}
             <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-400">Generation:</label>
+              <label className="text-sm text-gray-400">Platform:</label>
               <select
                 value={generationFilter}
                 onChange={(e) => setGenerationFilter(e.target.value)}
