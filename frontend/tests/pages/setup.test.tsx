@@ -11,6 +11,7 @@ vi.mock('../../services/apiClient', () => ({
   apiClient: {
     get: mockApiGet,
     post: mockApiPost,
+    getAllSettings: vi.fn().mockResolvedValue({ settings: [] }),
   },
 }));
 

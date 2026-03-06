@@ -102,7 +102,7 @@ describe('XboxAdapter', () => {
   // -------------------------------------------------------------------------
 
   describe('getTitleHistory', () => {
-    it('returns titles with achievements, filtering out titles with 0 achievements', async () => {
+    it('returns game titles and filters out non-game titles (apps, movies, etc.)', async () => {
       // v2 call (Xbox One / Series / PC games)
       getXSAPI().mockResolvedValueOnce({
         data: {
@@ -110,6 +110,7 @@ describe('XboxAdapter', () => {
             {
               titleId: 'title-1',
               name: 'Halo Infinite',
+              titleType: 'Game',
               currentGamerscore: 500,
               maxGamerscore: 1000,
               earnedAchievements: 30,
@@ -118,7 +119,8 @@ describe('XboxAdapter', () => {
             },
             {
               titleId: 'title-2',
-              name: 'No Achievements App',
+              name: 'Some App',
+              titleType: 'App',
               currentGamerscore: 0,
               maxGamerscore: 0,
             },
@@ -129,6 +131,14 @@ describe('XboxAdapter', () => {
       // v1 call (Xbox 360 legacy) — no 360 titles for this test
       getXSAPI().mockResolvedValueOnce({
         data: { titles: [], pagingInfo: {} },
+      });
+      // GS5 all-achievements scan (empty — no extra discovered titles)
+      getXSAPI().mockResolvedValueOnce({
+        data: { achievements: [], pagingInfo: {} },
+      });
+      // GS4 all-achievements scan (empty)
+      getXSAPI().mockResolvedValueOnce({
+        data: { achievements: [], pagingInfo: {} },
       });
 
       const titles = await adapter.getTitleHistory('user-xuid', 'xsts-token', 'user-hash');
@@ -160,6 +170,14 @@ describe('XboxAdapter', () => {
       getXSAPI().mockResolvedValueOnce({
         data: { titles: [], pagingInfo: {} },
       });
+      // GS5 all-achievements scan (empty)
+      getXSAPI().mockResolvedValueOnce({
+        data: { achievements: [], pagingInfo: {} },
+      });
+      // GS4 all-achievements scan (empty)
+      getXSAPI().mockResolvedValueOnce({
+        data: { achievements: [], pagingInfo: {} },
+      });
       // v2 page 2: returns title-2, no more pages
       getXSAPI().mockResolvedValueOnce({
         data: {
@@ -182,13 +200,26 @@ describe('XboxAdapter', () => {
       expect(titles).toHaveLength(2);
       expect(titles[0].titleId).toBe('title-1');
       expect(titles[1].titleId).toBe('title-2');
-      // 3 calls: v2 page1, v1 page1, v2 page2
-      expect(getXSAPI()).toHaveBeenCalledTimes(3);
+      // 5 calls: v2 page1, v1 page1, gs5 scan, gs4 scan, v2 page2
+      expect(getXSAPI()).toHaveBeenCalledTimes(5);
     });
 
     it('returns empty array when API returns no titles', async () => {
+      // v2 history (empty)
       getXSAPI().mockResolvedValueOnce({
         data: { titles: [], pagingInfo: {} },
+      });
+      // v1 history (empty)
+      getXSAPI().mockResolvedValueOnce({
+        data: { titles: [], pagingInfo: {} },
+      });
+      // GS5 all-achievements scan (empty)
+      getXSAPI().mockResolvedValueOnce({
+        data: { achievements: [], pagingInfo: {} },
+      });
+      // GS4 all-achievements scan (empty)
+      getXSAPI().mockResolvedValueOnce({
+        data: { achievements: [], pagingInfo: {} },
       });
 
       const titles = await adapter.getTitleHistory('user-xuid', 'xsts-token', 'user-hash');
@@ -196,7 +227,13 @@ describe('XboxAdapter', () => {
     });
 
     it('throws error when API call fails (non-privacy errors)', async () => {
+      // v2 history rejects — this causes Promise.all to reject
       getXSAPI().mockRejectedValueOnce(new Error('Network error'));
+      // Provide mocks for v1, GS5, GS4 so their parallel calls complete
+      // immediately (no sleeps / retries that would bleed into subsequent tests)
+      getXSAPI().mockResolvedValueOnce({ data: { titles: [], pagingInfo: {} } });
+      getXSAPI().mockResolvedValueOnce({ data: { achievements: [], pagingInfo: {} } });
+      getXSAPI().mockResolvedValueOnce({ data: { achievements: [], pagingInfo: {} } });
 
       await expect(
         adapter.getTitleHistory('user-xuid', 'xsts-token', 'user-hash'),

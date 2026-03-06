@@ -81,10 +81,21 @@ vi.mock('@xboxreplay/xboxlive-auth', () => ({
 let app: FastifyInstance;
 
 beforeAll(async () => {
+  // Stub globalThis.fetch so exchangeCodeForTokens / refreshXboxTokens don't hit
+  // the real login.microsoftonline.com endpoint (implementation uses fetch() directly).
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'mock-live-access-token', refresh_token: 'mock-live-refresh-token' }),
+      text: async () => '',
+    }),
+  );
   app = await createTestServer();
 });
 
 afterAll(async () => {
+  vi.unstubAllGlobals();
   await teardownTestServer();
 });
 
@@ -116,7 +127,7 @@ describe('GET /api/auth/xbox/url', () => {
     const res = await app.inject({ method: 'GET', url: '/api/auth/xbox/url' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ url: string }>();
-    expect(body.url).toContain('login.live.com');
+    expect(body.url).toContain('login.microsoftonline.com');
     expect(body.url).toContain('client_id=test-client-id');
   });
 
