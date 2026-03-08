@@ -2,7 +2,7 @@
 
 [![Build](https://github.com/ghsvilela/cpak/actions/workflows/build.yml/badge.svg)](https://github.com/ghsvilela/cpak/actions/workflows/build.yml)
 [![Release](https://github.com/ghsvilela/cpak/actions/workflows/release.yml/badge.svg)](https://github.com/ghsvilela/cpak/actions/workflows/release.yml)
-[![Docker Hub](https://img.shields.io/docker/v/ghsvilela/cpak?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/ghsvilela/cpak)
+[![Docker Hub](https://img.shields.io/docker/v/ghsvilela/cpak?label=Docker%20Hub&logo=docker&sort=semver&filter=^[0-9]+\.[0-9]+\.[0-9]+$)](https://hub.docker.com/r/ghsvilela/cpak)
 [![GitHub Container Registry](https://img.shields.io/badge/ghcr.io-cpak-blue?logo=github)](https://ghcr.io/ghsvilela/cpak)
 [![Docker Image Size](https://img.shields.io/docker/image-size/ghsvilela/cpak/latest?label=image%20size)](https://hub.docker.com/r/ghsvilela/cpak)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
