@@ -9,11 +9,11 @@
 
 Achievements are more than just a game feature, they're memories. CPAK is a self-hosted, cross-platform achievement keeper for Steam, Xbox, and PlayStation that lets you preserve your gaming memories locally, forever. Remember to backup regularly to keep them safe.
 
-> **Note on Development Approach**: This project leverages AI-assisted "vibe coding" with [Speckit](https://github.com/github/spec-kit) for spec-driven development. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
+> **Note on Development Approach**: This project started as a self-learning journey to improve my skills in AI-assisted development, exploring how AI tools can be used effectively in real-world software projects, with the goal of bringing that knowledge and experience to my daily professional work. It leverages AI-assisted "vibe coding" with [Speckit](https://github.com/github/spec-kit) for spec-driven development. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
 
 ## Features
 
-- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation (Steam MVP ready)
+- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation (Steam, Xbox MVP ready)
 - **Self-Hosted**: Run on your own infrastructure with Docker
 - **Unified Container**: All-in-one image with web server, backend, frontend, and MongoDB
 - **UI-Based Configuration**: Configure API keys and all other settings through the web interface (no environment variables needed)
