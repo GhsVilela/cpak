@@ -116,6 +116,10 @@ COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Set metadata labels
+ARG VERSION=dev
+ARG BUILD_DATE
+ARG GIT_SHA
+
 LABEL org.opencontainers.image.title="CPAK" \
       org.opencontainers.image.description="Cross-Platform Achievement Keeper - Unified container with backend, frontend, web server, and database" \
       org.opencontainers.image.vendor="ghsvilela" \
