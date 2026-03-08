@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { XboxAdapter } from '../../../../src/services/adapters/xbox.js';
 import { XSAPIClient } from '@xboxreplay/xboxlive-auth';
 
@@ -356,6 +356,462 @@ describe('XboxAdapter', () => {
 
       const result = await adapter.getAchievements('user-xuid', 'private-title', 'xsts-token', 'user-hash');
       expect(result.achievements).toEqual([]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // exchangeCodeForTokens
+  // -------------------------------------------------------------------------
+
+  describe('exchangeCodeForTokens', () => {
+    afterAll(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('exchanges auth code for a full token bundle', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ access_token: 'new-at', refresh_token: 'new-rt' }),
+      }));
+
+      const bundle = await adapter.exchangeCodeForTokens('auth-code', 'cid', 'csecret', 'http://localhost/cb');
+      expect(bundle.accessToken).toBe('new-at');
+      expect(bundle.refreshToken).toBe('new-rt');
+      expect(bundle.xstsToken).toBe('mock-xsts-token');
+      expect(bundle.xuid).toBe('mock-xuid-99999');
+      expect(bundle.userHash).toBe('mock-uhs');
+      expect(bundle.expiresAt).toBeInstanceOf(Date);
+    });
+
+    it('throws when token endpoint returns non-OK', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () => 'Bad request',
+      }));
+
+      await expect(
+        adapter.exchangeCodeForTokens('bad-code', 'cid', 'csecret', 'http://localhost/cb'),
+      ).rejects.toThrow('Token exchange failed (400)');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // refreshXboxTokens
+  // -------------------------------------------------------------------------
+
+  describe('refreshXboxTokens', () => {
+    afterAll(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('refreshes tokens and returns a new bundle', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ access_token: 'refreshed-at', refresh_token: 'refreshed-rt' }),
+      }));
+
+      const bundle = await adapter.refreshXboxTokens('old-rt', 'cid', 'csecret');
+      expect(bundle.accessToken).toBe('refreshed-at');
+      expect(bundle.refreshToken).toBe('refreshed-rt');
+      expect(bundle.xstsToken).toBe('mock-xsts-token');
+    });
+
+    it('throws when refresh endpoint returns non-OK', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: async () => 'Invalid grant',
+      }));
+
+      await expect(
+        adapter.refreshXboxTokens('bad-rt', 'cid', 'csecret'),
+      ).rejects.toThrow('Token refresh failed (401)');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getXboxProfile
+  // -------------------------------------------------------------------------
+
+  describe('getXboxProfile', () => {
+    it('returns gamertag and avatar from profile API', async () => {
+      getXSAPI().mockResolvedValueOnce({
+        data: {
+          profileUsers: [{
+            id: 'xuid-123',
+            settings: [
+              { id: 'Gamertag', value: 'TestGamer' },
+              { id: 'GameDisplayPicRaw', value: 'https://example.com/avatar.png' },
+            ],
+          }],
+        },
+      });
+
+      const profile = await adapter.getXboxProfile('xuid-123', 'xsts', 'uhash');
+      expect(profile.gamertag).toBe('TestGamer');
+      expect(profile.avatarUrl).toBe('https://example.com/avatar.png');
+      expect(profile.xuid).toBe('xuid-123');
+    });
+
+    it('throws when no profile data is returned', async () => {
+      getXSAPI().mockResolvedValueOnce({ data: { profileUsers: [] } });
+
+      await expect(
+        adapter.getXboxProfile('xuid', 'xsts', 'uhash'),
+      ).rejects.toThrow('No profile data returned');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // String normalisation
+  // -------------------------------------------------------------------------
+
+  describe('stripPlatformSuffix', () => {
+    it('removes (PC) suffix', () => {
+      expect(adapter.stripPlatformSuffix('Game Name (PC)')).toBe('Game Name');
+    });
+
+    it('removes (Xbox One) suffix', () => {
+      expect(adapter.stripPlatformSuffix('Game Name (Xbox One)')).toBe('Game Name');
+    });
+
+    it('removes (Windows) suffix', () => {
+      expect(adapter.stripPlatformSuffix('Game Name (Windows)')).toBe('Game Name');
+    });
+
+    it('removes " for PC" suffix', () => {
+      expect(adapter.stripPlatformSuffix('Game Name for PC')).toBe('Game Name');
+    });
+
+    it('removes " Windows 10 Edition" suffix', () => {
+      expect(adapter.stripPlatformSuffix('Minecraft Windows 10 Edition')).toBe('Minecraft');
+    });
+
+    it('removes " Xbox One" suffix', () => {
+      expect(adapter.stripPlatformSuffix('Forza Horizon 5 Xbox One')).toBe('Forza Horizon 5');
+    });
+
+    it('removes " PC Edition" suffix', () => {
+      expect(adapter.stripPlatformSuffix('Some Game PC Edition')).toBe('Some Game');
+    });
+
+    it('leaves normal names unchanged', () => {
+      expect(adapter.stripPlatformSuffix('Halo Infinite')).toBe('Halo Infinite');
+    });
+  });
+
+  describe('expandAbbreviations', () => {
+    it('expands GTA prefix', () => {
+      expect(adapter.expandAbbreviations('GTA IV')).toBe('Grand Theft Auto IV');
+    });
+
+    it('expands MOH prefix', () => {
+      expect(adapter.expandAbbreviations('MOH Airborne')).toBe('Medal of Honor: Airborne');
+    });
+
+    it('expands TC\'s prefix', () => {
+      expect(adapter.expandAbbreviations("TC's Ghost Recon")).toBe("Tom Clancy's Ghost Recon");
+    });
+
+    it('expands FC prefix', () => {
+      expect(adapter.expandAbbreviations('FC 5')).toBe('Far Cry 5');
+    });
+
+    it('expands :WaW suffix', () => {
+      expect(adapter.expandAbbreviations('Call of Duty: WaW')).toBe('Call of Duty: World at War');
+    });
+
+    it('splits CamelCase', () => {
+      expect(adapter.expandAbbreviations('SplinterCell')).toBe('Splinter Cell');
+    });
+
+    it('returns undefined when no expansion applies', () => {
+      expect(adapter.expandAbbreviations('Halo Infinite')).toBeUndefined();
+    });
+  });
+
+  describe('sanitizeTitle', () => {
+    it('removes trademark symbols', () => {
+      expect(adapter.sanitizeTitle('HITMAN™')).toBe('HITMAN');
+      expect(adapter.sanitizeTitle('Game®')).toBe('Game');
+    });
+
+    it('replaces control characters with spaces', () => {
+      expect(adapter.sanitizeTitle('Rush: A Disney\u009EPixar Adventure')).toBe('Rush: A Disney Pixar Adventure');
+    });
+
+    it('collapses multiple spaces', () => {
+      expect(adapter.sanitizeTitle('Game   Name')).toBe('Game Name');
+    });
+
+    it('trims whitespace', () => {
+      expect(adapter.sanitizeTitle('  Game  ')).toBe('Game');
+    });
+  });
+
+  describe('stripEditionSuffix', () => {
+    it('removes Remastered suffix', () => {
+      expect(adapter.stripEditionSuffix('Alan Wake Remastered')).toBe('Alan Wake');
+    });
+
+    it('removes Remaster suffix', () => {
+      expect(adapter.stripEditionSuffix('XIII Remaster')).toBe('XIII');
+    });
+
+    it('removes Remake suffix', () => {
+      expect(adapter.stripEditionSuffix('Dead Space Remake')).toBe('Dead Space');
+    });
+
+    it('leaves non-matching names unchanged', () => {
+      expect(adapter.stripEditionSuffix('Halo Infinite')).toBe('Halo Infinite');
+    });
+  });
+
+  describe('normalizeForSearch', () => {
+    it('applies full pipeline', () => {
+      expect(adapter.normalizeForSearch('GTA IV™ (PC)')).toBe('Grand Theft Auto IV');
+    });
+
+    it('handles names with no transformations needed', () => {
+      expect(adapter.normalizeForSearch('Halo Infinite')).toBe('Halo Infinite');
+    });
+
+    it('strips remastered and platform from complex names', () => {
+      expect(adapter.normalizeForSearch('Crysis Remastered Xbox One')).toBe('Crysis');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // fetchEmeraldImageUrl
+  // -------------------------------------------------------------------------
+
+  describe('fetchEmeraldImageUrl', () => {
+    afterAll(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('returns undefined for empty productId', async () => {
+      expect(await adapter.fetchEmeraldImageUrl('')).toBeUndefined();
+    });
+
+    it('returns undefined for UUID-format productId', async () => {
+      expect(await adapter.fetchEmeraldImageUrl('d3270100-495e-44f5-ab77-d255362a3073')).toBeUndefined();
+    });
+
+    it('returns image URL from poster field', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          productSummaries: [{
+            productId: '9NNN',
+            title: 'Test Game',
+            images: { poster: { url: 'https://store-images.s-microsoft.com/image/poster.jpg' } },
+          }],
+        }),
+      }));
+
+      const result = await adapter.fetchEmeraldImageUrl('9NNN');
+      expect(result).toContain('store-images.s-microsoft.com');
+      expect(result).toContain('w=600');
+    });
+
+    it('returns undefined when API returns non-OK', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: async () => 'Not found',
+      }));
+
+      expect(await adapter.fetchEmeraldImageUrl('9NNN')).toBeUndefined();
+    });
+
+    it('returns undefined when no productSummaries in response', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({}),
+      }));
+
+      expect(await adapter.fetchEmeraldImageUrl('9NNN')).toBeUndefined();
+    });
+
+    it('returns undefined on network error', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('timeout')));
+
+      expect(await adapter.fetchEmeraldImageUrl('9NNN')).toBeUndefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // fetchWikipediaImageUrl
+  // -------------------------------------------------------------------------
+
+  describe('fetchWikipediaImageUrl', () => {
+    afterAll(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('returns image URL for a matched Wikipedia page', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          type: 'standard',
+          title: 'Halo Infinite',
+          originalimage: { source: 'https://upload.wikimedia.org/halo.jpg' },
+        }),
+      }));
+
+      const result = await adapter.fetchWikipediaImageUrl('Halo Infinite');
+      expect(result).toBe('https://upload.wikimedia.org/halo.jpg');
+    });
+
+    it('returns undefined when fetch fails', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
+
+      expect(await adapter.fetchWikipediaImageUrl('Some Game')).toBeUndefined();
+    });
+
+    it('returns undefined when page is not of standard type', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ type: 'disambiguation', title: 'Test' }),
+      }));
+
+      // fetchWikipediaImageUrl retries with "(video game)" suffix on disambiguation
+      // then returns undefined when both attempts are non-standard
+      expect(await adapter.fetchWikipediaImageUrl('Test')).toBeUndefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // fetchPCGamingWikiImageUrl
+  // -------------------------------------------------------------------------
+
+  describe('fetchPCGamingWikiImageUrl', () => {
+    afterAll(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('returns image URL via 3-step MediaWiki flow', async () => {
+      const mockFetch = vi.fn()
+        // Step 1: search
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            query: { search: [{ title: 'Halo Infinite', pageid: 123 }] },
+          }),
+        })
+        // Step 2: content (wikitext with cover field)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            query: { pages: { '123': { revisions: [{ '*': '|cover = Halo_Infinite_cover.jpg\n|developer' }] } } },
+          }),
+        })
+        // Step 3: imageinfo
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            query: { pages: { '1': { imageinfo: [{ url: 'https://images.pcgamingwiki.com/halo.jpg' }] } } },
+          }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const result = await adapter.fetchPCGamingWikiImageUrl('Halo Infinite');
+      expect(result).toBe('https://images.pcgamingwiki.com/halo.jpg');
+    });
+
+    it('returns undefined when search returns no results', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ query: { search: [] } }),
+      }));
+
+      expect(await adapter.fetchPCGamingWikiImageUrl('Unknown Game')).toBeUndefined();
+    });
+
+    it('returns undefined on network error', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Timeout')));
+
+      expect(await adapter.fetchPCGamingWikiImageUrl('Test')).toBeUndefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getTitleHubDevices
+  // -------------------------------------------------------------------------
+
+  describe('getTitleHubDevices', () => {
+    it('returns empty map when API returns no titles', async () => {
+      getXSAPI().mockResolvedValue({ data: { titles: [] } } as any);
+
+      const result = await adapter.getTitleHubDevices('xuid', 'token', 'hash');
+      expect(result.size).toBe(0);
+    });
+
+    it('returns empty map when API returns undefined data', async () => {
+      getXSAPI().mockResolvedValue({ data: undefined } as any);
+
+      const result = await adapter.getTitleHubDevices('xuid', 'token', 'hash');
+      expect(result.size).toBe(0);
+    });
+
+    it('maps titleId to devices list', async () => {
+      getXSAPI().mockResolvedValue({
+        data: {
+          titles: [
+            { titleId: '12345', devices: ['PC', 'XboxSeries'] },
+            { titleId: '67890', devices: ['XboxOne'] },
+          ],
+        },
+      } as any);
+
+      const result = await adapter.getTitleHubDevices('xuid', 'token', 'hash');
+      expect(result.size).toBe(2);
+      expect(result.get('12345')).toEqual(['PC', 'XboxSeries']);
+      expect(result.get('67890')).toEqual(['XboxOne']);
+    });
+
+    it('skips titles with no devices', async () => {
+      getXSAPI().mockResolvedValue({
+        data: {
+          titles: [
+            { titleId: '111', devices: ['PC'] },
+            { titleId: '222', devices: [] },
+            { titleId: '333' },
+          ],
+        },
+      } as any);
+
+      const result = await adapter.getTitleHubDevices('xuid', 'token', 'hash');
+      expect(result.size).toBe(1);
+      expect(result.has('111')).toBe(true);
+    });
+
+    it('handles pagination with continuationToken', async () => {
+      getXSAPI()
+        .mockResolvedValueOnce({
+          data: {
+            titles: [{ titleId: '1', devices: ['PC'] }],
+            pagingInfo: { continuationToken: 'page2' },
+          },
+        } as any)
+        .mockResolvedValueOnce({
+          data: {
+            titles: [{ titleId: '2', devices: ['XboxOne'] }],
+            pagingInfo: {},
+          },
+        } as any);
+
+      const result = await adapter.getTitleHubDevices('xuid', 'token', 'hash');
+      expect(result.size).toBe(2);
+    });
+
+    it('returns empty map when API throws error', async () => {
+      getXSAPI().mockRejectedValue(new Error('API error'));
+
+      const result = await adapter.getTitleHubDevices('xuid', 'token', 'hash');
+      expect(result.size).toBe(0);
     });
   });
 });

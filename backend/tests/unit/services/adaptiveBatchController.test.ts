@@ -41,4 +41,56 @@ describe('AdaptiveBatchController', () => {
     const sizeAfterFastResponses = controller.getBatchSize();
     expect(sizeAfterFastResponses).toBeGreaterThanOrEqual(5);
   });
+
+  it('getStats returns correct shape', () => {
+    const controller = new AdaptiveBatchController(20);
+    const stats = controller.getStats();
+    expect(stats.currentBatchSize).toBe(20);
+    expect(stats.maxBatchSize).toBe(20);
+    expect(stats.minBatchSize).toBe(5);
+    expect(stats.recentResponseTimes).toEqual([]);
+    expect(stats.averageResponseTime).toBeNull();
+  });
+
+  it('getStats computes average response time', () => {
+    const controller = new AdaptiveBatchController(20);
+    controller.adjustBatchSize(100);
+    controller.adjustBatchSize(300);
+    const stats = controller.getStats();
+    expect(stats.averageResponseTime).toBe(200);
+    expect(stats.recentResponseTimes).toEqual([100, 300]);
+  });
+
+  it('reset restores to initial state', () => {
+    const controller = new AdaptiveBatchController(20);
+    for (let i = 0; i < 10; i++) {
+      controller.adjustBatchSize(5000);
+    }
+    const reduced = controller.getBatchSize();
+    expect(reduced).toBeLessThan(20);
+
+    controller.reset();
+    expect(controller.getBatchSize()).toBe(20);
+    expect(controller.getStats().recentResponseTimes).toEqual([]);
+  });
+
+  it('clamps user-configured max to at least minBatchSize', () => {
+    const controller = new AdaptiveBatchController(2);
+    expect(controller.getBatchSize()).toBe(5);
+  });
+
+  it('increases batch size after recovery from slow period', () => {
+    const controller = new AdaptiveBatchController(50);
+    // Reduce with slow responses
+    for (let i = 0; i < 10; i++) {
+      controller.adjustBatchSize(5000);
+    }
+    const reducedSize = controller.getBatchSize();
+
+    // Feed fast responses to recover
+    for (let i = 0; i < 10; i++) {
+      controller.adjustBatchSize(100);
+    }
+    expect(controller.getBatchSize()).toBeGreaterThan(reducedSize);
+  });
 });

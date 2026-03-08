@@ -36,3 +36,31 @@ if (typeof Array.prototype.findLast !== 'function') {
 if (typeof Object.hasOwn !== 'function') {
   Object.hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 }
+
+// Polyfill diagnostics_channel.tracingChannel for Node.js < 20.19
+// Required by Fastify 5.x and Pino which call tracingChannel() at module load time
+const dc = require('node:diagnostics_channel');
+if (typeof dc.tracingChannel !== 'function') {
+  dc.tracingChannel = function tracingChannel(name) {
+    const noop = { publish() {}, subscribe() {}, unsubscribe() {}, hasSubscribers: false };
+    return {
+      start: noop,
+      end: noop,
+      asyncStart: noop,
+      asyncEnd: noop,
+      error: noop,
+      hasSubscribers: false,
+      subscribe() {},
+      unsubscribe() {},
+      traceSync(fn, _store, thisArg, ...args) {
+        return fn.call(thisArg, ...args);
+      },
+      tracePromise(fn, _store, thisArg, ...args) {
+        return fn.call(thisArg, ...args);
+      },
+      traceCallback(fn, _position, _store, thisArg, ...args) {
+        return fn.call(thisArg, ...args);
+      },
+    };
+  };
+}

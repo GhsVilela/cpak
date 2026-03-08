@@ -47,4 +47,62 @@ describe('ConfigService', () => {
     const settings = await configService.getAllSettings();
     expect(Array.isArray(settings)).toBe(true);
   });
+
+  it('getSettingsByCategory returns settings for a given category', async () => {
+    await configService.setSetting('cat_test_key', 'cat_test_val', SettingCategory.STEAM);
+    const settings = await configService.getSettingsByCategory(SettingCategory.STEAM);
+    expect(settings.some(s => s.key === 'cat_test_key')).toBe(true);
+  });
+
+  it('getSettingForDisplay returns null for non-existent key', async () => {
+    const result = await configService.getSettingForDisplay('no_such_key_xyz');
+    expect(result).toBeNull();
+  });
+
+  it('getSettingForDisplay returns non-secret setting with value', async () => {
+    await configService.setSetting('display_test', 'visible', SettingCategory.GENERAL);
+    const result = await configService.getSettingForDisplay('display_test');
+    expect(result).not.toBeNull();
+    expect(result!.value).toBe('visible');
+    expect(result!.isSecret).toBe(false);
+  });
+
+  it('getSettingForDisplay hides value for secret settings', async () => {
+    // 'steamgrid_api_key' is in SECRET_KEYS
+    await configService.setSetting('steamgrid_api_key', 'my-api-key', SettingCategory.STEAM);
+    const result = await configService.getSettingForDisplay('steamgrid_api_key');
+    expect(result).not.toBeNull();
+    expect(result!.isSecret).toBe(true);
+    expect(result!.value).toBeUndefined();
+  });
+
+  it('getAllSettings masks secret setting values', async () => {
+    await configService.setSetting('steamgrid_api_key', 'secret-val', SettingCategory.STEAM);
+    const settings = await configService.getAllSettings();
+    const secretSetting = settings.find(s => s.key === 'steamgrid_api_key');
+    expect(secretSetting).toBeDefined();
+    expect(secretSetting!.isSecret).toBe(true);
+    expect(secretSetting!.value).toBe('');
+  });
+
+  it('initializeDefaults creates default settings', async () => {
+    // Delete all existing settings first
+    const { Setting } = await import('../../../src/models/setting.js');
+    await Setting.deleteMany({});
+    
+    await configService.initializeDefaults();
+    
+    // Default settings should now exist
+    const schedulerEnabled = await configService.getSetting('scheduler_enabled');
+    expect(schedulerEnabled).toBe('false');
+    const schedulerCron = await configService.getSetting('scheduler_cron');
+    expect(schedulerCron).toBe('0 3 * * *');
+  });
+
+  it('initializeDefaults does not overwrite existing settings', async () => {
+    await configService.setSetting('scheduler_enabled', 'true', SettingCategory.SCHEDULER);
+    await configService.initializeDefaults();
+    const value = await configService.getSetting('scheduler_enabled');
+    expect(value).toBe('true');
+  });
 });
