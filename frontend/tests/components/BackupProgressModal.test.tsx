@@ -31,4 +31,30 @@ describe('BackupProgressModal', () => {
     // Multiple elements may contain '50' (percentage + file size) — just check at least one exists
     expect(screen.getAllByText(/50/)[0]).toBeInTheDocument();
   });
+
+  it('shows file size and downloaded stats with KB/MB values', () => {
+    const progress = {
+      progress: { current: 5242880, total: 10485760, percentage: 50 },
+      status: 'downloading',
+      currentStep: 'Compressing data...',
+    };
+    render(<BackupProgressModal isOpen={true} onClose={vi.fn()} currentProgress={progress} />);
+    // Should show file size (10.0 MB) and downloaded (5.0 MB)
+    expect(screen.getAllByText('File Size')[0]).toBeInTheDocument();
+    expect(screen.getByText('10.0 MB')).toBeInTheDocument();
+    expect(screen.getAllByText('Downloaded').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('5.0 MB')).toBeInTheDocument();
+    // Should show the current step
+    expect(screen.getByText('Compressing data...')).toBeInTheDocument();
+  });
+
+  it('shows KB for smaller files', () => {
+    const progress = {
+      progress: { current: 2048, total: 4096, percentage: 50 },
+      status: 'downloading',
+    };
+    render(<BackupProgressModal isOpen={true} onClose={vi.fn()} currentProgress={progress} />);
+    expect(screen.getByText('4.0 KB')).toBeInTheDocument();
+    expect(screen.getByText('2.0 KB')).toBeInTheDocument();
+  });
 });

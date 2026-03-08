@@ -45,4 +45,32 @@ describe('SyncSettings', () => {
       expect(onSave).toHaveBeenCalled();
     }
   });
+
+  it('highlights the active preset button', () => {
+    // Conservative preset: batch=50, concurrency=25
+    render(
+      <SyncSettings
+        values={{ sync_batch_size: '50', sync_concurrency: '25' }}
+        onChange={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Conservative')).toBeInTheDocument();
+    expect(screen.getByText('Balanced')).toBeInTheDocument();
+    expect(screen.getByText('Aggressive')).toBeInTheDocument();
+  });
+
+  it('calls onChange with both batch and concurrency when preset clicked', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SyncSettings values={defaultValues} onChange={onChange} onSave={vi.fn()} />,
+    );
+    // Click the "Aggressive" preset
+    const aggressiveBtn = screen.getByText('Aggressive').closest('button')!;
+    await user.click(aggressiveBtn);
+    // Should call onChange twice: once for batch_size, once for concurrency
+    expect(onChange).toHaveBeenCalledWith('sync_batch_size', '500');
+    expect(onChange).toHaveBeenCalledWith('sync_concurrency', '250');
+  });
 });

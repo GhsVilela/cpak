@@ -29,7 +29,7 @@ describe('Home page — app/page.tsx', () => {
     vi.unstubAllGlobals();
   });
 
-  it('redirects to platform page when profiles exist', async () => {
+  it('redirects to /steam when steam profile exists', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => [
@@ -40,10 +40,64 @@ describe('Home page — app/page.tsx', () => {
     render(<Home />);
 
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalled();
+      expect(pushMock).toHaveBeenCalledWith('/steam');
     });
-    const call = pushMock.mock.calls[0][0] as string;
-    expect(['/steam', '/xbox', '/playstation', '/settings']).toContain(call);
+    vi.unstubAllGlobals();
+  });
+
+  it('redirects to /xbox when only xbox profile exists', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        { _id: 'p1', platform: 'xbox', profileId: 'xbox-123', displayName: 'XboxUser' },
+      ],
+    }));
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith('/xbox');
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('redirects to /playstation when only playstation profile exists', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        { _id: 'p1', platform: 'playstation', profileId: 'ps-123', displayName: 'PSUser' },
+      ],
+    }));
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith('/playstation');
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('redirects to /settings on fetch error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('Network error')));
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith('/settings');
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('redirects to /settings when response is not ok', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({
+      ok: false,
+    }));
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith('/settings');
+    });
     vi.unstubAllGlobals();
   });
 });

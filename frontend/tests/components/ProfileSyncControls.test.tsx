@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProfileSyncControls from '../../components/ProfileSyncControls';
 import { apiClient } from '../../services/apiClient';
@@ -57,6 +57,51 @@ describe('ProfileSyncControls', () => {
     // syncing=true because the mock post() never resolves
     const updatedBtn = screen.getByRole('button');
     expect(updatedBtn).toBeDisabled();
+
+    postSpy.mockRestore();
+  });
+
+  it('calls onSyncComplete and onToast on successful sync', async () => {
+    const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({});
+    const onSyncComplete = vi.fn();
+    const onToast = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <ProfileSyncControls
+        profileId="profile-1"
+        platform="steam"
+        onSyncComplete={onSyncComplete}
+        onToast={onToast}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /sync/i }));
+
+    await waitFor(() => {
+      expect(onToast).toHaveBeenCalledWith('Sync started successfully', 'success');
+      expect(onSyncComplete).toHaveBeenCalled();
+    });
+
+    postSpy.mockRestore();
+  });
+
+  it('shows error and calls onToast with error on failed sync', async () => {
+    const postSpy = vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Network error'));
+    const onToast = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <ProfileSyncControls
+        profileId="profile-1"
+        platform="steam"
+        onToast={onToast}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /sync/i }));
+
+    await waitFor(() => {
+      expect(onToast).toHaveBeenCalledWith('Network error', 'error');
+    });
 
     postSpy.mockRestore();
   });

@@ -41,4 +41,32 @@ describe('GameTile', () => {
     await user.click(screen.getByText('Half-Life 3'));
     expect(pushMock).toHaveBeenCalled();
   });
+
+  it('shows 100% completion badge for fully completed games', () => {
+    const completedGame = { ...mockGame, completionPercent: 100, achievementsUnlocked: 20 };
+    render(<GameTile game={completedGame} />);
+    // Badge and percentage both show 100%, verify at least 2 elements
+    expect(screen.getAllByText('100%').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('shows gamerscore for xbox games', () => {
+    const xboxGame = {
+      ...mockGame,
+      platform: 'xbox' as const,
+      currentGamerscore: 500,
+      maxGamerscore: 1000,
+    };
+    render(<GameTile game={xboxGame} />);
+    // Should display gamerscore format instead of achievements
+    expect(screen.getByText(/500/)).toBeInTheDocument();
+    expect(screen.getByText(/1,000/)).toBeInTheDocument();
+  });
+
+  it('renders game image when imagePath is provided', () => {
+    const gameWithImage = { ...mockGame, imagePath: 'steam/730/header.jpg' };
+    render(<GameTile game={gameWithImage} />);
+    const img = document.querySelector('img');
+    expect(img).toBeTruthy();
+    expect(img?.getAttribute('alt')).toBe('Half-Life 3');
+  });
 });
