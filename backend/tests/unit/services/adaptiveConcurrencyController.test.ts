@@ -137,4 +137,11 @@ describe('AdaptiveConcurrencyController', () => {
     const controller = new AdaptiveConcurrencyController(0);
     expect(controller.getConcurrency()).toBe(1);
   });
+
+  it('clearQueue() clears pending operations', () => {
+    const controller = new AdaptiveConcurrencyController(5);
+    controller.clearQueue();
+    // After clearing, stats should show 0 pending
+    expect(controller.getStats().pendingCount).toBe(0);
+  });
 });

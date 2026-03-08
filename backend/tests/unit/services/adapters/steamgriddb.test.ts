@@ -143,6 +143,14 @@ describe('SteamGridDBAdapter', () => {
     expect(adapter).toBeInstanceOf(SteamGridDBAdapter);
   });
 
+  it('createSteamGridDBAdapter returns null when getSetting throws', async () => {
+    const { configService } = await import('../../../../src/services/configService.js');
+    vi.mocked(configService.getSetting).mockRejectedValueOnce(new Error('DB error'));
+
+    const adapter = await createSteamGridDBAdapter();
+    expect(adapter).toBeNull();
+  });
+
   // --- getHeroImages ---
 
   it('getHeroImages returns array of images on success', async () => {
@@ -240,6 +248,17 @@ describe('SteamGridDBAdapter', () => {
     expect(game).toBeNull();
   });
 
+  it('searchGameByName returns null on non-404 API error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+    }));
+    const adapter = new SteamGridDBAdapter('fake-key');
+    const game = await adapter.searchGameByName('Halo');
+    expect(game).toBeNull();
+  });
+
   // --- getGridImages with styles parameter ---
 
   it('getGridImages passes styles parameter when provided', async () => {
@@ -315,6 +334,18 @@ describe('SteamGridDBAdapter', () => {
       await adapter.downloadGameImageByName('DEADRISING2', 'xbox', 'id4');
       // DEADRISING2 → DEADRISING 2 → letters then camelCase → Dead Rising 2
       expect(calls[0]).toContain('2');
+    });
+
+    it('title-cases uppercase words in mixed-case names', async () => {
+      const calls: string[] = [];
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+        calls.push(url);
+        return Promise.resolve({ ok: true, json: async () => ({ data: [] }) });
+      }));
+      const adapter = new SteamGridDBAdapter('fake-key');
+      // "HaloCOMBAT" → CamelCase split → "Halo COMBAT" → not all-caps → else branch title-cases "COMBAT" → "Halo Combat"
+      await adapter.downloadGameImageByName('HaloCOMBAT', 'xbox', 'id5');
+      expect(calls[0]).toContain(encodeURIComponent('Halo Combat'));
     });
   });
 
@@ -426,6 +457,70 @@ describe('SteamGridDBAdapter', () => {
       const adapter = new SteamGridDBAdapter('fake-key');
       const result = await adapter.downloadGameImage(440);
       expect(result).toBeNull();
+    });
+
+    it('prefers 600x900 portrait when scores are equal', async () => {
+      downloadAndStoreMock.mockResolvedValue('steam/440/game_grid.png');
+
+      let callCount = 0;
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ data: { id: 100, name: 'TF2', types: ['game'], verified: true } }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [
+              { id: 1, url: 'https://img/large.png', thumb: '', tags: [], author: { name: 'A', steam64: '1' }, width: 800, height: 1200, score: 100, style: 'alternate', notes: null },
+              { id: 2, url: 'https://img/ideal.png', thumb: '', tags: [], author: { name: 'B', steam64: '2' }, width: 600, height: 900, score: 100, style: 'alternate', notes: null },
+            ],
+          }),
+        });
+      }));
+
+      const adapter = new SteamGridDBAdapter('fake-key');
+      const result = await adapter.downloadGameImage(440);
+      expect(result).toBe('steam/440/game_grid.png');
+      // Should prefer the 600x900 image (id=2) over the larger one when scores are equal
+      expect(downloadAndStoreMock).toHaveBeenCalledWith(
+        'https://img/ideal.png', 'steam', '440', 'game', 'grid'
+      );
+    });
+
+    it('prefers larger dimensions when scores are equal and neither is 600x900', async () => {
+      downloadAndStoreMock.mockResolvedValue('steam/440/game_grid.png');
+
+      let callCount = 0;
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ data: { id: 100, name: 'TF2', types: ['game'], verified: true } }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [
+              { id: 1, url: 'https://img/small.png', thumb: '', tags: [], author: { name: 'A', steam64: '1' }, width: 400, height: 600, score: 80, style: 'alternate', notes: null },
+              { id: 2, url: 'https://img/big.png', thumb: '', tags: [], author: { name: 'B', steam64: '2' }, width: 800, height: 1200, score: 80, style: 'alternate', notes: null },
+            ],
+          }),
+        });
+      }));
+
+      const adapter = new SteamGridDBAdapter('fake-key');
+      const result = await adapter.downloadGameImage(440);
+      expect(result).toBe('steam/440/game_grid.png');
+      // Should prefer the larger image (800x1200) over the smaller one when scores equal
+      expect(downloadAndStoreMock).toHaveBeenCalledWith(
+        'https://img/big.png', 'steam', '440', 'game', 'grid'
+      );
     });
   });
 
