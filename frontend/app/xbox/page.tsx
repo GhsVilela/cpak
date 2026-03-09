@@ -73,6 +73,7 @@ function XboxPageContent() {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [noProfiles, setNoProfiles] = useState(false);
   const [onlyCompleted, setOnlyCompleted] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
@@ -313,6 +314,7 @@ function XboxPageContent() {
               selectedProfileId={selectedProfileId}
               onSelectProfile={handleProfileChange}
               onError={handleProfileError}
+              onProfilesLoaded={(count) => setNoProfiles(count === 0)}
             />
             {selectedProfileId && !syncStatus?.current && (
               <button
@@ -428,6 +430,7 @@ function XboxPageContent() {
               >
                 <option value="title">Title</option>
                 <option value="completionPercent">Completion %</option>
+                <option value="currentGamerscore">Gamerscore</option>
                 <option value="achievementsTotal">Total Achievements</option>
                 <option value="lastSyncedAt">Last Synced</option>
               </select>
@@ -494,17 +497,35 @@ function XboxPageContent() {
       )}
 
       {/* Game grid */}
-      <GameGrid
-        games={games}
-        loading={loading}
-        emptyMessage={
-          !selectedProfileId
-            ? 'Select an Xbox profile to view games'
-            : onlyCompleted
-            ? 'No 100% completed Xbox games yet'
-            : 'No Xbox games found. Try syncing your profile.'
-        }
-      />
+      {!selectedProfileId && noProfiles ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-16 h-16 rounded-full bg-[var(--xbox-accent)]/10 flex items-center justify-center mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-[var(--xbox-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-white mb-2">No Xbox profile yet</h2>
+          <p className="text-gray-400 text-sm mb-6 max-w-sm">
+            Add an Xbox profile to start tracking your games and achievements.
+          </p>
+          <a
+            href="/setup?platform=xbox"
+            className="px-5 py-2.5 bg-[var(--xbox-accent)] hover:opacity-90 text-gray-900 rounded-lg font-semibold text-sm transition"
+          >
+            Add Xbox Profile
+          </a>
+        </div>
+      ) : (
+        <GameGrid
+          games={games}
+          loading={loading}
+          emptyMessage={
+            onlyCompleted
+              ? 'No 100% completed Xbox games yet'
+              : 'No Xbox games found. Try syncing your profile.'
+          }
+        />
+      )}
 
       {/* Toast notification */}
       {toast && (

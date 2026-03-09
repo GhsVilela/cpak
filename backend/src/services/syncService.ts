@@ -322,8 +322,13 @@ class SyncService {
                 game.totalAchievements > 0
                   ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
                   : 0,
+              playTimeMinutes: game.playtimeMinutes,
               lastSyncedAt: new Date(),
             };
+
+            if (game.lastPlayed) {
+              updateData.lastPlayed = game.lastPlayed;
+            }
 
             // Only update imagePath if we successfully downloaded an image
             const imagePath = gameImageMap.get(game.appId);

@@ -26,6 +26,7 @@ interface GamesResponse {
     limit: number;
     offset: number;
     hasMore: boolean;
+    totalAchievementsUnlocked?: number;
   };
 }
 
@@ -58,6 +59,7 @@ function SteamPageContent() {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [noProfiles, setNoProfiles] = useState(false);
   const [onlyCompleted, setOnlyCompleted] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
@@ -69,6 +71,8 @@ function SteamPageContent() {
     searchParams.get('profileId') || undefined
   );
   
+  const [totalAchievementsUnlocked, setTotalAchievementsUnlocked] = useState<number | undefined>(undefined);
+
   // Sync status and polling
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncPollInterval, setSyncPollInterval] = useState<NodeJS.Timeout | null>(null);
@@ -157,6 +161,7 @@ function SteamPageContent() {
       const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
       setGames(response.data);
       setTotalCount(response.pagination.total);
+      setTotalAchievementsUnlocked(response.pagination.totalAchievementsUnlocked);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load games');
     } finally {
@@ -329,6 +334,7 @@ function SteamPageContent() {
               selectedProfileId={selectedProfileId}
               onSelectProfile={handleProfileChange}
               onError={handleProfileError}
+              onProfilesLoaded={(count) => setNoProfiles(count === 0)}
             />
             {selectedProfileId && !syncStatus?.current && (
               <button
@@ -372,16 +378,30 @@ function SteamPageContent() {
 
         {/* Last Sync Info */}
         {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
-          <div className="mb-4 text-sm text-gray-400">
-            Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
-            {syncStatus.lastCompleted.status === 'success' ? (
-              <span className="text-green-400 ml-2">✓</span>
-            ) : (
-              <span className="text-red-400 ml-2">✗</span>
+          <div className="mb-4 flex items-center gap-3 text-sm text-gray-400 flex-wrap">
+            {totalAchievementsUnlocked !== undefined && (
+              <>
+                <span>
+                  <span>Achievements unlocked: </span>
+                  <span className="font-bold text-[var(--steam-accent)]">
+                    {totalAchievementsUnlocked.toLocaleString()}
+                  </span>
+                </span>
+                <span className="text-gray-600">|</span>
+              </>
             )}
+            <span>
+              Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
+              {syncStatus.lastCompleted.status === 'success' ? (
+                <span className="text-green-400 ml-2">✓</span>
+              ) : (
+                <span className="text-red-400 ml-2">✗</span>
+              )}
+            </span>
           </div>
         )}
 
+        {selectedProfileId && (
         <div className="flex items-center gap-4 flex-wrap">
           <label className="flex items-center gap-2">
             <input
@@ -417,6 +437,7 @@ function SteamPageContent() {
             </select>
           </div>
         </div>
+        )}
       </div>
 
       {loading && selectedProfileId && <p>Loading games...</p>}
@@ -427,10 +448,23 @@ function SteamPageContent() {
         </div>
       )}
 
-      {!selectedProfileId && (
-        <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-400 px-4 py-3 rounded mb-4">
-          <p className="font-semibold">No Steam Profile Configured</p>
-          <p className="text-sm mt-1">No Steam profiles configured. Add one in the Settings page to start syncing your games.</p>
+      {!selectedProfileId && noProfiles && (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-16 h-16 rounded-full bg-[var(--steam-accent)]/10 flex items-center justify-center mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-[var(--steam-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-white mb-2">No Steam profile yet</h2>
+          <p className="text-gray-400 text-sm mb-6 max-w-sm">
+            Add a Steam profile to start tracking your games and achievements.
+          </p>
+          <a
+            href="/setup?platform=steam"
+            className="px-5 py-2.5 bg-[var(--steam-accent)] hover:opacity-90 text-gray-900 rounded-lg font-semibold text-sm transition"
+          >
+            Add Steam Profile
+          </a>
         </div>
       )}
 

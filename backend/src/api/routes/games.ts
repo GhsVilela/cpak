@@ -78,7 +78,7 @@ export async function getGames(
     }
 
     // Validate and build sort object
-    const validSortFields = ['title', 'completionPercent', 'lastSyncedAt', 'achievementsTotal'];
+    const validSortFields = ['title', 'completionPercent', 'lastSyncedAt', 'achievementsTotal', 'currentGamerscore'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'title';
     const sortDirection = sortOrder === 'desc' ? -1 : 1;
 
@@ -105,6 +105,18 @@ export async function getGames(
       }
     }
 
+    // For Steam profiles, aggregate total achievements unlocked across all games
+    let totalAchievementsUnlocked: number | undefined;
+    if (filter.platform === 'steam' && filter.profileId) {
+      const achAgg = await Game.aggregate([
+        { $match: filter },
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$achievementsUnlocked', 0] } } } },
+      ]);
+      if (achAgg.length > 0) {
+        totalAchievementsUnlocked = achAgg[0].total;
+      }
+    }
+
     const games = await Game.find(filter)
       .collation({ locale: 'en', strength: 2 }) // Case-insensitive sorting
       .sort({ [sortField]: sortDirection })
@@ -121,6 +133,7 @@ export async function getGames(
         hasMore: offsetNum + games.length < totalCount,
         ...(totalCurrentGamerscore !== undefined && { totalCurrentGamerscore }),
         ...(totalMaxGamerscore !== undefined && { totalMaxGamerscore }),
+        ...(totalAchievementsUnlocked !== undefined && { totalAchievementsUnlocked }),
       }
     });
   } catch (error) {

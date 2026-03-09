@@ -12,6 +12,7 @@ interface SteamGame {
   name: string;
   playtime_forever: number;
   img_icon_url?: string;
+  rtime_last_played?: number;
 }
 
 interface SteamPlayerSummary {
@@ -133,6 +134,7 @@ export class SteamAdapter {
       appId: number;
       name: string;
       playtimeMinutes: number;
+      lastPlayed?: Date;
       totalAchievements: number;
       earnedAchievements: number;
       iconHash?: string;
@@ -172,6 +174,7 @@ export class SteamAdapter {
         appId: number;
         name: string;
         playtimeMinutes: number;
+        lastPlayed?: Date;
         totalAchievements: number;
         earnedAchievements: number;
         iconHash?: string;
@@ -255,6 +258,7 @@ export class SteamAdapter {
                   appId: game.appid,
                   name: game.name,
                   playtimeMinutes: game.playtime_forever,
+                  lastPlayed: game.rtime_last_played ? new Date(game.rtime_last_played * 1000) : undefined,
                   totalAchievements,
                   earnedAchievements,
                   iconHash: game.img_icon_url,

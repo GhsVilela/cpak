@@ -1,13 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 
 type Platform = 'steam' | 'xbox' | 'playstation';
 
-export default function SetupPage() {
+const VALID_PLATFORMS: Platform[] = ['steam', 'xbox', 'playstation'];
+
+function SetupPageContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const platformParam = searchParams.get('platform') as Platform | null;
+  const initialPlatform: Platform =
+    platformParam && VALID_PLATFORMS.includes(platformParam) ? platformParam : 'steam';
+
   // Platform selector
-  const [selectedPlatform, setSelectedPlatform] = useState<Platform>('steam');
+  const [selectedPlatform, setSelectedPlatform] = useState<Platform>(initialPlatform);
 
   // Steam form state
   const [steamApiKey, setSteamApiKey] = useState('');
@@ -95,7 +104,7 @@ export default function SetupPage() {
         {platforms.map((platform) => (
           <button
             key={platform.id}
-            onClick={() => { setSelectedPlatform(platform.id); setError(''); }}
+            onClick={() => { setSelectedPlatform(platform.id); setError(''); router.replace(`/setup?platform=${platform.id}`); }}
             className={`flex-1 py-4 px-3 rounded-lg border-2 text-center font-semibold transition ${
               selectedPlatform === platform.id
                 ? 'border-current opacity-100'
@@ -280,6 +289,14 @@ export default function SetupPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SetupPage() {
+  return (
+    <Suspense fallback={<div className="animate-pulse text-gray-500">Loading...</div>}>
+      <SetupPageContent />
+    </Suspense>
   );
 }
 
