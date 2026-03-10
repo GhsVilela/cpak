@@ -2,21 +2,25 @@
 import pLimit from 'p-limit';
 import { logger } from '../../utils/logger.js';
 import { rateLimiter } from '../rateLimiter.js';
+import { fetchPCGamingWikiImageUrl, fetchWikipediaImageUrl } from './gameImageSearch.js';
+import { Game } from '../../models/game.js';
+import { Achievement } from '../../models/achievement.js';
+import { SyncOperation } from '../../models/syncOperation.js';
+import { imageStorage } from '../../utils/imageStorage.js';
+import { AdaptiveBatchController } from '../adaptiveBatchController.js';
+import { AdaptiveThrottler } from '../adaptiveThrottler.js';
+import { AdaptiveConcurrencyController } from '../adaptiveConcurrencyController.js';
+import { configService } from '../configService.js';
+import type { SteamGridDBAdapter } from './steamgriddb.js';
 
 // ---------------------------------------------------------------------------
 // Microsoft Store search — rate-limit / anti-bot protection
 // ---------------------------------------------------------------------------
 // apps.microsoft.com returns 403 (WAF bot detection) when many requests arrive
-// from the same server IP in parallel. We serialise all search requests with a
+// from the same server IP in parallel. We throttle search requests with a
 // short pause between them and retry once with a longer backoff on 403.
-//
-// Serial (concurrency = 1) is intentional: the CDN / WAF detects bursts, not
-// just concurrency. A 300 ms gap between completions keeps request rate ≤ 3/s.
-// With 80 games: 80 × (network ≈ 300ms + 300ms gap) ≈ 48 s worst-case for this
-// phase, which is acceptable.
-const _msStoreQueue = pLimit(2);
-const _msStoreGapMs   = 200;   // pause before each queued request
-const _msStoreRetryMs = 2_000; // backoff after a 403 before single retry
+const _msStoreGapMs   = 2_000;   // pause before each queued request
+const _msStoreRetryMs = 5_000; // backoff after a 403 before single retry
 const _sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------------------
@@ -115,6 +119,13 @@ export interface XboxAchievement {
 // ---------------------------------------------------------------------------
 
 export class XboxAdapter {
+  /** Concurrency limiter for Microsoft Store search requests (WAF rate-limit protection). */
+  private readonly _msStoreQueue: ReturnType<typeof pLimit>;
+
+  constructor(concurrency = 2) {
+    this._msStoreQueue = pLimit(concurrency);
+  }
+
   // -------------------------------------------------------------------------
   // Auth methods (Phase 2 / T004)
   // -------------------------------------------------------------------------
@@ -751,18 +762,14 @@ export class XboxAdapter {
       logger.info({ xuid, gs4ScanAdded, gs4ScanTypeFixed }, 'GS4 all-achievements scan merge results');
     }
 
-    // Build the GS5 earned-scan set: titleIds that appeared in the GS5
-    // all-earned-achievements scan (contract v2, no titleId filter). This endpoint
-    // ONLY returns achievements the user has already earned, so every titleId here
-    // is a confirmed game with at least one unlocked achievement. Used in Phase 5
-    // as a guard against false-positive 0-earned deletes (e.g. per-title API
-    // returning stale 0-unlocked data for a game the user has actually played).
-    //
-    // We intentionally do NOT include the GS4 scan here: the v1 all-achievements
-    // endpoint may return unearned achievements and is less reliable as a guard.
-    // GS4 entries are used only for title discovery (adding new titles to byTitleId),
-    // not for protection against deletion.
-    const earnedScanSet = new Set<string>(gs5ScanMap.keys());
+    // Build the earned-scan set: titleIds that appeared in the GS5 or GS4
+    // all-achievements scan. Every titleId here is a game the user has interacted
+    // with. GS5 is authoritative (only returns earned achievements). GS4 may
+    // include unearned achievements, but including it here is necessary so that
+    // Xbox 360 games are not incorrectly filtered out during image downloads
+    // (the v1 history API often reports currentAchievements=0 for 360 titles
+    // even when the user has genuinely earned achievements).
+    const earnedScanSet = new Set<string>([...gs5ScanMap.keys(), ...gs4ScanMap.keys()]);
 
     // Log a sample of titles with their platform strings so we can verify 360 detection
     const sampleTitles = [...byTitleId.values()].slice(0, 20).map((t) => ({
@@ -1275,6 +1282,8 @@ export class XboxAdapter {
     r = r.replace(/:\s*BiB\s*$/i, ': Bound in Blood');
     r = r.replace(/:\s*GoL\s*$/i, ': Guardian of Light');
     r = r.replace(/^R\.E\.\s+CODE\s*:/i, 'Resident Evil Code:');
+    r = r.replace(/^AoE\s+Online\s*$/i, 'Age of Empires Online');
+    r = r.replace(/^AoE\s*$/i, 'Age of Empires');
 
     const trimmed = r.trim();
     return trimmed !== name.trim() ? trimmed : undefined;
@@ -1406,7 +1415,7 @@ export class XboxAdapter {
     // Fetch the productsList for a given query string; logs the URL so it can be
     // opened manually in a browser to diagnose missing or wrong results.
     const searchProducts = async (queryName: string): Promise<MSProduct[]> => {
-      return _msStoreQueue(async () => {
+      return this._msStoreQueue(async () => {
         // Respect the inter-request gap to stay under the WAF rate limit.
         await _sleep(_msStoreGapMs);
 
@@ -1917,316 +1926,541 @@ export class XboxAdapter {
    * blocks requests whose Referer header is present and not on an allowlist.
    */
   async fetchPCGamingWikiImageUrl(gameName: string): Promise<string | undefined> {
-    const BASE = 'https://www.pcgamingwiki.com/w/api.php';
-    const HEADERS = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      Accept: 'application/json',
-    };
-    const TIMEOUT = 10_000;
-    const RECALL_THRESHOLD = 0.8;
-    const F1_THRESHOLD = 0.7;
-    const STOPWORDS = new Set(['the', 'a', 'an', 'of', 'in', 'on', 'at', 'to', 'for', 'and', 'or', 'de']);
-    // CamelCase split so "DisneyPixar" → ["disney", "pixar"]
-    const tokenise = (s: string) =>
-      s.replace(/([a-z])([A-Z])/g, '$1 $2')
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, ' ')
-        .split(/\s+/)
-        .filter(Boolean);
-
     gameName = this.sanitizeTitle(gameName);
     gameName = this.stripPlatformSuffix(gameName);
     gameName = this.stripEditionSuffix(gameName);
     const needle = this.expandAbbreviations(gameName) ?? gameName;
-    const needleAllTokens = tokenise(needle);
-    const needleNumbers = needleAllTokens.filter((t) => /^\d+$/.test(t));
-    const needleNumberSet = new Set(needleNumbers);
-    const needleTokens = needleAllTokens.filter((t) => !STOPWORDS.has(t) && t.length >= 2);
+    return fetchPCGamingWikiImageUrl(needle);
+  }
 
-    try {
-      const searchUrl = `${BASE}?action=query&list=search&srsearch=${encodeURIComponent(needle)}&srlimit=5&format=json`;
-      const searchRes = await fetch(searchUrl, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
-      if (!searchRes.ok) return undefined;
-      const searchJson = await searchRes.json() as {
-        query?: { search?: Array<{ title: string; pageid: number }> };
-      };
-      const hits = searchJson.query?.search ?? [];
-      if (hits.length === 0) return undefined;
-
-      // Score ALL hits and pick the best F1 match (not just the first passing one).
-      // Also strip parenthetical wiki disambiguators like "(2016)" or "(video game)"
-      // from candidate titles before scoring — they inflate token counts and trigger
-      // the reverse-number gate when the year appears only in the disambiguation.
-      let bestHit: { title: string; pageid: number } | undefined;
-      let bestF1 = -1;
-      for (const hit of hits) {
-        // Strip parenthetical disambiguator at end: "Hitman (2016)" → "Hitman"
-        const cleanTitle = hit.title.replace(/\s*\([^)]+\)\s*$/, '');
-        const hitAllTokens = tokenise(cleanTitle);
-        const hitSet = new Set(hitAllTokens);
-        const hitNumbers = hitAllTokens.filter((t) => /^\d+$/.test(t));
-        // Hard gate: every number in the needle must appear in the candidate.
-        if (needleNumbers.some((n) => !hitSet.has(n))) continue;
-        // Reverse hard gate: every number in the candidate must appear in the needle.
-        if (hitNumbers.some((n) => !needleNumberSet.has(n))) continue;
-        const hitMeaningful = hitAllTokens.filter((t) => !STOPWORDS.has(t) && t.length >= 2);
-        const hitTokenSet = new Set(hitMeaningful);
-        // First-word anchor: prevent "Doom & Destiny" matching needle "Destiny".
-        if (needleTokens[0] && hitMeaningful[0] && needleTokens[0] !== hitMeaningful[0]) continue;
-        const matchCount = needleTokens.filter((t) => hitTokenSet.has(t)).length;
-        const recall = needleTokens.length > 0 ? matchCount / needleTokens.length : 1;
-        const precision = hitTokenSet.size > 0 ? matchCount / hitTokenSet.size : 0;
-        const f1 = (recall + precision) > 0 ? 2 * recall * precision / (recall + precision) : 0;
-        if (recall >= RECALL_THRESHOLD && f1 >= F1_THRESHOLD && f1 > bestF1) {
-          bestF1 = f1;
-          bestHit = hit;
-        }
-      }
-      if (!bestHit) {
-        logger.info({ gameName: needle, hits: hits.map((h) => h.title) }, '[PCGW] No confident title match');
-        return undefined;
-      }
-      logger.info({ gameName: needle, matchedTitle: bestHit.title }, '[PCGW] Title matched');
-
-      const contentUrl = `${BASE}?action=query&pageids=${bestHit.pageid}&prop=revisions&rvprop=content&rvsection=0&format=json`;
-      const contentRes = await fetch(contentUrl, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
-      if (!contentRes.ok) return undefined;
-      const contentJson = await contentRes.json() as {
-        query?: { pages?: Record<string, { revisions?: Array<{ '*': string }> }> };
-      };
-      const wikitext = Object.values(contentJson.query?.pages ?? {})[0]?.revisions?.[0]?.['*'] ?? '';
-      const coverMatch = wikitext.match(/\|\s*cover\s*=\s*([^\n|{}]+)/);
-      if (!coverMatch) {
-        logger.info({ gameName: needle, title: bestHit.title }, '[PCGW] No cover field in infobox');
-        return undefined;
-      }
-      const coverFilename = coverMatch[1].trim();
-      logger.info({ gameName: needle, title: bestHit.title, coverFilename }, '[PCGW] Cover filename found');
-
-      const fileTitle = `File:${coverFilename}`;
-      const imageInfoUrl = `${BASE}?action=query&titles=${encodeURIComponent(fileTitle)}&prop=imageinfo&iiprop=url&format=json`;
-      const imageInfoRes = await fetch(imageInfoUrl, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT) });
-      if (!imageInfoRes.ok) return undefined;
-      const imageInfoJson = await imageInfoRes.json() as {
-        query?: { pages?: Record<string, { imageinfo?: Array<{ url?: string }> }> };
-      };
-      const rawImageUrl = Object.values(imageInfoJson.query?.pages ?? {})[0]?.imageinfo?.[0]?.url;
-      if (!rawImageUrl) {
-        logger.info({ gameName: needle, title: bestHit.title, coverFilename }, '[PCGW] No image URL in imageinfo');
-        return undefined;
-      }
-      // imageinfo can return http:// — upgrade to https://.
-      const imageUrl = rawImageUrl.replace(/^http:\/\//i, 'https://');
-      logger.info({ gameName: needle, title: bestHit.title, url: imageUrl }, '[PCGW] Image URL found');
-      return imageUrl;
-    } catch (err) {
-      logger.warn({ gameName: needle, err: String(err) }, '[PCGW] Lookup threw');
-      return undefined;
-    }
+  async fetchWikipediaImageUrl(gameName: string): Promise<string | undefined> {
+    gameName = this.sanitizeTitle(gameName);
+    gameName = this.stripPlatformSuffix(gameName);
+    gameName = this.stripEditionSuffix(gameName);
+    const name = this.expandAbbreviations(gameName) ?? gameName;
+    return fetchWikipediaImageUrl(name);
   }
 
   /**
-   * Fetch a cover-art URL from the Wikipedia REST API.
-   * Completely public — no API key required.
-   *
-   * Strategy:
-   *  1. Build a Wikipedia article slug from the game name (title-case, spaces → _,
-   *     special chars encoded).
-   *  2. Fetch /page/summary/{slug}. Accept pages of type "standard" only.
-   *  3. If the first slug returns a disambiguation page or 404, retry with the
-   *     "(video game)" disambiguation suffix appended.
-   *
-   * Image priority: originalimage (full-res box art) → thumbnail.
+   * Download game cover images with adaptive concurrency control.
+   * Handles the full fallback chain: local cache → Xbox CDN → MS Store → Emerald → SteamGridDB → PCGamingWiki → Wikipedia.
    */
-  async fetchWikipediaImageUrl(gameName: string): Promise<string | undefined> {
-    // Sanitize: strip ™®© and control chars before building Wikipedia slugs.
-    gameName = this.sanitizeTitle(gameName);
-    // Strip platform suffixes before building Wikipedia slugs so
-    // "Cult of the Lamb Xbox" searches as "Cult of the Lamb" etc.
-    gameName = this.stripPlatformSuffix(gameName);
-    // Strip edition suffixes (Remastered, Remake)
-    gameName = this.stripEditionSuffix(gameName);
-    // Expand abbreviations (which also splits CamelCase) so that titles like
-    // "Call of Duty: WaW" → "Call of Duty: World at War" are correctly resolved.
-    const wikiExpanded = this.expandAbbreviations(gameName);
-    if (wikiExpanded) gameName = wikiExpanded;
+  async downloadGameImages(
+    titles: XboxTitleHistory[],
+    syncOperation: any,
+    steamGridDBAdapter: SteamGridDBAdapter | null,
+  ): Promise<Map<string, string | undefined>> {
+    const concurrencyController = new AdaptiveConcurrencyController(
+      syncOperation.adaptiveParams.concurrency,
+    );
+    const hasSteamGridDB = steamGridDBAdapter !== null;
 
-    /**
-     * Small words kept lowercase in slugs (unless they are the first word).
-     * Wikipedia titling convention: prepositions/articles stay lowercase.
-     * e.g. "Gears_of_War_2" NOT "Gears_Of_War_2" (the latter 404s).
-     */
-    const SMALL_WORDS = new Set([
-      'a', 'an', 'the', 'of', 'in', 'on', 'at', 'to', 'for',
-      'and', 'or', 'but', 'nor', 'de', 'la', 'le', 'el',
-      'as', 'by', 'up', 'vs',
-    ]);
-
-    /** Build a Wikipedia slug from a game title. */
-    const makeSlug = (name: string): string =>
-      name
-        .replace(/[™®©]/g, '')              // strip trademark/copyright symbols
-        .trim()
-        .split(/\s+/)
-        .map((w, i) => {
-          const lower = w.toLowerCase();
-          // All-caps abbreviations (e.g. "LA", "GTA", "HH") must never be
-          // lowercased — they are not the small French/Spanish articles that
-          // share the same letters.
-          const isAllCapsAbbrev = w.length > 1 && w === w.toUpperCase() && /^[A-Z]/.test(w);
-          // Always capitalise the first word; keep small prepositions lowercase
-          // unless the word is an all-caps abbreviation.
-          if (i === 0) return w.charAt(0).toUpperCase() + w.slice(1);
-          if (SMALL_WORDS.has(lower) && !isAllCapsAbbrev) return lower;
-          return w.charAt(0).toUpperCase() + w.slice(1);
-        })
-        .join('_')
-        .replace(/:/g, '%3A')
-        .replace(/[''\u2019]/g, '%27')       // straight + curly apostrophes
-        .replace(/&/g, '%26')
-        .replace(/\?/g, '%3F');
-
-    /**
-     * Fetch the Wikipedia summary for a slug and verify the article is a
-     * "standard" page (not disambiguation). Returns both the image URL and
-     * the article title so callers can run a relevance check.
-     */
-    const fetchSummary = async (slug: string): Promise<{ imageUrl: string; title: string } | undefined> => {
-      const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${slug}`;
-      try {
-        const res = await fetch(url, {
-          headers: {
-            'User-Agent': 'cpak/1.0 (game-image-lookup; contact via GitHub)',
-            Accept: 'application/json',
-          },
-          signal: AbortSignal.timeout(8_000),
-        });
-        if (!res.ok) return undefined;
-        const data = await res.json() as {
-          type?: string;
-          title?: string;
-          originalimage?: { source?: string };
-          thumbnail?: { source?: string };
-        };
-        if (data.type !== 'standard') return undefined;  // skip disambig / missing pages
-        const imageUrl = data.originalimage?.source ?? data.thumbnail?.source;
-        if (!imageUrl) return undefined;
-        return { imageUrl, title: data.title ?? '' };
-      } catch {
-        return undefined;
-      }
-    };
-
-    // Local alias so buildSlugVariants can call it without `this`.
-    const expandAbbreviations = (n: string) => this.expandAbbreviations(n);
-
-    /**
-     * Build canonical Wikipedia slug variants for a game name, ordered from
-     * most-specific to least-specific.
-     *
-     * Key principles:
-     *  - Try "_(video_game)" FIRST so movies/shows sharing a game title
-     *    (e.g. "Toy Story 3") are bypassed in favour of the game article.
-     *  - Expand known Xbox library abbreviations ("MOH", "TC's", "HH", "FS").
-     *  - Drop short leading prefixes / possessives ("TC's", "MOH") and also
-     *    expand the resulting string.
-     *  - Try subtitle-only slug for colon-separated names.
-     */
-    const buildSlugVariants = (name: string): string[] => {
-      const variants: string[] = [];
-      const seen = new Set<string>();
-
-      /** Add slug + its _(video_game) companion, both deduplicated.
-       * Does NOT append _(video_game) if the slug already ends with it. */
-      const push = (s: string) => {
-        if (!s) return;
-        if (!seen.has(s)) { seen.add(s); variants.push(s); }
-        if (!s.endsWith('_(video_game)')) {
-          const vg = `${s}_(video_game)`;
-          if (!seen.has(vg)) { seen.add(vg); variants.push(vg); }
-        }
-      };
-
-      const primary = makeSlug(name);
-
-      // _(video_game) comes BEFORE plain slug — avoids matching movie/show
-      // articles that share a title with the game (e.g. Toy Story 3).
-      push(`${primary}_(video_game)`);
-      push(primary);
-
-      // Expand known abbreviations (e.g. "MOH Airborne" → "Medal of Honor: Airborne")
-      const expandedPrimary = expandAbbreviations(name);
-      if (expandedPrimary) push(makeSlug(expandedPrimary));
-
-      // Subtitle only: text after the first ':' (e.g. "Spidey: Web of Shadows" → "Web of Shadows")
-      const colonIdx = name.indexOf(':');
-      if (colonIdx > 0) {
-        const subtitle = name.slice(colonIdx + 1).trim();
-        if (subtitle) push(makeSlug(subtitle));
-      }
-
-      // Drop a short leading abbreviation/possessive token and retry,
-      // including with abbreviation expansion on the remainder.
-      // e.g. "TC's Ghost Recon FS" → drop "TC's" → "Ghost Recon FS"
-      //      → expand "FS" → "Ghost Recon: Future Soldier"
-      const words = name.split(/\s+/);
-      if (words.length >= 2) {
-        const first = words[0];
-        const rest  = words.slice(1).join(' ');
-        if (first.length <= 3 || /['''\u2019]s$/i.test(first)) {
-          push(makeSlug(rest));
-          const restExpanded = expandAbbreviations(rest);
-          if (restExpanded) push(makeSlug(restExpanded));
-        }
-      }
-
-      return variants;
-    };
-
-    const slugVariants = buildSlugVariants(gameName);
-    logger.info({ gameName, slugVariants }, '[Wikipedia] Trying slug variants');
-
-    // Tokens from the game name used to reject completely irrelevant articles.
-    // Use the expanded form when available so abbreviated names ("GTA IV" →
-    // "Grand Theft Auto IV", "Spidey" → "Spider-Man") share tokens with the
-    // actual Wikipedia article title and pass the recall check.
-    const nameForTokens = this.expandAbbreviations(gameName) ?? gameName;
-    const gameKeyTokens = nameForTokens
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, ' ')
-      .split(/\s+/)
-      // Include tokens of length >= 2 so short but meaningful tokens like
-      // "iv" (Grand Theft Auto IV) participate in the relevance check.
-      .filter((t) => t.length >= 2 && !SMALL_WORDS.has(t));
-    for (const slug of slugVariants) {
-      const result = await fetchSummary(slug);
-      if (!result) continue;
-
-      // Relevance guard: article title must share >= 80% of the game's meaningful
-      // tokens (same recall threshold as MS Store matching). A single shared token
-      // is not enough — e.g. "Cult of the Lamb" vs a redirect to "Cult of the Dude"
-      // share only "cult", which would pass a naïve `.some()` check but is wrong.
-      if (gameKeyTokens.length > 0) {
-        const articleTokens = new Set(
-          result.title.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean),
-        );
-        const matchCount = gameKeyTokens.filter((t) => articleTokens.has(t)).length;
-        const recall = matchCount / gameKeyTokens.length;
-        if (recall < 0.8) {
-          logger.info({ gameName, slug, articleTitle: result.title, matchCount, total: gameKeyTokens.length }, '[Wikipedia] Article not relevant — skipping');
-          continue;
-        }
-      }
-
-      logger.info({ gameName, slug, articleTitle: result.title, url: result.imageUrl }, '[Wikipedia] Image found');
-      return result.imageUrl;
+    // Only download images for titles the user has actually earned achievements in.
+    // The title history API returns games with 0 achievements (launched but never played).
+    // inEarnedScan is authoritative — it comes from the all-earned-achievements scan.
+    const eligibleTitles = titles.filter((t) => t.inEarnedScan || t.currentAchievements > 0);
+    const skipped = titles.length - eligibleTitles.length;
+    if (skipped > 0) {
+      logger.info({ skipped, total: titles.length, eligible: eligibleTitles.length, syncOperationId: syncOperation._id }, 'Skipping image downloads for titles with no earned achievements');
     }
 
-    logger.info({ gameName }, '[Wikipedia] No image found after all slug variants');
-    return undefined;
+    logger.info({ total: eligibleTitles.length, syncOperationId: syncOperation._id }, 'Starting Xbox game image downloads');
+
+    const gameImageResults = await Promise.all(
+      eligibleTitles.map((title) =>
+        concurrencyController.execute(async () => {
+          let imagePath: string | undefined;
+          let imageSource = 'none';
+
+          // Priority 1: Existing local cache
+          imagePath = imageStorage.checkLocalFile('xbox', title.titleId, 'game', 'grid') || undefined;
+          if (imagePath) {
+            logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P1] Cache hit — skipping all downloads');
+            return { titleId: title.titleId, imagePath };
+          }
+          logger.info({ titleId: title.titleId, name: title.name }, '[IMG] No cached image — starting download chain');
+
+          // Priority 2: Xbox CDN displayImage
+          if (title.titleImageUrl) {
+            logger.info({ titleId: title.titleId, name: title.name, cdnUrl: title.titleImageUrl }, '[IMG P2] Attempting Xbox CDN image download');
+            try {
+              imagePath = await imageStorage.downloadAndStore(
+                title.titleImageUrl, 'xbox', title.titleId, 'game', 'grid',
+              );
+              if (imagePath) {
+                imageSource = 'xbox-cdn';
+                logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P2] Xbox CDN image downloaded successfully');
+              } else {
+                logger.info({ titleId: title.titleId, name: title.name }, '[IMG P2] Xbox CDN returned no path — trying next source');
+              }
+            } catch (error) {
+              logger.warn({ titleId: title.titleId, name: title.name, cdnUrl: title.titleImageUrl, error: (error as any)?.message ?? String(error) }, '[IMG P2] Xbox CDN download failed — trying next source');
+            }
+          } else {
+            logger.info({ titleId: title.titleId, name: title.name }, '[IMG P2] No CDN URL on title — skipping to Microsoft Store');
+          }
+
+          // Priority 3: Microsoft Store search (free, no API key required)
+          let storeProductId: string | undefined;
+          let storeCanonicalTitle: string | undefined;
+
+          if (!imagePath) {
+            logger.info({ titleId: title.titleId, name: title.name }, '[IMG P3] Searching Microsoft Store');
+            try {
+              const storeResult = await this.fetchMicrosoftStoreGridUrl(title.name, title.titleId);
+              if (storeResult) {
+                storeProductId = storeResult.productId || undefined;
+                storeCanonicalTitle = storeResult.canonicalTitle;
+                if (storeCanonicalTitle && storeCanonicalTitle !== title.name) {
+                  logger.info({ titleId: title.titleId, original: title.name, canonical: storeCanonicalTitle }, '[IMG P3] Resolved canonical title from Store');
+                }
+                if (storeResult.imageUrl) {
+                  logger.info({ titleId: title.titleId, name: title.name, storeProductId, imageUrl: storeResult.imageUrl }, '[IMG P3] MS Store match found — downloading image');
+                  try {
+                    imagePath = await imageStorage.downloadAndStore(
+                      storeResult.imageUrl, 'xbox', title.titleId, 'game', 'grid',
+                    );
+                    if (imagePath) {
+                      imageSource = 'ms-store';
+                      logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P3] MS Store image downloaded successfully');
+                    } else {
+                      logger.warn({ titleId: title.titleId, name: title.name, imageUrl: storeResult.imageUrl }, '[IMG P3] MS Store image download returned no path');
+                    }
+                  } catch (dlErr) {
+                    logger.warn({ titleId: title.titleId, name: title.name, imageUrl: storeResult.imageUrl, error: (dlErr as any)?.message ?? String(dlErr) }, '[IMG P3] MS Store image download threw — will try Emerald with productId');
+                  }
+                } else {
+                  logger.info({ titleId: title.titleId, name: title.name, storeProductId }, '[IMG P3] MS Store matched product but no image — will use canonical title for fallback sources');
+                }
+              } else {
+                logger.info({ titleId: title.titleId, name: title.name }, '[IMG P3] MS Store: no confident match found');
+              }
+            } catch (error) {
+              logger.warn({ titleId: title.titleId, name: title.name, error: String(error) }, '[IMG P3] MS Store search threw unexpected error');
+            }
+          } else {
+            logger.info({ titleId: title.titleId, name: title.name, imageSource }, '[IMG P3] Skipped MS Store — image already resolved');
+          }
+
+          // Priority 4: Emerald Xbox services (xbox.com product API)
+          if (!imagePath) {
+            if (storeProductId) {
+              logger.info({ titleId: title.titleId, name: title.name, storeProductId }, '[IMG P4] Trying Emerald with MS Store productId');
+              try {
+                const emeraldUrl = await this.fetchEmeraldImageUrl(storeProductId);
+                if (emeraldUrl) {
+                  logger.info({ titleId: title.titleId, name: title.name, storeProductId, emeraldUrl }, '[IMG P4] Emerald returned URL — downloading');
+                  imagePath = await imageStorage.downloadAndStore(
+                    emeraldUrl, 'xbox', title.titleId, 'game', 'grid',
+                  );
+                  if (imagePath) {
+                    imageSource = 'emerald';
+                    logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P4] Emerald image downloaded successfully');
+                  } else {
+                    logger.warn({ titleId: title.titleId, name: title.name, emeraldUrl }, '[IMG P4] Emerald image download returned no path');
+                  }
+                } else {
+                  logger.warn({ titleId: title.titleId, name: title.name, storeProductId }, '[IMG P4] Emerald returned no image URL');
+                }
+              } catch (error) {
+                logger.warn({ titleId: title.titleId, name: title.name, storeProductId, error: String(error) }, '[IMG P4] Emerald download threw');
+              }
+            } else {
+              logger.info({ titleId: title.titleId, name: title.name }, '[IMG P4] Skipped Emerald — no storeProductId available (Xbox-only title, will try SteamGridDB)');
+            }
+          } else {
+            logger.info({ titleId: title.titleId, name: title.name, imageSource }, '[IMG P4] Skipped Emerald — image already resolved');
+          }
+
+          // Priority 5: SteamGridDB by name
+          if (!imagePath && hasSteamGridDB) {
+            const p5SearchName = storeCanonicalTitle || this.normalizeForSearch(title.name);
+            logger.info({ titleId: title.titleId, name: title.name, searchName: p5SearchName }, '[IMG P5] Trying SteamGridDB by name');
+            try {
+              imagePath = await steamGridDBAdapter!.downloadGameImageByName(
+                p5SearchName, 'xbox', title.titleId,
+              ) || undefined;
+              if (imagePath) {
+                imageSource = 'steamgriddb';
+                logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P5] SteamGridDB image downloaded successfully');
+              } else {
+                logger.info({ titleId: title.titleId, name: title.name }, '[IMG P5] SteamGridDB returned no image');
+              }
+            } catch (error) {
+              logger.warn({ error, titleId: title.titleId, name: title.name }, '[IMG P5] SteamGridDB lookup threw');
+            }
+          } else if (!imagePath) {
+            logger.info({ titleId: title.titleId, name: title.name }, '[IMG P5] Skipped SteamGridDB — not configured');
+          }
+
+          // Priority 6: PCGamingWiki (public MediaWiki API, no API key)
+          if (!imagePath) {
+            const p6SearchName = storeCanonicalTitle || title.name;
+            logger.info({ titleId: title.titleId, name: title.name, searchName: p6SearchName }, '[IMG P6] Trying PCGamingWiki');
+            try {
+              const pcgwUrl = await this.fetchPCGamingWikiImageUrl(p6SearchName);
+              if (pcgwUrl) {
+                logger.info({ titleId: title.titleId, name: title.name, pcgwUrl }, '[IMG P6] PCGamingWiki image URL found — downloading');
+                imagePath = await imageStorage.downloadAndStoreViaWget(
+                  pcgwUrl, 'xbox', title.titleId, 'game', 'grid',
+                );
+                if (imagePath) {
+                  imageSource = 'pcgamingwiki';
+                  logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P6] PCGamingWiki image downloaded successfully');
+                } else {
+                  logger.warn({ titleId: title.titleId, name: title.name, pcgwUrl }, '[IMG P6] PCGamingWiki image download returned no path');
+                }
+              } else {
+                logger.info({ titleId: title.titleId, name: title.name }, '[IMG P6] PCGamingWiki returned no image');
+              }
+            } catch (error) {
+              logger.warn({ err: String(error), titleId: title.titleId, name: title.name }, '[IMG P6] PCGamingWiki lookup threw');
+            }
+          }
+
+          // Priority 7: Wikipedia (public, no API key)
+          if (!imagePath) {
+            const p7SearchName = storeCanonicalTitle || title.name;
+            logger.info({ titleId: title.titleId, name: title.name, searchName: p7SearchName }, '[IMG P7] Trying Wikipedia');
+            try {
+              const wikiUrl = await this.fetchWikipediaImageUrl(p7SearchName);
+              if (wikiUrl) {
+                logger.info({ titleId: title.titleId, name: title.name, wikiUrl }, '[IMG P7] Wikipedia image URL found — downloading');
+                imagePath = await imageStorage.downloadAndStoreViaWget(
+                  wikiUrl, 'xbox', title.titleId, 'game', 'grid',
+                );
+                if (imagePath) {
+                  imageSource = 'wikipedia';
+                  logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P7] Wikipedia image downloaded successfully');
+                } else {
+                  logger.warn({ titleId: title.titleId, name: title.name, wikiUrl }, '[IMG P7] Wikipedia image download returned no path');
+                }
+              } else {
+                logger.info({ titleId: title.titleId, name: title.name }, '[IMG P7] Wikipedia returned no image');
+              }
+            } catch (error) {
+              logger.warn({ error, titleId: title.titleId, name: title.name }, '[IMG P7] Wikipedia lookup threw');
+            }
+          }
+
+          if (imagePath) {
+            logger.info({ titleId: title.titleId, name: title.name, imageSource, imagePath }, '[IMG] Image resolved');
+          } else {
+            logger.warn({ titleId: title.titleId, name: title.name }, '[IMG] All sources exhausted — no image found');
+          }
+
+          await SyncOperation.updateOne({ _id: syncOperation._id }, { $inc: { imagesCompleted: 1 } });
+
+          return { titleId: title.titleId, imagePath };
+        }),
+      ),
+    );
+
+    const gameImageMap = new Map(gameImageResults.map((r) => [r.titleId, r.imagePath]));
+    logger.info({ total: eligibleTitles.length, skipped, syncOperationId: syncOperation._id }, 'All Xbox game images downloaded');
+    return gameImageMap;
+  }
+
+  /**
+   * Sync achievements for all titles with adaptive batch/throttle/concurrency control.
+   * Handles: achievement fetching, icon downloads, game stat updates, DB upserts, and cancellation.
+   */
+  async syncAchievements(
+    titles: XboxTitleHistory[],
+    xuid: string,
+    xstsToken: string,
+    userHash: string,
+    syncOperation: any,
+    gameIdToMongoId: Map<string, any>,
+  ): Promise<number> {
+    const { isSyncCancelled } = await import('../syncCancellation.js');
+
+    const batchSizeStr = await configService.getSetting('sync_batch_size');
+    const userMaxBatchSize = parseInt(batchSizeStr || '10', 10);
+    const batchController = new AdaptiveBatchController(userMaxBatchSize);
+    const throttler = new AdaptiveThrottler();
+    const concurrencyStr = await configService.getSetting('sync_concurrency');
+    const userMaxConcurrency = parseInt(concurrencyStr || '5', 10);
+    const concurrencyController = new AdaptiveConcurrencyController(userMaxConcurrency);
+
+    // Separate concurrency limiter for icon downloads within each title
+    const iconLimit = pLimit(syncOperation.adaptiveParams.concurrency);
+
+    let achievementsSynced = 0;
+    let titlesProcessed = 0;
+
+    logger.info({ userMaxBatchSize, userMaxConcurrency, syncOperationId: syncOperation._id }, 'Xbox adaptive controllers initialized for achievement sync');
+
+    for (let batchOffset = 0; batchOffset < titles.length;) {
+      if (isSyncCancelled(syncOperation._id.toString())) {
+        logger.info({ syncOperationId: syncOperation._id }, 'Xbox sync cancelled (pre-batch)');
+        break;
+      }
+
+      const currentBatchSize = batchController.getBatchSize();
+      const batch = titles.slice(batchOffset, batchOffset + currentBatchSize);
+      const batchStartTime = Date.now();
+
+      await Promise.all(batch.map((title) =>
+        concurrencyController.execute(async () => {
+          if (isSyncCancelled(syncOperation._id.toString())) {
+            return;
+          }
+
+          let achievements: XboxAchievement[];
+          let achievementsTotalInCatalog: number;
+          let achievementStoreProductId: string | undefined;
+          try {
+            const result = await this.getAchievements(xuid, title.titleId, xstsToken, userHash, title.platform);
+            achievements = result.achievements;
+            achievementsTotalInCatalog = result.totalInCatalog;
+            achievementStoreProductId = result.storeProductId;
+          } catch (error) {
+            logger.warn({ error, titleId: title.titleId, name: title.name, inEarnedScan: title.inEarnedScan }, 'Failed to fetch Xbox achievements for title');
+            if (!title.inEarnedScan) {
+              const gId = gameIdToMongoId.get(title.titleId);
+              if (gId) await Game.deleteOne({ _id: gId }).catch(() => {});
+            }
+            return;
+          }
+
+          titlesProcessed++;
+          logger.info(
+            { titleId: title.titleId, name: title.name, achievementCount: achievements.length, progress: `${titlesProcessed}/${titles.length}` },
+            'Xbox achievements fetched for title',
+          );
+
+          const gameMongoId = gameIdToMongoId.get(title.titleId);
+          if (!gameMongoId) {
+            logger.warn({ titleId: title.titleId }, 'Xbox game not found after upsert, skipping achievements');
+            return;
+          }
+
+          if (achievements.length === 0) {
+            if (title.inEarnedScan) {
+              logger.warn(
+                { titleId: title.titleId, name: title.name },
+                'Per-title achievements API returned empty array but title is in GS5 earned-scan — preserving game (API may be stale)',
+              );
+              return;
+            }
+            logger.info(
+              { titleId: title.titleId, name: title.name },
+              'Removing game — per-title achievements API returned 0 achievements',
+            );
+            await Game.deleteOne({ _id: gameMongoId });
+            return;
+          }
+
+          const realTotal = achievementsTotalInCatalog || achievements.length;
+          const unlockedCount = achievements.filter((a) => a.isUnlocked).length;
+
+          if (unlockedCount === 0) {
+            if (title.inEarnedScan) {
+              logger.warn(
+                { titleId: title.titleId, name: title.name, totalInCatalog: realTotal },
+                'Per-title achievements API returned 0 unlocked but title is in earned-scan — preserving game (API may be stale)',
+              );
+              return;
+            }
+            logger.info(
+              { titleId: title.titleId, name: title.name, totalInCatalog: realTotal },
+              'Removing game — achievements API confirms 0 earned achievements',
+            );
+            await Game.deleteOne({ _id: gameMongoId });
+            return;
+          }
+
+          const realCompletionPercent = Math.round((unlockedCount / realTotal) * 100);
+          const maxGS = achievements.reduce((s, a) => s + (a.gamerscore ?? 0), 0);
+          const currentGS = achievements
+            .filter((a) => a.isUnlocked)
+            .reduce((s, a) => s + (a.gamerscore ?? 0), 0);
+          const gsUpdate: any = {
+            achievementsTotal: realTotal,
+            achievementsUnlocked: unlockedCount,
+            completionPercent: realCompletionPercent,
+          };
+          if (maxGS > 0) {
+            gsUpdate.maxGamerscore = maxGS;
+            gsUpdate.currentGamerscore = currentGS;
+          }
+          await Game.findByIdAndUpdate(gameMongoId, { $set: gsUpdate });
+
+          // Authenticated image fallback: use GS5 productId for Emerald lookup
+          if (achievementStoreProductId) {
+            const existingGame = await Game.findById(gameMongoId).select('imagePath').lean();
+            if (!existingGame?.imagePath) {
+              logger.info({ titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId }, '[IMG P6-auth] No image yet — trying Emerald with GS5 productId');
+              try {
+                const emeraldUrl = await this.fetchEmeraldImageUrl(achievementStoreProductId);
+                if (emeraldUrl) {
+                  const emeraldPath = await imageStorage.downloadAndStore(
+                    emeraldUrl, 'xbox', title.titleId, 'game', 'grid',
+                  );
+                  if (emeraldPath) {
+                    await Game.findByIdAndUpdate(gameMongoId, { $set: { imagePath: emeraldPath } });
+                    logger.info(
+                      { titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId, imagePath: emeraldPath },
+                      '[IMG P6-auth] Image fetched from Emerald via authenticated GS5 productId',
+                    );
+                  } else {
+                    logger.warn({ titleId: title.titleId, name: title.name, emeraldUrl }, '[IMG P6-auth] Emerald image download returned no path');
+                  }
+                } else {
+                  logger.warn({ titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId }, '[IMG P6-auth] Emerald returned no URL for GS5 productId');
+                }
+              } catch (err) {
+                logger.warn(
+                  { titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId, err: String(err) },
+                  '[IMG P6-auth] Emerald authenticated fallback threw',
+                );
+              }
+            } else {
+              logger.debug({ titleId: title.titleId, name: title.name }, '[IMG P6-auth] Skipped — game already has an image');
+            }
+          } else {
+            logger.debug({ titleId: title.titleId, name: title.name }, '[IMG P6-auth] Skipped — no GS5 productId available (Xbox 360 title or GS5 achievement response was empty)');
+          }
+
+          syncOperation.totalAchievements += realTotal;
+          syncOperation.iconDownloadsPending += realTotal;
+          await SyncOperation.findByIdAndUpdate(syncOperation._id, {
+            totalAchievements: syncOperation.totalAchievements,
+            iconDownloadsPending: syncOperation.iconDownloadsPending,
+          });
+
+          const isXbox360Title = (title.platform ?? '').toLowerCase().includes('360');
+
+          if (isXbox360Title) {
+            logger.debug({ titleId: title.titleId, name: title.name, achievementCount: achievements.length }, 'GS4 title — icon URLs generated from public CDN, downloading below');
+          }
+
+          // Download achievement icons concurrently
+          const iconPromises = achievements.map((ach) =>
+            iconLimit(async () => {
+              let iconPath: string | undefined;
+
+              if (ach.iconUrl) {
+                try {
+                  iconPath = isXbox360Title
+                    ? await imageStorage.downloadAndStoreViaWget(
+                        ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
+                      )
+                    : await imageStorage.downloadAndStore(
+                        ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
+                      );
+                  logger.debug({ url: ach.iconUrl, titleId: title.titleId, achievementId: ach.achievementId, isXbox360Title }, 'Xbox achievement icon downloaded');
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  logger.warn({ url: ach.iconUrl, titleId: title.titleId, achievementId: ach.achievementId, isXbox360Title, err: msg }, 'Xbox achievement icon download failed');
+                  iconPath = imageStorage.checkLocalFile('xbox', title.titleId, ach.achievementId, 'icon') || undefined;
+                }
+              }
+
+              syncOperation.iconDownloadsCompleted++;
+              if (syncOperation.iconDownloadsCompleted % 50 === 0) {
+                await SyncOperation.findByIdAndUpdate(syncOperation._id, {
+                  iconDownloadsCompleted: syncOperation.iconDownloadsCompleted,
+                });
+                logger.info(
+                  {
+                    syncOperationId: syncOperation._id,
+                    iconDownloadsCompleted: syncOperation.iconDownloadsCompleted,
+                    iconDownloadsPending: syncOperation.iconDownloadsPending,
+                  },
+                  'Xbox icon download progress',
+                );
+              }
+              return { achievementId: ach.achievementId, iconPath };
+            }),
+          );
+
+          const iconResults = await Promise.all(iconPromises.map((p) => p.catch(() => null)));
+          const iconMap = new Map(
+            iconResults.filter(Boolean).map((r) => [r!.achievementId, r!.iconPath]),
+          );
+
+          // Bulk upsert achievements for this title
+          const bulkOps = achievements.map((ach) => {
+            const iconPath = iconMap.get(ach.achievementId);
+            const updateFields: any = {
+              platform: 'xbox',
+              profileId: syncOperation.profileId,
+              name: ach.name,
+              description: ach.description,
+              unlockedAt: ach.unlockedAt ?? (ach.isUnlocked ? new Date(0) : undefined),
+              isSecret: ach.isSecret,
+            };
+            if (ach.gamerscore !== undefined) updateFields.gamerscore = ach.gamerscore;
+            if (iconPath) {
+              updateFields.iconPath = iconPath;
+              updateFields.iconGrayPath = iconPath;
+            }
+            return {
+              updateOne: {
+                filter: { profileId: syncOperation.profileId, gameId: gameMongoId, achievementId: ach.achievementId },
+                update: { $set: updateFields },
+                upsert: true,
+              },
+            };
+          });
+
+          if (bulkOps.length > 0) {
+            try {
+              await Achievement.bulkWrite(bulkOps, { ordered: false });
+              achievementsSynced += bulkOps.length;
+              await SyncOperation.findByIdAndUpdate(syncOperation._id, { achievementsSynced });
+              syncOperation.achievementsSynced = achievementsSynced;
+            } catch (error) {
+              logger.error({ error, titleId: title.titleId }, 'Failed to upsert Xbox achievements');
+            }
+          }
+        }),
+      ));
+
+      const batchDuration = Date.now() - batchStartTime;
+      const batchStats = batchController.getStats();
+      logger.info({
+        batchOffset,
+        batchSize: currentBatchSize,
+        batchDuration,
+        concurrency: concurrencyController.getConcurrency(),
+        avgResponseTime: batchStats.averageResponseTime,
+        total: titles.length,
+        syncOperationId: syncOperation._id,
+      }, 'Xbox achievement sync batch progress');
+
+      batchController.adjustBatchSize(batchDuration);
+
+      if (batchOffset + currentBatchSize < titles.length) {
+        await throttler.throttle(batchDuration);
+      }
+
+      batchOffset += currentBatchSize;
+    }
+
+    // Update adaptive params with final values
+    syncOperation.adaptiveParams = {
+      batchSize: batchController.getBatchSize(),
+      concurrency: concurrencyController.getConcurrency(),
+      delay: throttler.getCurrentDelay(),
+    };
+    logger.info({
+      finalBatchSize: batchController.getBatchSize(),
+      finalConcurrency: concurrencyController.getConcurrency(),
+      finalDelay: throttler.getCurrentDelay(),
+      syncOperationId: syncOperation._id,
+    }, 'Xbox adaptive params finalized');
+
+    if (isSyncCancelled(syncOperation._id.toString())) {
+      logger.info({ syncOperationId: syncOperation._id }, 'Xbox sync cancelled');
+    }
+
+    return achievementsSynced;
   }
 }
 
-export function createXboxAdapter(): XboxAdapter {
-  return new XboxAdapter();
+export function createXboxAdapter(concurrency?: number): XboxAdapter {
+  return new XboxAdapter(concurrency);
 }

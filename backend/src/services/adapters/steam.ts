@@ -6,6 +6,9 @@ import { AdaptiveThrottler } from '../adaptiveThrottler.js';
 import { AdaptiveConcurrencyController } from '../adaptiveConcurrencyController.js';
 import { performanceMonitor } from '../performanceMonitor.js';
 import { SyncOperation } from '../../models/syncOperation.js';
+import { imageStorage } from '../../utils/imageStorage.js';
+import { fetchPCGamingWikiImageUrl, fetchWikipediaImageUrl } from './gameImageSearch.js';
+import type { SteamGridDBAdapter } from './steamgriddb.js';
 
 interface SteamGame {
   appid: number;
@@ -56,14 +59,9 @@ export class SteamAdapter {
     return rateLimiter.executeWithRetry(
       'steam',
       async () => {
-        try {
-          const response = await fetch(url);
-          const data = await response.json() as any;
-          return data.response?.players?.[0] || null;
-        } catch (error) {
-          logger.error({ error, steamId }, 'Failed to fetch player summary');
-          return null;
-        }
+        const response = await fetch(url);
+        const data = await response.json() as any;
+        return data.response?.players?.[0] || null;
       },
       steamId
     );
@@ -75,14 +73,9 @@ export class SteamAdapter {
     return rateLimiter.executeWithRetry(
       'steam',
       async () => {
-        try {
-          const response = await fetch(url);
-          const data = await response.json() as any;
-          return data.response?.games || [];
-        } catch (error) {
-          logger.error({ error, steamId }, 'Failed to fetch owned games');
-          return [];
-        }
+        const response = await fetch(url);
+        const data = await response.json() as any;
+        return data.response?.games || [];
       },
       steamId
     );
@@ -370,6 +363,261 @@ export class SteamAdapter {
       ...result,
       adaptiveStats: finalStats,
     };
+  }
+
+  /**
+   * Download game cover images with adaptive concurrency control.
+   * Handles the full fallback chain: local cache → Steam CDN → SteamGridDB → PCGamingWiki → Wikipedia → Steam Store API.
+   */
+  async downloadGameImages(
+    games: Array<{ appId: number; name: string }>,
+    syncOperation: any,
+    steamGridDBAdapter: SteamGridDBAdapter | null,
+  ): Promise<Map<number, string | undefined>> {
+    const concurrencyController = new AdaptiveConcurrencyController(
+      syncOperation.adaptiveParams.concurrency,
+    );
+    const hasSteamGridDB = steamGridDBAdapter !== null;
+
+    logger.info({ total: games.length, syncOperationId: syncOperation._id }, 'Starting Steam game image downloads');
+
+    const gameImageResults = await Promise.all(
+      games.map((game) =>
+        concurrencyController.execute(async () => {
+          let imagePath: string | undefined;
+
+          // Priority 1: Check for any existing local files first (grid, header, or capsule)
+          imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
+          if (imagePath) {
+            logger.info({ appId: game.appId, imagePath }, 'Using existing local grid file');
+            return { appId: game.appId, imagePath };
+          }
+          imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'header');
+          if (imagePath) {
+            logger.debug({ appId: game.appId }, 'Using existing local file (header)');
+            return { appId: game.appId, imagePath };
+          }
+          imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'capsule');
+          if (imagePath) {
+            logger.debug({ appId: game.appId }, 'Using existing local file (capsule)');
+            return { appId: game.appId, imagePath };
+          }
+
+          // Priority 2: Try direct Steam CDN library grid URL
+          if (!imagePath) {
+            try {
+              const steamCdnUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg`;
+              imagePath = await imageStorage.downloadAndStore(
+                steamCdnUrl, 'steam', game.appId.toString(), 'game', 'grid',
+              );
+              logger.info({ appId: game.appId }, 'Downloaded image from Steam CDN (library grid)');
+            } catch {
+              logger.debug({ appId: game.appId }, 'Steam CDN library grid not available');
+            }
+          }
+
+          // Fallback 1: SteamGridDB (if API key configured)
+          if (!imagePath && hasSteamGridDB) {
+            try {
+              imagePath = await steamGridDBAdapter.downloadGameImage(game.appId) || undefined;
+              if (imagePath) {
+                logger.info({ appId: game.appId }, 'Downloaded image from SteamGridDB');
+              }
+            } catch (error) {
+              logger.warn({ error, appId: game.appId }, 'SteamGridDB download failed');
+            }
+          }
+
+          // Fallback 2: PCGamingWiki (public MediaWiki API, no API key)
+          if (!imagePath) {
+            logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P2] Trying PCGamingWiki');
+            try {
+              const pcgwUrl = await fetchPCGamingWikiImageUrl(game.name);
+              if (pcgwUrl) {
+                logger.info({ appId: game.appId, name: game.name, pcgwUrl }, '[IMG Steam P2] PCGamingWiki URL found — downloading');
+                imagePath = await imageStorage.downloadAndStoreViaWget(
+                  pcgwUrl, 'steam', game.appId.toString(), 'game', 'grid',
+                );
+                if (imagePath) {
+                  logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P2] PCGamingWiki image downloaded');
+                } else {
+                  logger.warn({ appId: game.appId, name: game.name, pcgwUrl }, '[IMG Steam P2] PCGamingWiki download returned no path');
+                }
+              } else {
+                logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P2] PCGamingWiki returned no image');
+              }
+            } catch (error) {
+              logger.warn({ error: String(error), appId: game.appId, name: game.name }, '[IMG Steam P2] PCGamingWiki lookup threw');
+            }
+          }
+
+          // Fallback 3: Wikipedia (public REST API, no API key)
+          if (!imagePath) {
+            logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P3] Trying Wikipedia');
+            try {
+              const wikiUrl = await fetchWikipediaImageUrl(game.name);
+              if (wikiUrl) {
+                logger.info({ appId: game.appId, name: game.name, wikiUrl }, '[IMG Steam P3] Wikipedia URL found — downloading');
+                imagePath = await imageStorage.downloadAndStoreViaWget(
+                  wikiUrl, 'steam', game.appId.toString(), 'game', 'grid',
+                );
+                if (imagePath) {
+                  logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P3] Wikipedia image downloaded');
+                } else {
+                  logger.warn({ appId: game.appId, name: game.name, wikiUrl }, '[IMG Steam P3] Wikipedia download returned no path');
+                }
+              } else {
+                logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P3] Wikipedia returned no image');
+              }
+            } catch (error) {
+              logger.warn({ error, appId: game.appId, name: game.name }, '[IMG Steam P3] Wikipedia lookup threw');
+            }
+          }
+
+          // Fallback 4: Steam Store API for header or capsule image (last resort)
+          if (!imagePath) {
+            try {
+              const gameDetails = await this.getGameDetails(game.appId);
+
+              if (gameDetails?.headerImage) {
+                try {
+                  imagePath = await imageStorage.downloadAndStore(
+                    gameDetails.headerImage, 'steam', game.appId.toString(), 'game', 'header',
+                  );
+                  logger.info({ appId: game.appId }, 'Downloaded header image from Steam Store API');
+                } catch {
+                  logger.debug({ appId: game.appId }, 'Failed to download header image');
+                }
+              }
+
+              if (!imagePath && gameDetails?.capsuleImage) {
+                try {
+                  imagePath = await imageStorage.downloadAndStore(
+                    gameDetails.capsuleImage, 'steam', game.appId.toString(), 'game', 'capsule',
+                  );
+                  logger.info({ appId: game.appId }, 'Downloaded capsule image from Steam Store API');
+                } catch {
+                  logger.debug({ appId: game.appId }, 'Failed to download capsule image');
+                }
+              }
+            } catch (error) {
+              logger.warn({ error, appId: game.appId }, 'Steam Store API failed');
+            }
+          }
+
+          return { appId: game.appId, imagePath };
+        }),
+      ),
+    );
+
+    const gameImageMap = new Map(gameImageResults.map((r) => [r.appId, r.imagePath]));
+    logger.info({ total: games.length, syncOperationId: syncOperation._id }, 'All Steam game images downloaded');
+    return gameImageMap;
+  }
+
+  /**
+   * Download achievement icons with adaptive concurrency control.
+   * Updates syncOperation progress every 50 icons.
+   */
+  async downloadAchievementIcons(
+    achievements: Array<{ appId: number; achievementId: string; icon?: string; iconGray?: string }>,
+    syncOperation: any,
+  ): Promise<{
+    iconMap: Map<string, { iconPath?: string; iconGrayPath?: string }>;
+    completed: number;
+    failed: number;
+  }> {
+    const concurrencyController = new AdaptiveConcurrencyController(
+      syncOperation.adaptiveParams.concurrency,
+    );
+
+    logger.info({ total: achievements.length, syncOperationId: syncOperation._id }, 'Starting Steam achievement icon downloads');
+
+    let completed = 0;
+    let failed = 0;
+
+    const iconResults = await Promise.all(
+      achievements.map((achievement) =>
+        concurrencyController.execute(async () => {
+          const downloads: Promise<string | undefined>[] = [];
+
+          if (achievement.icon) {
+            downloads.push(
+              imageStorage
+                .downloadAndStore(
+                  achievement.icon, 'steam', achievement.appId.toString(), achievement.achievementId, 'icon',
+                )
+                .catch((error) => {
+                  const errorMessage = error instanceof Error ? error.message : String(error);
+                  logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download icon');
+                  return imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'icon');
+                }),
+            );
+          } else {
+            downloads.push(Promise.resolve(undefined));
+          }
+
+          if (achievement.iconGray) {
+            downloads.push(
+              imageStorage
+                .downloadAndStore(
+                  achievement.iconGray, 'steam', achievement.appId.toString(), achievement.achievementId, 'iconGray',
+                )
+                .catch((error) => {
+                  const errorMessage = error instanceof Error ? error.message : String(error);
+                  logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download iconGray');
+                  return imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'iconGray');
+                }),
+            );
+          } else {
+            downloads.push(Promise.resolve(undefined));
+          }
+
+          try {
+            const [iconPath, iconGrayPath] = await Promise.all(downloads);
+            completed++;
+
+            if (completed % 50 === 0 || completed === achievements.length) {
+              await SyncOperation.findByIdAndUpdate(syncOperation._id, {
+                iconDownloadsCompleted: completed,
+                iconDownloadsFailed: failed,
+              });
+              logger.info({
+                completed,
+                total: achievements.length,
+                progress: `${Math.round((completed / achievements.length) * 100)}%`,
+                syncOperationId: syncOperation._id,
+              }, 'Achievement icon download progress');
+            }
+
+            return {
+              key: `${achievement.appId}:${achievement.achievementId}`,
+              iconPath,
+              iconGrayPath,
+            };
+          } catch {
+            failed++;
+            return null;
+          }
+        }),
+      ),
+    );
+
+    const iconMap = new Map(
+      iconResults
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .map((r) => [r.key, { iconPath: r.iconPath, iconGrayPath: r.iconGrayPath }]),
+    );
+
+    logger.info({
+      totalAchievements: achievements.length,
+      iconMapSize: iconMap.size,
+      iconsCompleted: completed,
+      iconsFailed: failed,
+      syncOperationId: syncOperation._id,
+    }, 'Steam achievement icon download completed');
+
+    return { iconMap, completed, failed };
   }
 
   /**

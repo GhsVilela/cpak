@@ -12,6 +12,13 @@ const IMAGES_BASE_DIR = process.env.IMAGES_DIR || '/app/data/images';
 
 export class ImageStorage {
   /**
+   * Timestamp of the last Wikimedia download request.
+   * Used to enforce a minimum 1.5 s gap between requests to avoid 429s.
+   */
+  private _lastWikimediaDownload = 0;
+  private static readonly WIKIMEDIA_MIN_GAP_MS = 1_500;
+
+  /**
    * Download an image from a URL and store it locally
    * @param url - The URL of the image to download
    * @param platform - The platform (steam, xbox, playstation)
@@ -169,13 +176,26 @@ export class ImageStorage {
       // Resize grid images to the standard 600×900 cover art size and normalise
       // to JPEG. Sources like PCGamingWiki can return originals up to 3000×4000+
       // (6+ MB); resizing here keeps storage and load times consistent.
+      // Skip the resize step (but still normalise to JPEG) when the source is
+      // already 600×900 — re-encoding an identically-sized image wastes CPU and
+      // introduces unnecessary quality loss.
       if (imageType === 'grid') {
         try {
-          fileBuffer = await sharp(fileBuffer)
-            .resize(600, 900, { fit: 'cover', position: 'centre' })
-            .jpeg({ quality: 90 })
-            .toBuffer();
-          ext = '.jpg';
+          const gridMeta = await sharp(fileBuffer).metadata();
+          const alreadyCorrectSize = gridMeta.width === 600 && gridMeta.height === 900;
+          const alreadyJpeg = gridMeta.format === 'jpeg';
+
+          if (alreadyCorrectSize && alreadyJpeg) {
+            // Already 600×900 JPEG — nothing to do.
+            ext = '.jpg';
+          } else {
+            let pipeline = sharp(fileBuffer);
+            if (!alreadyCorrectSize) {
+              pipeline = pipeline.resize(600, 900, { fit: 'cover', position: 'centre' });
+            }
+            fileBuffer = await pipeline.jpeg({ quality: 90 }).toBuffer();
+            ext = '.jpg';
+          }
         } catch (resizeErr) {
           logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, 'Failed to resize grid image, storing original');
         }
@@ -251,6 +271,16 @@ export class ImageStorage {
     const cached = this.checkLocalFile(platform, gameId, achievementId, imageType);
     if (cached) return cached;
 
+    // Rate-limit Wikimedia downloads to avoid 429s.
+    const isWikimedia = url.includes('wikimedia.org') || url.includes('wikipedia.org');
+    if (isWikimedia) {
+      const elapsed = Date.now() - this._lastWikimediaDownload;
+      if (elapsed < ImageStorage.WIKIMEDIA_MIN_GAP_MS) {
+        await new Promise((r) => setTimeout(r, ImageStorage.WIKIMEDIA_MIN_GAP_MS - elapsed));
+      }
+      this._lastWikimediaDownload = Date.now();
+    }
+
     const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
     await fs.promises.mkdir(gameDir, { recursive: true });
 
@@ -264,18 +294,24 @@ export class ImageStorage {
 
     try {
       // -q: quiet, -O: write to file, -T: timeout (supported by both GNU and BusyBox wget).
-      // No --user-agent override — the default "Wget/x.y" UA is accepted by the
-      // PCGW CDN; "curl/x.y" and browser UAs trigger 403 due to Cloudflare rules.
+      // User-Agent handling:
+      // - Wikimedia (upload.wikimedia.org) REQUIRES a proper UA; bare "Wget/x.y" gets 429.
+      // - PCGW CDN REJECTS browser UAs via Cloudflare; must use default "Wget/x.y".
+      // Only override UA for Wikimedia domains.
       //
-      // Retry up to 3 times on transient server errors (5xx).
-      // 4xx errors (403, 404) are terminal and thrown immediately.
+      // Retry up to 3 times on transient server errors (5xx) or 429 (rate limit).
+      // Other 4xx errors (403, 404) are terminal and thrown immediately.
       const MAX_WGET_ATTEMPTS = 3;
       const WGET_RETRY_BASE_MS = 2_000;
       // image.xboxlive.com uses a legacy TLS certificate that fails verification
       // in modern TLS stacks (both Node.js and wget). Browsers show an "insecure"
       // warning but still serve the content. Scoped only to that host.
       const skipCertCheck = url.includes('image.xboxlive.com');
-      const wgetBaseArgs = ['-q', '-T', '30', ...(skipCertCheck ? ['--no-check-certificate'] : [])];
+      const wgetBaseArgs = [
+        '-q', '-T', '30',
+        ...(skipCertCheck ? ['--no-check-certificate'] : []),
+        ...(isWikimedia ? ['--user-agent', 'cpak/1.0 (game-image-lookup; contact via GitHub)'] : []),
+      ];
       let wgetErr: unknown;
       for (let attempt = 1; attempt <= MAX_WGET_ATTEMPTS; attempt++) {
         try {
@@ -285,15 +321,19 @@ export class ImageStorage {
         } catch (err) {
           const msg = String(err);
           const is5xx = /HTTP\/[\d.]+ 5\d\d/.test(msg);
+          const is429 = /HTTP\/[\d.]+ 429/.test(msg);
           const isTimeout = msg.includes('download timed out') || msg.includes('timed out');
-          if ((!is5xx && !isTimeout) || attempt === MAX_WGET_ATTEMPTS) {
+          const isRetryable = is5xx || is429 || isTimeout;
+          if (!isRetryable || attempt === MAX_WGET_ATTEMPTS) {
             wgetErr = err;
             break;
           }
           // Clean up partial file before retry.
           fs.rmSync(destPath, { force: true });
-          logger.warn({ url, platform, gameId, imageType, attempt, err: msg }, `[wget] ${isTimeout ? 'Timeout' : 'Server error (5xx)'} — retrying`);
-          await new Promise((r) => setTimeout(r, WGET_RETRY_BASE_MS * 2 ** (attempt - 1)));
+          // Use longer backoff for 429 rate limits (3s base vs 2s).
+          const retryBase = is429 ? 3_000 : WGET_RETRY_BASE_MS;
+          logger.warn({ url, platform, gameId, imageType, attempt, err: msg }, `[wget] ${is429 ? 'Rate limited (429)' : isTimeout ? 'Timeout' : 'Server error (5xx)'} — retrying`);
+          await new Promise((r) => setTimeout(r, retryBase * 2 ** (attempt - 1)));
         }
       }
       if (wgetErr) throw wgetErr;

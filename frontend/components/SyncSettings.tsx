@@ -84,7 +84,7 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
           </div>
           <input
             type="range"
-            min="1"
+            min="5"
             max="250"
             step="5"
             value={concurrency}
@@ -92,7 +92,7 @@ export default function SyncSettings({ values, onChange, onSave }: SyncSettingsP
             className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
           />
           <div className="flex justify-between text-xs text-gray-500">
-            <span>1 (slower)</span>
+            <span>5 (slower)</span>
             <span>250 (fastest)</span>
           </div>
           <p className="text-xs text-gray-500">

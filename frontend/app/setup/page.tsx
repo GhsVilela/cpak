@@ -61,8 +61,8 @@ function SetupPageContent() {
       // Trigger initial sync using the MongoDB _id
       await apiClient.post(`/sync/steam?profileId=${createdProfile._id}`);
 
-      // Go directly to games page after setup
-      window.location.href = '/steam';
+      // Go directly to the games page for the newly added profile
+      router.push(`/steam?profileId=${createdProfile._id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to setup Steam profile');
     } finally {
