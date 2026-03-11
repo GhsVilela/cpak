@@ -16,7 +16,7 @@ export class ImageStorage {
    * Used to enforce a minimum 1.5 s gap between requests to avoid 429s.
    */
   private _lastWikimediaDownload = 0;
-  private static readonly WIKIMEDIA_MIN_GAP_MS = 1_500;
+  private static readonly WIKIMEDIA_MIN_GAP_MS = 3_000;
 
   /**
    * Download an image from a URL and store it locally
@@ -95,7 +95,7 @@ export class ImageStorage {
         try {
           response = await fetch(url, {
             headers: { ...defaultHeaders, ...(headers ?? {}) },
-            signal: AbortSignal.timeout(30_000),
+            signal: AbortSignal.timeout(60_000),
           });
           if (response.ok) break;
           // Terminal client errors — no point retrying.
@@ -308,7 +308,7 @@ export class ImageStorage {
       // warning but still serve the content. Scoped only to that host.
       const skipCertCheck = url.includes('image.xboxlive.com');
       const wgetBaseArgs = [
-        '-q', '-T', '30',
+        '-q', '-T', '60',
         ...(skipCertCheck ? ['--no-check-certificate'] : []),
         ...(isWikimedia ? ['--user-agent', 'cpak/1.0 (game-image-lookup; contact via GitHub)'] : []),
       ];

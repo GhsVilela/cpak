@@ -53,8 +53,8 @@ export interface PerformanceThresholds {
 export class PerformanceMonitor {
   private readonly thresholds: PerformanceThresholds = {
     dbQuery: 500,      // ms
-    apiResponse: 2000, // ms
-    batchOperation: 5000 // ms
+    apiResponse: 5000, // ms
+    batchOperation: 10000 // ms
   };
   
   /**
@@ -122,7 +122,7 @@ export class PerformanceMonitor {
       return result;
     } catch (error) {
       const duration = Date.now() - start;
-      logger.error({ type: 'api_error', operation, duration, error }, 'API call failed');
+      logger.error({ type: 'api_error', operation, duration, err: error instanceof Error ? error.message : String(error) }, 'API call failed');
       throw error;
     }
   }

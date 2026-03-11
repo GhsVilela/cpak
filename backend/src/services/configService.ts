@@ -6,8 +6,6 @@ import { logger } from '../utils/logger.js';
 const DEFAULTS: Record<string, string> = {
   scheduler_enabled: 'false',
   scheduler_cron: '0 3 * * *',
-  sync_batch_size: '150',
-  sync_concurrency: '75'
 };
 
 // Secret setting keys

@@ -93,18 +93,18 @@ export async function getSyncStatus(
         if (activeSyncOp.totalGames > 0) {
           // Phase 1: Downloading game images (0-33% progress)
           // imagesCompleted is incremented per-title as each image resolves.
-          // gamesCompleted stays 0 until after all game images are fetched, so
-          // this phase naturally ends when gamesCompleted is set to totalGames.
-          if (activeSyncOp.gamesCompleted === 0) {
+          // gamesProcessed stays 0 until after all game images are fetched, so
+          // this phase naturally ends when gamesProcessed is set to totalGames.
+          if (activeSyncOp.gamesProcessed === 0) {
             const imgProgress = Math.floor((activeSyncOp.imagesCompleted / activeSyncOp.totalGames) * 33);
             progress = imgProgress;
             message = `Downloading game images... (${activeSyncOp.imagesCompleted}/${activeSyncOp.totalGames})`;
           }
           // Phase 2: Fetching achievements (33-66% progress)
-          else if (activeSyncOp.gamesCompleted < activeSyncOp.totalGames) {
-            const fetchProgress = Math.floor((activeSyncOp.gamesCompleted / activeSyncOp.totalGames) * 33);
+          else if (activeSyncOp.gamesProcessed < activeSyncOp.totalGames) {
+            const fetchProgress = Math.floor((activeSyncOp.gamesProcessed / activeSyncOp.totalGames) * 33);
             progress = 33 + fetchProgress;
-            message = `Fetching achievements... (${activeSyncOp.gamesCompleted}/${activeSyncOp.totalGames})`;
+            message = `Fetching achievements... (${activeSyncOp.gamesProcessed}/${activeSyncOp.totalGames})`;
           }
           // Phase 3: Downloading achievement icons — starting (66%)
           else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted === 0) {

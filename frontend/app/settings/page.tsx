@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSyncControls from '../../components/ProfileSyncControls';
 import SchedulerSettings from '../../components/SchedulerSettings';
-import SyncSettings from '../../components/SyncSettings';
 import Toast from '../../components/Toast';
 import BackupProgressModal from '../../components/BackupProgressModal';
 import RestoreProgressModal from '../../components/RestoreProgressModal';
@@ -38,9 +37,6 @@ interface SettingsState {
   // Scheduler
   scheduler_enabled?: string;
   scheduler_cron?: string;
-  // Sync
-  sync_batch_size?: string;
-  sync_concurrency?: string;
   // Xbox OAuth
   xbox_client_id?: string;
   xbox_client_secret?: string;
@@ -274,21 +270,6 @@ export default function SettingsPage() {
       showToast('Scheduler settings saved successfully!', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to save scheduler settings', 'error');
-    }
-  };
-
-  const handleSyncSettingsSave = async () => {
-    try {
-      if (settings.sync_batch_size !== undefined) {
-        await apiClient.updateSetting('sync_batch_size', settings.sync_batch_size, 'sync');
-      }
-      if (settings.sync_concurrency !== undefined) {
-        await apiClient.updateSetting('sync_concurrency', settings.sync_concurrency, 'sync');
-      }
-
-      showToast('Sync settings saved successfully!', 'success');
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to save sync settings', 'error');
     }
   };
 
@@ -885,16 +866,6 @@ export default function SettingsPage() {
           }}
           onChange={handleSettingChange}
           onSave={handleSchedulerSettingsSave}
-        />
-
-        {/* Sync Performance Settings */}
-        <SyncSettings
-          values={{
-            sync_batch_size: settings.sync_batch_size || '150',
-            sync_concurrency: settings.sync_concurrency || '75'
-          }}
-          onChange={handleSettingChange}
-          onSave={handleSyncSettingsSave}
         />
       </div>
 

@@ -1,9 +1,9 @@
 import { logger } from '../../utils/logger.js';
 import { rateLimiter } from '../rateLimiter.js';
-import { configService } from '../configService.js';
 import { AdaptiveBatchController } from '../adaptiveBatchController.js';
 import { AdaptiveThrottler } from '../adaptiveThrottler.js';
 import { AdaptiveConcurrencyController } from '../adaptiveConcurrencyController.js';
+import { SYNC_DEFAULTS } from '../syncDefaults.js';
 import { performanceMonitor } from '../performanceMonitor.js';
 import { SyncOperation } from '../../models/syncOperation.js';
 import { imageStorage } from '../../utils/imageStorage.js';
@@ -33,6 +33,7 @@ interface SteamAchievement {
 }
 
 interface SteamGameSchema {
+  gameName?: string;
   availableGameStats?: {
     achievements?: Array<{
       name: string;
@@ -81,23 +82,77 @@ export class SteamAdapter {
     );
   }
 
+  async getRecentlyPlayedGames(steamId: string): Promise<SteamGame[]> {
+    const url = `${this.baseUrl}/IPlayerService/GetRecentlyPlayedGames/v1/?key=${this.apiKey}&steamid=${steamId}&count=0`;
+    
+    return rateLimiter.executeWithRetry(
+      'steam',
+      async () => {
+        const response = await fetch(url);
+        const data = await response.json() as any;
+        return data.response?.games || [];
+      },
+      `recent:${steamId}`
+    );
+  }
+
+  /**
+   * Fetch games with play-time history via the ClientGetLastPlayedTimes endpoint.
+   * This client-oriented endpoint may return family-shared and other non-owned
+   * games that GetOwnedGames omits.
+   */
+  async getPlayedGamesHistory(steamId: string): Promise<SteamGame[]> {
+    const url = `${this.baseUrl}/IPlayerService/ClientGetLastPlayedTimes/v1/?key=${this.apiKey}&steamid=${steamId}&min_last_played=0`;
+
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) {
+        logger.warn({ steamId, status: response.status }, 'ClientGetLastPlayedTimes not accessible');
+        return [];
+      }
+      const data = await response.json() as any;
+      const list = data?.response?.games;
+      if (!Array.isArray(list) || list.length === 0) {
+        logger.info({ steamId }, 'ClientGetLastPlayedTimes returned no games');
+        return [];
+      }
+
+      // This endpoint returns {appid, last_playtime, playtime_forever, ...} but no name
+      const games: SteamGame[] = list.map((g: any) => ({
+        appid: g.appid,
+        name: '',
+        playtime_forever: g.playtime_forever ?? 0,
+        rtime_last_played: g.last_playtime,
+      }));
+
+      logger.info({ steamId, playedGames: games.length }, 'Fetched play-time history via ClientGetLastPlayedTimes');
+      return games;
+    } catch (error) {
+      logger.warn({ error: String(error), steamId }, 'Failed to fetch ClientGetLastPlayedTimes');
+      return [];
+    }
+  }
+
   async getPlayerAchievements(steamId: string, appId: number): Promise<SteamAchievement[]> {
     const url = `${this.baseUrl}/ISteamUserStats/GetPlayerAchievements/v1/?key=${this.apiKey}&steamid=${steamId}&appid=${appId}`;
     
     return rateLimiter.executeWithRetry(
       'steam',
       async () => {
-        try {
-          const response = await fetch(url);
-          const data = await response.json() as any;
-          if (!data.playerstats?.success) {
-            return [];
-          }
-          return data.playerstats?.achievements || [];
-        } catch (error) {
-          logger.warn({ error, steamId, appId }, 'Failed to fetch achievements for game');
+        const response = await fetch(url);
+        // Retryable server/rate-limit errors — throw so executeWithRetry can retry
+        if (response.status === 429 || response.status >= 500) {
+          throw new Error(`Steam API ${response.status} for achievements appId=${appId}`);
+        }
+        // Non-retryable client errors (400/403 = game has no achievements or is restricted)
+        if (!response.ok) {
           return [];
         }
+        const data = await response.json() as any;
+        if (!data.playerstats?.success) {
+          return [];
+        }
+        return data.playerstats?.achievements || [];
       },
       `${steamId}:${appId}`
     );
@@ -109,20 +164,47 @@ export class SteamAdapter {
     return rateLimiter.executeWithRetry(
       'steam',
       async () => {
-        try {
-          const response = await fetch(url);
-          const data = await response.json() as any;
-          return data.game || null;
-        } catch (error) {
-          logger.warn({ error, appId }, 'Failed to fetch game schema');
+        const response = await fetch(url);
+        // Retryable server/rate-limit errors — throw so executeWithRetry can retry
+        if (response.status === 429 || response.status >= 500) {
+          throw new Error(`Steam API ${response.status} for schema appId=${appId}`);
+        }
+        // Non-retryable client errors (400/403 = game delisted or no schema)
+        if (!response.ok) {
           return null;
         }
+        const data = await response.json() as any;
+        return data.game || null;
       },
       `schema:${appId}`
     );
   }
 
-  async syncGamesAndAchievements(steamId: string, syncOperation?: any): Promise<{
+  /**
+   * Fetch app details from the Steam Store API.
+   * This is the most reliable source for game names — the community API schema
+   * occasionally returns placeholder/test names for certain titles.
+   * Rate-limited to avoid Store API throttling.
+   */
+  async getAppDetails(appId: number): Promise<{ name: string } | null> {
+    const url = `https://store.steampowered.com/api/appdetails?appids=${appId}&filters=basic`;
+
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) return null;
+      const data = await response.json() as any;
+      const appData = data?.[String(appId)];
+      if (appData?.success && appData.data?.name) {
+        return { name: appData.data.name };
+      }
+      return null;
+    } catch (error) {
+      logger.debug({ error: String(error), appId }, 'Steam Store appdetails lookup failed');
+      return null;
+    }
+  }
+
+  async syncGamesAndAchievements(steamId: string, syncOperation?: any, knownGameIds?: number[]): Promise<{
     games: Array<{
       appId: number;
       name: string;
@@ -149,11 +231,58 @@ export class SteamAdapter {
     };
   }> {
     // Fetch owned games with performance monitoring
-    const games = await performanceMonitor.measureApiCall(
+    const ownedGames = await performanceMonitor.measureApiCall(
       'steam.getOwnedGames',
       async () => this.getOwnedGames(steamId)
     );
-    logger.info({ steamId, totalGames: games.length }, 'Fetched owned games from Steam');
+    logger.info({ steamId, ownedGames: ownedGames.length }, 'Fetched owned games from Steam');
+
+    // Fetch recently played games — includes family-shared games not in owned list
+    let recentGames: SteamGame[] = [];
+    try {
+      recentGames = await performanceMonitor.measureApiCall(
+        'steam.getRecentlyPlayedGames',
+        async () => this.getRecentlyPlayedGames(steamId)
+      );
+    } catch (error) {
+      logger.warn({ error }, 'Failed to fetch recently played games');
+    }
+
+    // Fetch play-time history — may include family-shared and other non-owned games
+    let playedGamesHistory: SteamGame[] = [];
+    try {
+      playedGamesHistory = await performanceMonitor.measureApiCall(
+        'steam.getPlayedGamesHistory',
+        async () => this.getPlayedGamesHistory(steamId)
+      );
+    } catch (error) {
+      logger.warn({ error }, 'Failed to fetch played games history');
+    }
+
+    // Merge all game sources, deduplicating by appId.
+    // Priority: owned games first (have full data), then play-time history, then recent, then known.
+    const gameMap = new Map<number, SteamGame>();
+    for (const g of ownedGames) gameMap.set(g.appid, g);
+    for (const g of playedGamesHistory) {
+      if (!gameMap.has(g.appid)) gameMap.set(g.appid, g);
+    }
+    for (const g of recentGames) {
+      if (!gameMap.has(g.appid)) gameMap.set(g.appid, g);
+    }
+    // Re-check previously-synced games that are no longer in owned/recent (e.g. family-shared played long ago)
+    if (knownGameIds) {
+      for (const appId of knownGameIds) {
+        if (!gameMap.has(appId)) {
+          gameMap.set(appId, { appid: appId, name: '', playtime_forever: 0 });
+        }
+      }
+    }
+    const games = Array.from(gameMap.values());
+
+    const extraGames = games.length - ownedGames.length;
+    if (extraGames > 0) {
+      logger.info({ ownedGames: ownedGames.length, recentGames: recentGames.length, playedGamesHistory: playedGamesHistory.length, knownGameIds: knownGameIds?.length ?? 0, extraGames, totalGames: games.length }, 'Discovered extra games beyond owned list');
+    }
     
     // Set total games count immediately for progress tracking
     if (syncOperation) {
@@ -184,20 +313,18 @@ export class SteamAdapter {
       }>;
     } = { games: [], achievements: [] };
 
-    // Initialize adaptive controllers with user-configured maximums
-    const batchSizeStr = await configService.getSetting('sync_batch_size');
-    const userMaxBatchSize = parseInt(batchSizeStr || '10', 10);
-    const batchController = new AdaptiveBatchController(userMaxBatchSize);
-    const throttler = new AdaptiveThrottler();
-    
-    const concurrencyStr = await configService.getSetting('sync_concurrency');
-    const userMaxConcurrency = parseInt(concurrencyStr || '5', 10);
-    const concurrencyController = new AdaptiveConcurrencyController(userMaxConcurrency);
+    // Initialize adaptive controllers with shared defaults.
+    // Values start at BATCH_SIZE/CONCURRENCY and auto-scale up to MAX values when healthy.
+    const batchController = new AdaptiveBatchController(SYNC_DEFAULTS.BATCH_SIZE, SYNC_DEFAULTS.MAX_BATCH_SIZE, SYNC_DEFAULTS.MIN_BATCH_SIZE);
+    const throttler = new AdaptiveThrottler(SYNC_DEFAULTS.DELAY);
+    const concurrencyController = new AdaptiveConcurrencyController(SYNC_DEFAULTS.CONCURRENCY, SYNC_DEFAULTS.MAX_CONCURRENCY, SYNC_DEFAULTS.MIN_CONCURRENCY);
     
     logger.info({
-      userMaxBatchSize,
-      userMaxConcurrency,
-    }, 'Adaptive controllers initialized with user settings');
+      startBatchSize: SYNC_DEFAULTS.BATCH_SIZE,
+      maxBatchSize: SYNC_DEFAULTS.MAX_BATCH_SIZE,
+      startConcurrency: SYNC_DEFAULTS.CONCURRENCY,
+      maxConcurrency: SYNC_DEFAULTS.MAX_CONCURRENCY,
+    }, 'Adaptive controllers initialized');
 
     let processedCount = 0;
 
@@ -232,13 +359,20 @@ export class SteamAdapter {
                   ),
                 ]);
 
-                const totalAchievements = gameSchema?.availableGameStats?.achievements?.length || 0;
+                const schemaTotalAchievements = gameSchema?.availableGameStats?.achievements?.length || 0;
                 const earnedAchievements = playerAchievements.filter((a) => a.achieved === 1).length;
 
-                // Only include games that have achievements AND user has unlocked at least one
-                if (totalAchievements === 0 || earnedAchievements === 0) {
+                // Skip games where the user hasn't unlocked any achievements
+                if (earnedAchievements === 0) {
                   return null;
                 }
+
+                // Use schema count when available; fall back to playerAchievements length
+                // (the player API returns ALL achievements, earned + unearned).
+                // Schema can be null for delisted/region-locked games while player data is still valid.
+                const totalAchievements = schemaTotalAchievements > 0
+                  ? schemaTotalAchievements
+                  : playerAchievements.length;
 
                 logger.debug({ 
                   appId: game.appid, 
@@ -247,9 +381,23 @@ export class SteamAdapter {
                   earnedAchievements 
                 }, 'Found game with unlocked achievements');
 
+                // Use game name from API data, fall back to schema gameName for
+                // family-shared / previously-synced games with no owned-games entry.
+                // Some games have placeholder names in the schema API (e.g. "testtest"),
+                // so fall back to the Steam Store API when the name looks suspicious.
+                let gameName = game.name || gameSchema?.gameName || '';
+                if (!gameName || gameName.length <= 3 || /^(test|placeholder|unknown)/i.test(gameName)) {
+                  const storeDetails = await this.getAppDetails(game.appid);
+                  if (storeDetails?.name) {
+                    logger.info({ appId: game.appid, oldName: gameName || '(empty)', newName: storeDetails.name }, 'Resolved game name from Steam Store API');
+                    gameName = storeDetails.name;
+                  }
+                }
+                if (!gameName) gameName = `Unknown (${game.appid})`;
+
                 const gameData = {
                   appId: game.appid,
-                  name: game.name,
+                  name: gameName,
                   playtimeMinutes: game.playtime_forever,
                   lastPlayed: game.rtime_last_played ? new Date(game.rtime_last_played * 1000) : undefined,
                   totalAchievements,
@@ -278,7 +426,7 @@ export class SteamAdapter {
 
                 return { game: gameData, achievements: achievementsData };
               } catch (error) {
-                logger.warn({ error, appId: game.appid, name: game.name }, 'Failed to process game');
+                logger.warn({ err: error instanceof Error ? error.message : String(error), appId: game.appid, name: game.name }, 'Failed to process game');
                 return null;
               }
             })
@@ -311,11 +459,11 @@ export class SteamAdapter {
         // Atomic update after every batch for real-time progress tracking
         // This ensures the most up-to-date progress is visible to users via polling
         await SyncOperation.findByIdAndUpdate(syncOperation._id, {
-          gamesCompleted: processedCount
+          gamesProcessed: processedCount
         });
         
         // Update in-memory copy for accurate final stats
-        syncOperation.gamesCompleted = processedCount;
+        syncOperation.gamesProcessed = processedCount;
         
         logger.debug({ 
           syncOperationId: syncOperation._id,
@@ -339,6 +487,9 @@ export class SteamAdapter {
 
       // Adjust batch size based on performance
       batchController.adjustBatchSize(batchDuration);
+
+      // Keep concurrency in sync — never exceed batch size
+      concurrencyController.capConcurrency(batchController.getBatchSize());
 
       // Adaptive throttling between batches
       if (i < games.length) {
@@ -508,6 +659,13 @@ export class SteamAdapter {
           return { appId: game.appId, imagePath };
         }),
       ),
+    );
+
+    // Update imagesCompleted count on the sync operation
+    const imagesDownloaded = gameImageResults.filter((r) => r.imagePath).length;
+    await SyncOperation.updateOne(
+      { _id: syncOperation._id },
+      { $set: { imagesCompleted: imagesDownloaded } },
     );
 
     const gameImageMap = new Map(gameImageResults.map((r) => [r.appId, r.imagePath]));

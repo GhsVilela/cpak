@@ -15,9 +15,9 @@ class RateLimiterService {
   private limits: Map<string, RateLimitEntry> = new Map();
   private platformConfigs: Record<string, RateLimitConfig> = {
     steam: {
-      maxRequests: parseInt(process.env.STEAM_RATE_LIMIT || '100', 10),
+      maxRequests: parseInt(process.env.STEAM_RATE_LIMIT || '300', 10),
       windowMs: 60000, // 1 minute
-      retryAfterMs: parseInt(process.env.STEAM_RETRY_DELAY || '200', 10),
+      retryAfterMs: parseInt(process.env.STEAM_RETRY_DELAY || '1000', 10),
     },
     'steam-store': {
       maxRequests: parseInt(process.env.STEAM_STORE_RATE_LIMIT || '200', 10),
@@ -37,10 +37,11 @@ class RateLimiterService {
   };
 
   /**
-   * Check if request is allowed under rate limit
+   * Check if request is allowed under rate limit.
+   * Uses platform-level aggregate tracking to enforce global rate limits.
    */
-  canMakeRequest(platform: string, identifier: string = 'default'): boolean {
-    const key = `${platform}:${identifier}`;
+  canMakeRequest(platform: string, _identifier: string = 'default'): boolean {
+    const key = platform;
     const config = this.platformConfigs[platform];
 
     if (!config) {
@@ -93,37 +94,22 @@ class RateLimiterService {
     identifier: string = 'default',
     maxRetries: number = 3
   ): Promise<T> {
-    let attempt = 0;
+    const baseDelay = this.getRetryDelay(platform);
 
-    while (attempt < maxRetries) {
-      if (this.canMakeRequest(platform, identifier)) {
-        try {
-          return await fn();
-        } catch (error) {
-          // Check if error is retryable (e.g., 429 Too Many Requests)
-          if (this.isRetryableError(error)) {
-            attempt++;
-            if (attempt < maxRetries) {
-              logger.warn(
-                `[RateLimiter] Retryable error for ${platform}, attempt ${attempt}/${maxRetries}`
-              );
-              await this.waitForDelay(platform);
-              continue;
-            }
-          }
-          throw error;
-        }
-      } else {
-        // Rate limit exceeded, wait and retry
-        attempt++;
-        if (attempt < maxRetries) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (this.isRetryableError(error) && attempt + 1 < maxRetries) {
+          // Exponential backoff: baseDelay * 2^attempt (1s, 2s, 4s …)
+          const delay = baseDelay * Math.pow(2, attempt);
           logger.warn(
-            `[RateLimiter] Rate limit exceeded for ${platform}, waiting...`
+            `[RateLimiter] Retryable error for ${platform}, attempt ${attempt + 1}/${maxRetries}, backoff ${delay}ms`
           );
-          await this.waitForDelay(platform);
+          await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
         }
-        throw new Error(`Rate limit exceeded for ${platform} after ${maxRetries} attempts`);
+        throw error;
       }
     }
 
@@ -143,7 +129,11 @@ class RateLimiterService {
         message.includes('rate limit') ||
         message.includes('timeout') ||
         message.includes('econnreset') ||
-        message.includes('enotfound')
+        message.includes('enotfound') ||
+        message.includes('500') ||
+        message.includes('502') ||
+        message.includes('503') ||
+        message.includes('504')
       ) {
         return true;
       }
@@ -161,11 +151,11 @@ class RateLimiterService {
   /**
    * Get current rate limit status for platform
    */
-  getStatus(platform: string, identifier: string = 'default'): {
+  getStatus(platform: string, _identifier: string = 'default'): {
     remaining: number;
     resetTime: number | null;
   } {
-    const key = `${platform}:${identifier}`;
+    const key = platform;
     const config = this.platformConfigs[platform];
     const entry = this.limits.get(key);
 

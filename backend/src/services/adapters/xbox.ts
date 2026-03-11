@@ -10,7 +10,7 @@ import { imageStorage } from '../../utils/imageStorage.js';
 import { AdaptiveBatchController } from '../adaptiveBatchController.js';
 import { AdaptiveThrottler } from '../adaptiveThrottler.js';
 import { AdaptiveConcurrencyController } from '../adaptiveConcurrencyController.js';
-import { configService } from '../configService.js';
+import { SYNC_DEFAULTS } from '../syncDefaults.js';
 import type { SteamGridDBAdapter } from './steamgriddb.js';
 
 // ---------------------------------------------------------------------------
@@ -2149,15 +2149,21 @@ export class XboxAdapter {
             logger.warn({ titleId: title.titleId, name: title.name }, '[IMG] All sources exhausted — no image found');
           }
 
-          await SyncOperation.updateOne({ _id: syncOperation._id }, { $inc: { imagesCompleted: 1 } });
-
           return { titleId: title.titleId, imagePath };
         }),
       ),
     );
 
     const gameImageMap = new Map(gameImageResults.map((r) => [r.titleId, r.imagePath]));
-    logger.info({ total: eligibleTitles.length, skipped, syncOperationId: syncOperation._id }, 'All Xbox game images downloaded');
+
+    // Update imagesCompleted count on the sync operation
+    const imagesDownloaded = gameImageResults.filter((r) => r.imagePath).length;
+    await SyncOperation.updateOne(
+      { _id: syncOperation._id },
+      { $set: { imagesCompleted: imagesDownloaded } },
+    );
+
+    logger.info({ total: eligibleTitles.length, imagesDownloaded, skipped, syncOperationId: syncOperation._id }, 'All Xbox game images downloaded');
     return gameImageMap;
   }
 
@@ -2175,21 +2181,19 @@ export class XboxAdapter {
   ): Promise<number> {
     const { isSyncCancelled } = await import('../syncCancellation.js');
 
-    const batchSizeStr = await configService.getSetting('sync_batch_size');
-    const userMaxBatchSize = parseInt(batchSizeStr || '10', 10);
-    const batchController = new AdaptiveBatchController(userMaxBatchSize);
-    const throttler = new AdaptiveThrottler();
-    const concurrencyStr = await configService.getSetting('sync_concurrency');
-    const userMaxConcurrency = parseInt(concurrencyStr || '5', 10);
-    const concurrencyController = new AdaptiveConcurrencyController(userMaxConcurrency);
+    // Initialize adaptive controllers with shared defaults.
+    // Values auto-adjust during sync: increase when healthy, decrease on errors/slowdowns.
+    const batchController = new AdaptiveBatchController(SYNC_DEFAULTS.BATCH_SIZE, SYNC_DEFAULTS.MAX_BATCH_SIZE, SYNC_DEFAULTS.MIN_BATCH_SIZE);
+    const throttler = new AdaptiveThrottler(SYNC_DEFAULTS.DELAY);
+    const concurrencyController = new AdaptiveConcurrencyController(SYNC_DEFAULTS.CONCURRENCY, SYNC_DEFAULTS.MAX_CONCURRENCY, SYNC_DEFAULTS.MIN_CONCURRENCY);
 
     // Separate concurrency limiter for icon downloads within each title
-    const iconLimit = pLimit(syncOperation.adaptiveParams.concurrency);
+    const iconLimit = pLimit(SYNC_DEFAULTS.CONCURRENCY);
 
     let achievementsSynced = 0;
     let titlesProcessed = 0;
 
-    logger.info({ userMaxBatchSize, userMaxConcurrency, syncOperationId: syncOperation._id }, 'Xbox adaptive controllers initialized for achievement sync');
+    logger.info({ startBatchSize: SYNC_DEFAULTS.BATCH_SIZE, maxBatchSize: SYNC_DEFAULTS.MAX_BATCH_SIZE, startConcurrency: SYNC_DEFAULTS.CONCURRENCY, maxConcurrency: SYNC_DEFAULTS.MAX_CONCURRENCY, syncOperationId: syncOperation._id }, 'Xbox adaptive controllers initialized for achievement sync');
 
     for (let batchOffset = 0; batchOffset < titles.length;) {
       if (isSyncCancelled(syncOperation._id.toString())) {
@@ -2336,9 +2340,16 @@ export class XboxAdapter {
             logger.debug({ titleId: title.titleId, name: title.name, achievementCount: achievements.length }, 'GS4 title — icon URLs generated from public CDN, downloading below');
           }
 
-          // Download achievement icons concurrently
+          // Download achievement icons concurrently with staggered starts
+          // to avoid overwhelming the Xbox CDN (images-eds-ssl.xboxlive.com).
+          let iconIndex = 0;
           const iconPromises = achievements.map((ach) =>
             iconLimit(async () => {
+              // Stagger concurrent requests: 50ms per slot to spread CDN load
+              const myIndex = iconIndex++;
+              if (myIndex > 0) {
+                await new Promise((r) => setTimeout(r, 50 * (myIndex % SYNC_DEFAULTS.CONCURRENCY)));
+              }
               let iconPath: string | undefined;
 
               if (ach.iconUrl) {
@@ -2432,6 +2443,9 @@ export class XboxAdapter {
       }, 'Xbox achievement sync batch progress');
 
       batchController.adjustBatchSize(batchDuration);
+
+      // Keep concurrency in sync — never exceed batch size
+      concurrencyController.capConcurrency(batchController.getBatchSize());
 
       if (batchOffset + currentBatchSize < titles.length) {
         await throttler.throttle(batchDuration);

@@ -8,6 +8,7 @@ import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
 import { createXboxAdapter } from './adapters/xbox.js';
 import { logger } from '../utils/logger.js';
 import { configService } from './configService.js';
+import { SYNC_DEFAULTS } from './syncDefaults.js';
 import { performanceMonitor } from './performanceMonitor.js';
 import { markSyncAsCompleted } from './syncCancellation.js';
 
@@ -23,7 +24,7 @@ class SyncService {
       status: 'running',
       startedAt: startTime,
       totalGames: 0,
-      gamesCompleted: 0,
+      gamesProcessed: 0,
       gamesFailed: 0,
       totalAchievements: 0,
       achievementsSynced: 0,
@@ -32,9 +33,9 @@ class SyncService {
       iconDownloadsFailed: 0,
       errors: [],
       adaptiveParams: {
-        batchSize: parseInt(await configService.getSetting('sync_batch_size') || '150', 10),
-        concurrency: parseInt(await configService.getSetting('sync_concurrency') || '75', 10),
-        delay: 250, // Initial throttle delay
+        batchSize: SYNC_DEFAULTS.BATCH_SIZE,
+        concurrency: SYNC_DEFAULTS.CONCURRENCY,
+        delay: SYNC_DEFAULTS.DELAY,
       },
     });
 
@@ -145,7 +146,14 @@ class SyncService {
       logger.warn({ error, profileId: profile.profileId }, 'Failed to fetch Steam display name');
     }
 
-    const result = await steamAdapter.syncGamesAndAchievements(profile.profileId, syncOperation);
+    // Fetch previously-synced game IDs so family-shared / removed games aren't lost
+    const previousGames = await Game.find(
+      { profileId: profile._id, platform: 'steam' },
+      { gameId: 1 }
+    ).lean();
+    const knownGameIds = previousGames.map((g) => parseInt(g.gameId, 10)).filter((id) => !isNaN(id));
+
+    const result = await steamAdapter.syncGamesAndAchievements(profile.profileId, syncOperation, knownGameIds);
 
     // T031: Update SyncOperation with final counts
     syncOperation.totalGames = result.games.length;
@@ -493,13 +501,15 @@ class SyncService {
 
     const totalAchievements = titles.reduce((sum, t) => sum + t.totalAchievements, 0);
 
-    syncOperation.totalGames = titles.length;
+    const gamesWithAchievements = titles.filter((t) => t.inEarnedScan || t.currentAchievements > 0).length;
+
+    syncOperation.totalGames = gamesWithAchievements;
     syncOperation.totalAchievements = totalAchievements;
     syncOperation.iconDownloadsPending = totalAchievements; // one icon per achievement
     await syncOperation.save();
 
     logger.info(
-      { syncOperationId: syncOperation._id, totalGames: titles.length, totalAchievements },
+      { syncOperationId: syncOperation._id, totalGames: gamesWithAchievements, totalTitles: titles.length, totalAchievements },
       'Xbox title history fetched',
     );
 
@@ -554,10 +564,10 @@ class SyncService {
       }),
     ));
 
-    syncOperation.gamesCompleted = titles.length;
+    syncOperation.gamesProcessed = titles.length;
     await syncOperation.save();
 
-    logger.info({ syncOperationId: syncOperation._id, gamesUpserted: titles.length }, 'Xbox games upserted');
+    logger.info({ syncOperationId: syncOperation._id, gamesUpserted: titles.length, gamesWithAchievements }, 'Xbox games upserted');
 
     // -----------------------------------------------------------------------
     // Phase 5: Achievement sync (adaptive batch/throttle/concurrency inside xbox adapter)
@@ -574,18 +584,6 @@ class SyncService {
 
     syncOperation.achievementsSynced = achievementsSynced;
     await syncOperation.save();
-
-    const gamesWithAchievements = titles.filter((t) => t.inEarnedScan || t.currentAchievements > 0).length;
-
-    logger.info(
-      {
-        syncOperationId: syncOperation._id,
-        totalGames: gamesWithAchievements,
-        totalAchievements: syncOperation.totalAchievements,
-        achievementsSynced,
-      },
-      'Xbox sync completed successfully',
-    );
   }
 }
 

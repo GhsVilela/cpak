@@ -42,7 +42,7 @@ export interface ISyncOperation extends Document {
   startedAt: Date;
   completedAt?: Date;
   totalGames: number;
-  gamesCompleted: number;
+  gamesProcessed: number;
   imagesCompleted: number;
   gamesFailed: number;
   totalAchievements: number;
@@ -90,7 +90,7 @@ const syncOperationSchema = new Schema<ISyncOperation>(
       required: true,
       default: 0,
     },
-    gamesCompleted: {
+    gamesProcessed: {
       type: Number,
       required: true,
       default: 0,

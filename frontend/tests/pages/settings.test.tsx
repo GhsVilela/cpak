@@ -72,8 +72,6 @@ beforeEach(() => {
     settings: [
       { key: 'scheduler_enabled', value: 'true', category: 'scheduler', isSecret: false },
       { key: 'scheduler_cron', value: '0 3 * * *', category: 'scheduler', isSecret: false },
-      { key: 'sync_batch_size', value: '50', category: 'sync', isSecret: false },
-      { key: 'sync_concurrency', value: '3', category: 'sync', isSecret: false },
       { key: 'steamgrid_api_key', value: '', category: 'image_provider', isSecret: true },
       { key: 'xbox_client_id', value: 'my-client-id', category: 'auth', isSecret: false },
       { key: 'xbox_client_secret', value: '', category: 'auth', isSecret: true },

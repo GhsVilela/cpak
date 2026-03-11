@@ -39,30 +39,27 @@ describe('RateLimiter', () => {
   });
 
   it('blocks requests when rate limit is exceeded', () => {
-    // Use a fresh identifier to avoid interference
-    const id = 'rate-limit-test';
-    // Make requests up to the steam limit (100 by default)
-    for (let i = 0; i < 100; i++) {
-      rateLimiter.canMakeRequest('steam', id);
+    // Make requests up to the steam limit (300 by default)
+    for (let i = 0; i < 300; i++) {
+      rateLimiter.canMakeRequest('steam', `id-${i}`);
     }
-    expect(rateLimiter.canMakeRequest('steam', id)).toBe(false);
+    expect(rateLimiter.canMakeRequest('steam', 'extra')).toBe(false);
   });
 
   it('resets rate limit after window expires', () => {
     vi.useFakeTimers();
-    const id = 'rate-window-test';
-    for (let i = 0; i < 100; i++) {
-      rateLimiter.canMakeRequest('steam', id);
+    for (let i = 0; i < 300; i++) {
+      rateLimiter.canMakeRequest('steam', `id-${i}`);
     }
-    expect(rateLimiter.canMakeRequest('steam', id)).toBe(false);
+    expect(rateLimiter.canMakeRequest('steam', 'extra')).toBe(false);
     // Advance past the 60s window
     vi.advanceTimersByTime(61000);
-    expect(rateLimiter.canMakeRequest('steam', id)).toBe(true);
+    expect(rateLimiter.canMakeRequest('steam', 'after-reset')).toBe(true);
   });
 
   it('getStatus returns remaining requests for unused platform', () => {
-    const status = rateLimiter.getStatus('steam', 'fresh');
-    expect(status.remaining).toBe(100); // default steam limit
+    const status = rateLimiter.getStatus('steam');
+    expect(status.remaining).toBe(300); // default steam limit
     expect(status.resetTime).toBeNull();
   });
 
@@ -72,28 +69,26 @@ describe('RateLimiter', () => {
   });
 
   it('getStatus reflects request count', () => {
-    const id = 'status-test';
-    rateLimiter.canMakeRequest('steam', id);
-    rateLimiter.canMakeRequest('steam', id);
-    const status = rateLimiter.getStatus('steam', id);
-    expect(status.remaining).toBe(98); // 100 - 2
+    rateLimiter.canMakeRequest('steam', 'a');
+    rateLimiter.canMakeRequest('steam', 'b');
+    const status = rateLimiter.getStatus('steam');
+    expect(status.remaining).toBe(298); // 300 - 2
     expect(status.resetTime).not.toBeNull();
   });
 
   it('clearLimits resets all counters', () => {
-    const id = 'clear-test';
-    for (let i = 0; i < 100; i++) {
-      rateLimiter.canMakeRequest('steam', id);
+    for (let i = 0; i < 300; i++) {
+      rateLimiter.canMakeRequest('steam', `id-${i}`);
     }
-    expect(rateLimiter.canMakeRequest('steam', id)).toBe(false);
+    expect(rateLimiter.canMakeRequest('steam', 'extra')).toBe(false);
     rateLimiter.clearLimits();
-    expect(rateLimiter.canMakeRequest('steam', id)).toBe(true);
+    expect(rateLimiter.canMakeRequest('steam', 'fresh')).toBe(true);
   });
 
   it('waitForDelay resolves after platform delay', async () => {
     vi.useFakeTimers();
     const promise = rateLimiter.waitForDelay('steam');
-    vi.advanceTimersByTime(200);
+    vi.advanceTimersByTime(1000); // steam retry delay is now 1000ms
     await promise; // should resolve
   });
 
@@ -107,8 +102,8 @@ describe('RateLimiter', () => {
     });
     
     const promise = rateLimiter.executeWithRetry('steam', fn, 'retry-429', 3);
-    // Advance to let retry delay pass
-    await vi.advanceTimersByTimeAsync(500);
+    // Advance to let retry delay pass (steam retryAfterMs = 1000)
+    await vi.advanceTimersByTimeAsync(1500);
     const result = await promise;
     expect(result).toBe('ok');
     expect(fn).toHaveBeenCalledTimes(2);
@@ -124,43 +119,36 @@ describe('RateLimiter', () => {
     });
     
     const promise = rateLimiter.executeWithRetry('steam', fn, 'retry-timeout', 3);
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1500);
     const result = await promise;
     expect(result).toBe('ok');
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
-  it('executeWithRetry waits and retries when rate limit is exceeded', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const id = 'rate-exceed-retry';
+  it('executeWithRetry uses exponential backoff on retryable errors', async () => {
+    vi.useFakeTimers();
+    let attempt = 0;
+    const fn = vi.fn().mockImplementation(async () => {
+      attempt++;
+      if (attempt < 3) throw new Error('429 Too Many Requests');
+      return 'ok';
+    });
 
-    // Exhaust steam limit so canMakeRequest returns false
-    for (let i = 0; i < 100; i++) {
-      rateLimiter.canMakeRequest('steam', id);
-    }
-
-    const fn = vi.fn().mockResolvedValue('ok');
-    // With maxRetries=2, it will wait once then throw
-    await expect(
-      rateLimiter.executeWithRetry('steam', fn, id, 2),
-    ).rejects.toThrow(/Rate limit exceeded/);
-    // fn should never be called since canMakeRequest always returns false
-    expect(fn).not.toHaveBeenCalled();
+    const promise = rateLimiter.executeWithRetry('steam', fn, 'backoff-test', 4);
+    // 1st retry backoff: 1000ms * 2^0 = 1000ms
+    await vi.advanceTimersByTimeAsync(1100);
+    // 2nd retry backoff: 1000ms * 2^1 = 2000ms
+    await vi.advanceTimersByTimeAsync(2100);
+    const result = await promise;
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(3);
   });
 
-  it('executeWithRetry throws when rate limit exceeded after all retries', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const id = 'rate-exhaust';
-
-    // Exhaust steam limit
-    for (let i = 0; i < 100; i++) {
-      rateLimiter.canMakeRequest('steam', id);
-    }
-
-    const fn = vi.fn().mockResolvedValue('ok');
-    // Only 1 retry
+  it('executeWithRetry throws non-retryable error immediately without retry', async () => {
+    const fn = vi.fn().mockRejectedValue(new Error('403 Forbidden'));
     await expect(
-      rateLimiter.executeWithRetry('steam', fn, id, 1),
-    ).rejects.toThrow(/Rate limit exceeded/);
+      rateLimiter.executeWithRetry('steam', fn, 'no-retry', 3),
+    ).rejects.toThrow('403 Forbidden');
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });
