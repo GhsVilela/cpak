@@ -386,7 +386,7 @@ export class SteamAdapter {
                 // Some games have placeholder names in the schema API (e.g. "testtest"),
                 // so fall back to the Steam Store API when the name looks suspicious.
                 let gameName = game.name || gameSchema?.gameName || '';
-                if (!gameName || gameName.length <= 3 || /^(test|placeholder|unknown)/i.test(gameName)) {
+                if (!gameName || gameName.length <= 4 || /^(test|placeholder|unknown)/i.test(gameName)) {
                   const storeDetails = await this.getAppDetails(game.appid);
                   if (storeDetails?.name) {
                     logger.info({ appId: game.appid, oldName: gameName || '(empty)', newName: storeDetails.name }, 'Resolved game name from Steam Store API');
