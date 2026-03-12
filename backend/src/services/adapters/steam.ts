@@ -150,12 +150,48 @@ export class SteamAdapter {
         }
         const data = await response.json() as any;
         if (!data.playerstats?.success) {
-          return [];
+          // For refunded/removed games, GetPlayerAchievements returns
+          // { success: false, error: "Profile is not public" } even when the
+          // profile IS public.  Fall back to GetUserStatsForGame which may
+          // still return achievement data for these edge-case titles.
+          const fallback = await this.getPlayerAchievementsFallback(steamId, appId);
+          if (fallback.length > 0) {
+            logger.info({ appId, achievements: fallback.length }, 'Recovered achievements via GetUserStatsForGame fallback');
+          }
+          return fallback;
         }
         return data.playerstats?.achievements || [];
       },
       `${steamId}:${appId}`
     );
+  }
+
+  /**
+   * Fallback for achievement data using GetUserStatsForGame/v2.
+   * This endpoint returns achievements in a different format ({name, achieved})
+   * and can succeed for refunded/family-shared games where GetPlayerAchievements
+   * returns "Profile is not public".
+   */
+  private async getPlayerAchievementsFallback(steamId: string, appId: number): Promise<SteamAchievement[]> {
+    const url = `${this.baseUrl}/ISteamUserStats/GetUserStatsForGame/v2/?key=${this.apiKey}&steamid=${steamId}&appid=${appId}`;
+
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) return [];
+      const data = await response.json() as any;
+      const achievements = data?.playerstats?.achievements;
+      if (!Array.isArray(achievements)) return [];
+
+      // GetUserStatsForGame returns { name, achieved } — map to SteamAchievement shape
+      return achievements.map((a: any) => ({
+        apiname: a.name,
+        achieved: a.achieved ?? 0,
+        unlocktime: 0, // This endpoint doesn't provide unlock times
+      }));
+    } catch (error) {
+      logger.debug({ error: String(error), appId }, 'GetUserStatsForGame fallback failed');
+      return [];
+    }
   }
 
   async getGameSchema(appId: number): Promise<SteamGameSchema | null> {
@@ -381,16 +417,23 @@ export class SteamAdapter {
                   earnedAchievements 
                 }, 'Found game with unlocked achievements');
 
-                // Use game name from API data, fall back to schema gameName for
-                // family-shared / previously-synced games with no owned-games entry.
-                // Some games have placeholder names in the schema API (e.g. "testtest"),
-                // so fall back to the Steam Store API when the name looks suspicious.
-                let gameName = game.name || gameSchema?.gameName || '';
-                if (!gameName || gameName.length <= 4 || /^(test|placeholder|unknown)/i.test(gameName)) {
+                // Game name resolution — priority chain:
+                // 1. Owned game list name (most reliable, from GetOwnedGames/GetRecentlyPlayedGames)
+                // 2. Steam Store API (reliable for F2P, early access, family-shared games)
+                // 3. GetSchemaForGame (last resort — may return outdated or test names)
+                let gameName = game.name || '';
+                if (!gameName) {
                   const storeDetails = await this.getAppDetails(game.appid);
                   if (storeDetails?.name) {
-                    logger.info({ appId: game.appid, oldName: gameName || '(empty)', newName: storeDetails.name }, 'Resolved game name from Steam Store API');
+                    logger.info({ appId: game.appid, newName: storeDetails.name }, 'Resolved game name from Steam Store API');
                     gameName = storeDetails.name;
+                  }
+                }
+                if (!gameName && gameSchema?.gameName) {
+                  gameName = gameSchema.gameName;
+                  if (gameName.length <= 4 || /^(test|placeholder|unknown)/i.test(gameName)) {
+                    logger.info({ appId: game.appid, schemaName: gameName }, 'Discarding suspicious schema game name');
+                    gameName = '';
                   }
                 }
                 if (!gameName) gameName = `Unknown (${game.appid})`;
