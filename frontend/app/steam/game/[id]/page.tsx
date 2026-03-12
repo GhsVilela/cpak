@@ -14,7 +14,7 @@ interface Game {
   platform: string;
   lastPlayed?: string;
   playTimeMinutes?: number;
-  ownershipSource?: 'owned' | 'played_history' | 'recent';
+  ownershipSource?: 'owned' | 'played_history';
   achievementsFetchFailed?: boolean;
 }
 
@@ -159,12 +159,11 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
               </div>
             </div>
           )}
-          {game.ownershipSource && game.ownershipSource !== 'owned' && (
+          {game.ownershipSource === 'played_history' && (
             <div className="px-5 shrink-0 whitespace-nowrap">
               <div className="text-gray-400 text-xs uppercase tracking-wide">Source</div>
               <div className="font-semibold mt-0.5 text-yellow-400" title="This game is not in the owned games list">
-                {game.ownershipSource === 'played_history' ? 'Family Sharing / Removed Game'
-                  : 'Recently Played'}
+                {game.achievementsFetchFailed ? 'Revoked License' : 'Family Sharing'}
               </div>
             </div>
           )}

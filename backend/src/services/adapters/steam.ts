@@ -280,7 +280,7 @@ export class SteamAdapter {
       totalAchievements: number;
       earnedAchievements: number;
       iconHash?: string;
-      ownershipSource?: 'owned' | 'played_history' | 'recent';
+      ownershipSource?: 'owned' | 'played_history';
       achievementsFetchFailed?: boolean;
     }>;
     achievements: Array<{
@@ -331,7 +331,7 @@ export class SteamAdapter {
     // Merge all game sources, deduplicating by appId.
     // Priority: owned games first (have full data), then play-time history, then recent, then known.
     const gameMap = new Map<number, SteamGame>();
-    const ownershipSourceMap = new Map<number, 'owned' | 'played_history' | 'recent'>();
+    const ownershipSourceMap = new Map<number, 'owned' | 'played_history'>();
     for (const g of ownedGames) {
       gameMap.set(g.appid, g);
       ownershipSourceMap.set(g.appid, 'owned');
@@ -345,7 +345,7 @@ export class SteamAdapter {
     for (const g of recentGames) {
       if (!gameMap.has(g.appid)) {
         gameMap.set(g.appid, g);
-        ownershipSourceMap.set(g.appid, 'recent');
+        ownershipSourceMap.set(g.appid, 'played_history');
       }
     }
     // Re-check previously-synced games that are no longer in owned/recent (e.g. family-shared played long ago)
@@ -379,7 +379,7 @@ export class SteamAdapter {
         totalAchievements: number;
         earnedAchievements: number;
         iconHash?: string;
-        ownershipSource?: 'owned' | 'played_history' | 'recent';
+        ownershipSource?: 'owned' | 'played_history';
         achievementsFetchFailed?: boolean;
       }>;
       achievements: Array<{
