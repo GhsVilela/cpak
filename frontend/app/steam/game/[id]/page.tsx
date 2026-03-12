@@ -14,6 +14,8 @@ interface Game {
   platform: string;
   lastPlayed?: string;
   playTimeMinutes?: number;
+  ownershipSource?: 'owned' | 'played_history' | 'recent';
+  achievementsFetchFailed?: boolean;
 }
 
 interface Achievement {
@@ -150,10 +152,19 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
             </div>
           )}
           {game.lastPlayed && (
-            <div className="pl-5 shrink-0 whitespace-nowrap">
+            <div className="px-5 shrink-0 whitespace-nowrap">
               <div className="text-gray-400 text-xs uppercase tracking-wide">Last Played</div>
               <div className="font-semibold mt-0.5" title={new Date(game.lastPlayed).toLocaleString()}>
                 {formatLastPlayed(game.lastPlayed)}
+              </div>
+            </div>
+          )}
+          {game.ownershipSource && game.ownershipSource !== 'owned' && (
+            <div className="px-5 shrink-0 whitespace-nowrap">
+              <div className="text-gray-400 text-xs uppercase tracking-wide">Source</div>
+              <div className="font-semibold mt-0.5 text-yellow-400" title="This game is not in the owned games list">
+                {game.ownershipSource === 'played_history' ? 'Family Sharing / Removed Game'
+                  : 'Recently Played'}
               </div>
             </div>
           )}
@@ -165,6 +176,21 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
           />
         </div>
       </div>
+
+      {/* Warning banner for games with failed achievement fetch */}
+      {game.achievementsFetchFailed && (
+        <div className="bg-yellow-900/20 border border-yellow-600 text-yellow-400 px-4 py-3 rounded-lg mb-6 flex items-start gap-3">
+          <span className="text-xl mt-0.5">⚠️</span>
+          <div>
+            <p className="font-semibold">Achievement data unavailable</p>
+            <p className="text-sm text-yellow-500 mt-1">
+              This game appears in your play history but unlocked achievements could not be fetched.
+              This usually happens when a game license has been revoked due to a refunded game, a limited-time free-to-play campaign, or no longer being part of a family sharing group.
+              The game is still shown in your library for reference.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Achievements list */}
       <div className="space-y-6">

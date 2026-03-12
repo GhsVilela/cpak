@@ -19,6 +19,10 @@ export interface IGame extends Document {
   lastPlayed?: Date;
   /** Xbox-specific: total minutes played (from TitleHub API) */
   playTimeMinutes?: number;
+  /** How the game was discovered: owned, played_history (ClientGetLastPlayedTimes), or recent */
+  ownershipSource?: 'owned' | 'played_history' | 'recent';
+  /** True when achievement data could not be fetched (e.g. refunded/expired license) */
+  achievementsFetchFailed?: boolean;
   lastSyncedAt: Date;
 }
 
@@ -41,6 +45,8 @@ const GameSchema = new Schema<IGame>(
     maxGamerscore: { type: Number },
     lastPlayed: { type: Date },
     playTimeMinutes: { type: Number },
+    ownershipSource: { type: String, enum: ['owned', 'played_history', 'recent'] },
+    achievementsFetchFailed: { type: Boolean },
     lastSyncedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

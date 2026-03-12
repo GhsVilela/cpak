@@ -197,6 +197,8 @@ class SyncService {
                   ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
                   : 0,
               playTimeMinutes: game.playtimeMinutes,
+              ownershipSource: game.ownershipSource,
+              achievementsFetchFailed: game.achievementsFetchFailed || false,
               lastSyncedAt: new Date(),
             };
 

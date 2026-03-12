@@ -117,9 +117,16 @@ export async function getGames(
       }
     }
 
+    // When sorting by completionPercent, use achievementsUnlocked as tiebreaker
+    // so that games with 1 unlocked (0%) sort above games with 0 unlocked (0%)
+    const sortSpec: Record<string, 1 | -1> = { [sortField]: sortDirection as 1 | -1 };
+    if (sortField === 'completionPercent') {
+      sortSpec.achievementsUnlocked = sortDirection as 1 | -1;
+    }
+
     const games = await Game.find(filter)
       .collation({ locale: 'en', strength: 2 }) // Case-insensitive sorting
-      .sort({ [sortField]: sortDirection })
+      .sort(sortSpec)
       .limit(limitNum)
       .skip(offsetNum)
       .lean();

@@ -240,6 +240,37 @@ export class SteamAdapter {
     }
   }
 
+  /**
+   * Look up a game name from the Steam Community hub page.
+   * Works for delisted/removed games that the Store API no longer returns,
+   * as community hub pages typically persist after delisting.
+   */
+  private async getAppNameFromCommunity(appId: number): Promise<string | null> {
+    const url = `https://steamcommunity.com/app/${appId}`;
+
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(10_000),
+        redirect: 'follow',
+      });
+      if (!response.ok) return null;
+      const html = await response.text();
+      // The page title follows the pattern: "Steam Community :: Game Name"
+      const match = html.match(/<title>\s*Steam Community\s*::\s*(.+?)\s*<\/title>/i);
+      if (match?.[1]) {
+        const name = match[1].trim();
+        // Ignore generic error/redirect pages
+        if (name && name !== 'Error' && name !== 'Steam Community') {
+          return name;
+        }
+      }
+      return null;
+    } catch (error) {
+      logger.debug({ error: String(error), appId }, 'Steam Community name lookup failed');
+      return null;
+    }
+  }
+
   async syncGamesAndAchievements(steamId: string, syncOperation?: any, knownGameIds?: number[]): Promise<{
     games: Array<{
       appId: number;
@@ -249,6 +280,8 @@ export class SteamAdapter {
       totalAchievements: number;
       earnedAchievements: number;
       iconHash?: string;
+      ownershipSource?: 'owned' | 'played_history' | 'recent';
+      achievementsFetchFailed?: boolean;
     }>;
     achievements: Array<{
       appId: number;
@@ -298,12 +331,22 @@ export class SteamAdapter {
     // Merge all game sources, deduplicating by appId.
     // Priority: owned games first (have full data), then play-time history, then recent, then known.
     const gameMap = new Map<number, SteamGame>();
-    for (const g of ownedGames) gameMap.set(g.appid, g);
+    const ownershipSourceMap = new Map<number, 'owned' | 'played_history' | 'recent'>();
+    for (const g of ownedGames) {
+      gameMap.set(g.appid, g);
+      ownershipSourceMap.set(g.appid, 'owned');
+    }
     for (const g of playedGamesHistory) {
-      if (!gameMap.has(g.appid)) gameMap.set(g.appid, g);
+      if (!gameMap.has(g.appid)) {
+        gameMap.set(g.appid, g);
+        ownershipSourceMap.set(g.appid, 'played_history');
+      }
     }
     for (const g of recentGames) {
-      if (!gameMap.has(g.appid)) gameMap.set(g.appid, g);
+      if (!gameMap.has(g.appid)) {
+        gameMap.set(g.appid, g);
+        ownershipSourceMap.set(g.appid, 'recent');
+      }
     }
     // Re-check previously-synced games that are no longer in owned/recent (e.g. family-shared played long ago)
     if (knownGameIds) {
@@ -336,6 +379,8 @@ export class SteamAdapter {
         totalAchievements: number;
         earnedAchievements: number;
         iconHash?: string;
+        ownershipSource?: 'owned' | 'played_history' | 'recent';
+        achievementsFetchFailed?: boolean;
       }>;
       achievements: Array<{
         appId: number;
@@ -397,9 +442,16 @@ export class SteamAdapter {
 
                 const schemaTotalAchievements = gameSchema?.availableGameStats?.achievements?.length || 0;
                 const earnedAchievements = playerAchievements.filter((a) => a.achieved === 1).length;
+                const ownershipSource = ownershipSourceMap.get(game.appid);
 
-                // Skip games where the user hasn't unlocked any achievements
-                if (earnedAchievements === 0) {
+                // Achievement fetch failed: the game has a schema with achievements but we
+                // couldn't retrieve any player achievement data (e.g. refunded/expired license).
+                const achievementsFetchFailed = playerAchievements.length === 0 && schemaTotalAchievements > 0;
+
+                // Skip games where the user hasn't unlocked any achievements AND the
+                // achievement fetch didn't fail.  When the fetch failed (revoked license),
+                // we still want the game to appear in the list so the user gets feedback.
+                if (earnedAchievements === 0 && !achievementsFetchFailed) {
                   return null;
                 }
 
@@ -420,7 +472,8 @@ export class SteamAdapter {
                 // Game name resolution — priority chain:
                 // 1. Owned game list name (most reliable, from GetOwnedGames/GetRecentlyPlayedGames)
                 // 2. Steam Store API (reliable for F2P, early access, family-shared games)
-                // 3. GetSchemaForGame (last resort — may return outdated or test names)
+                // 3. Steam Community hub page (persists for delisted/removed games)
+                // 4. GetSchemaForGame (last resort — may return outdated or test names)
                 let gameName = game.name || '';
                 if (!gameName) {
                   const storeDetails = await this.getAppDetails(game.appid);
@@ -429,9 +482,16 @@ export class SteamAdapter {
                     gameName = storeDetails.name;
                   }
                 }
+                if (!gameName) {
+                  const communityName = await this.getAppNameFromCommunity(game.appid);
+                  if (communityName) {
+                    logger.info({ appId: game.appid, newName: communityName }, 'Resolved game name from Steam Community');
+                    gameName = communityName;
+                  }
+                }
                 if (!gameName && gameSchema?.gameName) {
                   gameName = gameSchema.gameName;
-                  if (gameName.length <= 4 || /^(test|placeholder|unknown)/i.test(gameName)) {
+                  if (gameName.length <= 4 || /^(test|placeholder|unknown|valvetestapp)/i.test(gameName)) {
                     logger.info({ appId: game.appid, schemaName: gameName }, 'Discarding suspicious schema game name');
                     gameName = '';
                   }
@@ -446,6 +506,8 @@ export class SteamAdapter {
                   totalAchievements,
                   earnedAchievements,
                   iconHash: game.img_icon_url,
+                  ownershipSource,
+                  achievementsFetchFailed: achievementsFetchFailed || undefined,
                 };
 
                 // Map achievements with metadata from schema
@@ -453,19 +515,35 @@ export class SteamAdapter {
                   gameSchema?.availableGameStats?.achievements?.map((a) => [a.name, a]) || []
                 );
 
-                const achievementsData = playerAchievements.map((achievement) => {
-                  const metadata = schemaMap.get(achievement.apiname);
-                  return {
+                // When achievement fetch failed but schema is available, create locked
+                // achievement entries from the schema so the game page shows the full list.
+                let achievementsData;
+                if (achievementsFetchFailed && gameSchema?.availableGameStats?.achievements) {
+                  achievementsData = gameSchema.availableGameStats.achievements.map((schemaAch) => ({
                     appId: game.appid,
-                    achievementId: achievement.apiname,
-                    name: metadata?.displayName || achievement.name || achievement.apiname,
-                    description: metadata?.description || achievement.description || '',
-                    unlocked: achievement.achieved === 1,
-                    unlockTime: achievement.unlocktime ? new Date(achievement.unlocktime * 1000) : undefined,
-                    icon: metadata?.icon,
-                    iconGray: metadata?.icongray,
-                  };
-                });
+                    achievementId: schemaAch.name,
+                    name: schemaAch.displayName || schemaAch.name,
+                    description: schemaAch.description || '',
+                    unlocked: false,
+                    unlockTime: undefined,
+                    icon: schemaAch.icon,
+                    iconGray: schemaAch.icongray,
+                  }));
+                } else {
+                  achievementsData = playerAchievements.map((achievement) => {
+                    const metadata = schemaMap.get(achievement.apiname);
+                    return {
+                      appId: game.appid,
+                      achievementId: achievement.apiname,
+                      name: metadata?.displayName || achievement.name || achievement.apiname,
+                      description: metadata?.description || achievement.description || '',
+                      unlocked: achievement.achieved === 1,
+                      unlockTime: achievement.unlocktime ? new Date(achievement.unlocktime * 1000) : undefined,
+                      icon: metadata?.icon,
+                      iconGray: metadata?.icongray,
+                    };
+                  });
+                }
 
                 return { game: gameData, achievements: achievementsData };
               } catch (error) {
