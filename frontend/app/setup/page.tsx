@@ -176,7 +176,7 @@ function SetupPageContent() {
               </div>
 
               <div className="bg-yellow-900/20 border border-yellow-700/50 rounded p-4">
-                <h3 className="text-sm font-semibold text-yellow-400 mb-2">⚠️ Important: Profile Privacy</h3>
+                <h3 className="text-sm font-semibold text-yellow-400 mb-2">⚠️ Important: Sync Details</h3>
                 <p className="text-xs text-gray-300 mb-2">
                   Your Steam profile must be set to <strong>Public</strong> for achievement syncing to work properly.
                 </p>
@@ -184,7 +184,7 @@ function SetupPageContent() {
                   If you experience sync issues or some games don't appear after syncing, verify if your profile is set to
                   Public. Steam may not return free-to-play games when profiles are set to Private or Friends Only.
                 </p>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-400 mb-2">
                   Go to{' '}
                   <a
                     href="https://steamcommunity.com/my/edit/settings"
@@ -195,6 +195,10 @@ function SetupPageContent() {
                     Privacy Settings
                   </a>{' '}
                   and set both <strong>"My profile"</strong> and <strong>"Game details"</strong> to Public.
+                </p>
+                <p className="text-xs text-gray-400">
+                  Some unlocked achievements may not be synced due to <strong>revoked licenses</strong> from a <strong>refunded</strong> game, a
+                  <strong> limited-time free-to-play</strong> campaign, or no longer being part of a <strong>family sharing</strong> group.
                 </p>
               </div>
 
