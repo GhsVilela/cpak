@@ -491,4 +491,138 @@ describe('Backup Route Handlers', () => {
       expect(reply.statusCode).toBe(500);
     });
   });
+
+  // --- getStatus extra branches ---
+  describe('getStatus (additional branch coverage)', () => {
+    it('returns backup job with compressing status and file count progress', async () => {
+      const activeJob = {
+        _id: { toString: () => 'job1' },
+        status: 'compressing',
+        fileSize: 3,
+        metadata: { totalFiles: 10 },
+      };
+      backupJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(activeJob) });
+      restoreJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      backupMetadataFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      existsSyncMock.mockReturnValue(false);
+
+      const reply = createMockReply();
+      await getStatus({} as any, reply);
+      expect(reply.body.backup.current.progress).toBeGreaterThan(0);
+      expect(reply.body.backup.current.message).toContain('files');
+    });
+
+    it('returns backup job with fallback status and progress from record count', async () => {
+      const activeJob = {
+        _id: { toString: () => 'job1' },
+        status: 'archiving',
+        totalRecords: 100,
+        recordsProcessed: 40,
+      };
+      backupJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(activeJob) });
+      restoreJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      backupMetadataFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      existsSyncMock.mockReturnValue(false);
+
+      const reply = createMockReply();
+      await getStatus({} as any, reply);
+      expect(reply.body.backup.current.progress).toBe(40);
+    });
+
+    it('returns backup job with fallback status and zero progress when no records', async () => {
+      const activeJob = {
+        _id: { toString: () => 'job1' },
+        status: 'archiving',
+        totalRecords: 0,
+        recordsProcessed: 0,
+      };
+      backupJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(activeJob) });
+      restoreJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      backupMetadataFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      existsSyncMock.mockReturnValue(false);
+
+      const reply = createMockReply();
+      await getStatus({} as any, reply);
+      expect(reply.body.backup.current.progress).toBe(0);
+    });
+
+    it('returns active restore job with other/pending status using default message', async () => {
+      const activeRestore = {
+        _id: { toString: () => 'rjob1' },
+        status: 'pending',
+        totalRecords: 100,
+        recordsRestored: 50,
+        totalImages: 0,
+        imagesRestored: 0,
+        currentCollection: '',
+      };
+      backupJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      restoreJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(activeRestore) });
+      backupMetadataFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      existsSyncMock.mockReturnValue(false);
+
+      const reply = createMockReply();
+      await getStatus({} as any, reply);
+      expect(reply.body.restore.current.message).toContain('Processing');
+    });
+
+    it('returns last completed restore in response', async () => {
+      backupJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      restoreJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      let metaCallIndex = 0;
+      backupMetadataFindOneMock.mockImplementation(() => ({
+        sort: vi.fn().mockImplementation(() => {
+          metaCallIndex++;
+          if (metaCallIndex === 1) return Promise.resolve(null);
+          return Promise.resolve({ completedAt: new Date('2025-06-01'), metadata: { profiles: 2 } });
+        }),
+      }));
+      existsSyncMock.mockReturnValue(false);
+
+      const reply = createMockReply();
+      await getStatus({} as any, reply);
+      expect(reply.body.restore.lastCompleted).not.toBeNull();
+      expect(reply.body.restore.lastCompleted.metadata).toBeDefined();
+    });
+
+    it('returns last failed restore in response', async () => {
+      backupJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      let restoreCallIndex = 0;
+      restoreJobFindOneMock.mockImplementation(() => ({
+        sort: vi.fn().mockImplementation(() => {
+          restoreCallIndex++;
+          if (restoreCallIndex === 1) return Promise.resolve(null); // no active restore
+          return Promise.resolve({
+            _id: { toString: () => 'rj-failed' },
+            createdAt: new Date('2025-01-01'),
+            error: 'Something went wrong',
+          });
+        }),
+      }));
+      backupMetadataFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      existsSyncMock.mockReturnValue(false);
+
+      const reply = createMockReply();
+      await getStatus({} as any, reply);
+      expect(reply.body.restore.lastFailed).not.toBeNull();
+      expect(reply.body.restore.lastFailed.jobId).toBe('rj-failed');
+    });
+
+    it('returns preparing backup job with zero totalRecords (0% progress)', async () => {
+      const activeJob = {
+        _id: { toString: () => 'job1' },
+        status: 'preparing',
+        totalRecords: 0,
+        recordsProcessed: 0,
+      };
+      backupJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(activeJob) });
+      restoreJobFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      backupMetadataFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+      existsSyncMock.mockReturnValue(false);
+
+      const reply = createMockReply();
+      await getStatus({} as any, reply);
+      expect(reply.body.backup.current.progress).toBe(0);
+    });
+  });
 });

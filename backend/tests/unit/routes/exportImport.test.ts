@@ -145,5 +145,20 @@ describe('Export/Import Route Handlers', () => {
       } as any, reply);
       expect(reply.statusCode).toBe(500);
     });
+
+    it('handles missing optional arrays (profiles/games/achievements omitted)', async () => {
+      const reply = createMockReply();
+      await importData({
+        body: {
+          version: '1.0.0',
+          exportedAt: new Date().toISOString(),
+          // profiles, games, achievements, settings all absent
+        },
+      } as any, reply);
+      expect(reply.body.imported.profiles).toBe(0);
+      expect(reply.body.imported.games).toBe(0);
+      expect(reply.body.imported.achievements).toBe(0);
+      expect(reply.body.imported.settings).toBe(false);
+    });
   });
 });

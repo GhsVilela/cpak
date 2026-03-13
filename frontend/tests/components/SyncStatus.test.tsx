@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SyncStatus from '../../components/SyncStatus';
 
@@ -71,5 +71,27 @@ describe('SyncStatus', () => {
     await waitFor(() => {
       expect(screen.getByText('Network error')).toBeInTheDocument();
     });
+  });
+
+  it('resets syncing state to idle after 5 second timeout', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ message: 'Sync started' }),
+      } as Response),
+    );
+    render(<SyncStatus platform="steam" profileId="profile-1" />);
+    // fireEvent is synchronous and avoids fake-timer deadlocks with userEvent
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /sync now/i }));
+    });
+    // Advance past the 5-second timeout to trigger setSyncing(false)
+    await act(async () => {
+      vi.advanceTimersByTime(5001);
+    });
+    expect(screen.getByRole('button', { name: /sync now/i })).not.toBeDisabled();
+    vi.useRealTimers();
   });
 });

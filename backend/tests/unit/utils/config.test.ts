@@ -27,4 +27,12 @@ describe('config utils', () => {
     expect(config).toHaveProperty('IMAGES_DIR');
     expect(config).toHaveProperty('BACKUP_DIR');
   });
+
+  it('getAllowedOrigins splits comma-separated origins', () => {
+    const original = config.ALLOWED_ORIGINS;
+    config.ALLOWED_ORIGINS = 'http://localhost:3000,http://localhost:4000';
+    const origins = getAllowedOrigins();
+    expect(origins).toEqual(['http://localhost:3000', 'http://localhost:4000']);
+    config.ALLOWED_ORIGINS = original;
+  });
 });

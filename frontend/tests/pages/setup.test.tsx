@@ -4,6 +4,14 @@ import type React from 'react';
 
 const assignMock = vi.fn();
 
+const mockRouterPush = vi.fn((url: string) => { window.location.href = url; });
+const mockRouterReplace = vi.fn();
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockRouterPush, replace: mockRouterReplace, back: vi.fn() }),
+  useSearchParams: () => ({ get: () => null }),
+}));
+
 const mockApiGet = vi.fn().mockResolvedValue({});
 const mockApiPost = vi.fn().mockResolvedValue({ _id: 'p1' });
 

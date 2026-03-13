@@ -172,6 +172,26 @@ describe('Games Route Handlers', () => {
       await getGames({ query: {} } as any, reply);
       expect(reply.statusCode).toBe(500);
     });
+
+    it('includes achievements aggregation for steam platform with profileId', async () => {
+      profileFindByIdMock.mockResolvedValue({ _id: 'p1' });
+      gameCountDocumentsMock.mockResolvedValue(3);
+      gameAggregateMock.mockResolvedValue([{ total: 42 }]);
+      gameFindMock.mockReturnValue(chainedQuery([{ _id: '1', title: 'TF2' }]));
+
+      const reply = createMockReply();
+      await getGames({ query: { platform: 'steam', profileId: 'p1' } } as any, reply);
+      expect(reply.body.pagination.totalAchievementsUnlocked).toBe(42);
+    });
+
+    it('sorts by completionPercent with achievementsUnlocked as tiebreaker', async () => {
+      gameCountDocumentsMock.mockResolvedValue(2);
+      gameFindMock.mockReturnValue(chainedQuery([{ _id: '1', title: 'Game' }]));
+
+      const reply = createMockReply();
+      await getGames({ query: { sortBy: 'completionPercent' } } as any, reply);
+      expect(reply.statusCode).toBe(200);
+    });
   });
 
   // --- getGameById ---

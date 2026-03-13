@@ -50,20 +50,20 @@ describe('ProfileSelector', () => {
     expect(document.body.firstChild).toBeTruthy();
   });
 
-  it('shows no profiles message for empty platform', async () => {
+  it('renders nothing for empty platform (no profiles)', async () => {
     server.use(
       http.get('http://localhost/api/profiles', () =>
         HttpResponse.json([]),
       ),
     );
-    render(
+    const { container } = render(
       <ProfileSelector
         platform="playstation"
         onSelectProfile={vi.fn()}
       />,
     );
     await waitFor(() => {
-      expect(screen.getByText(/No playstation profiles configured/)).toBeInTheDocument();
+      expect(container.firstChild).toBeNull();
     });
   });
 
@@ -104,6 +104,20 @@ describe('ProfileSelector', () => {
     );
     await waitFor(() => {
       expect(selectFn).toHaveBeenCalledWith('p1');
+    });
+  });
+
+  it('calls onProfilesLoaded with the profile count after loading', async () => {
+    const onProfilesLoaded = vi.fn();
+    render(
+      <ProfileSelector
+        platform="steam"
+        onSelectProfile={vi.fn()}
+        onProfilesLoaded={onProfilesLoaded}
+      />,
+    );
+    await waitFor(() => {
+      expect(onProfilesLoaded).toHaveBeenCalledWith(1);
     });
   });
 });

@@ -85,6 +85,15 @@ describe('ConfigService', () => {
     expect(secretSetting!.value).toBe('');
   });
 
+  it('getAllSettings returns plain value for non-secret settings', async () => {
+    await configService.setSetting('scheduler_cron', '0 3 * * *', SettingCategory.SCHEDULER);
+    const settings = await configService.getAllSettings();
+    const setting = settings.find(s => s.key === 'scheduler_cron');
+    expect(setting).toBeDefined();
+    expect(setting!.isSecret).toBe(false);
+    expect(setting!.value).toBe('0 3 * * *');
+  });
+
   it('initializeDefaults creates default settings', async () => {
     // Delete all existing settings first
     const { Setting } = await import('../../../src/models/setting.js');

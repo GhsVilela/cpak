@@ -196,13 +196,13 @@ describe('Sync Route Handlers', () => {
     });
 
     it('shows progress phases correctly', async () => {
-      // Phase 1: Downloading images (gamesCompleted === 0)
+      // Phase 1: Downloading images (gamesProcessed === 0)
       syncOpFindOneMock.mockReturnValue({
         sort: vi.fn().mockResolvedValue({
           _id: { toString: () => 'op1' },
           status: 'running',
           totalGames: 10,
-          gamesCompleted: 0,
+          gamesProcessed: 0,
           imagesCompleted: 3,
           iconDownloadsPending: 0,
           iconDownloadsCompleted: 0,
@@ -221,7 +221,7 @@ describe('Sync Route Handlers', () => {
           _id: { toString: () => 'op1' },
           status: 'running',
           totalGames: 10,
-          gamesCompleted: 10,
+          gamesProcessed: 10,
           imagesCompleted: 10,
           iconDownloadsPending: 20,
           iconDownloadsCompleted: 10,
@@ -241,7 +241,7 @@ describe('Sync Route Handlers', () => {
           _id: { toString: () => 'op1' },
           status: 'running',
           totalGames: 10,
-          gamesCompleted: 10,
+          gamesProcessed: 10,
           imagesCompleted: 10,
           iconDownloadsPending: 20,
           iconDownloadsCompleted: 0,

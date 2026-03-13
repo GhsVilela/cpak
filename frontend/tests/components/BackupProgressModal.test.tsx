@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, act } from '@testing-library/react';
 import BackupProgressModal from '../../components/BackupProgressModal';
 
 describe('BackupProgressModal', () => {
@@ -56,5 +56,44 @@ describe('BackupProgressModal', () => {
     render(<BackupProgressModal isOpen={true} onClose={vi.fn()} currentProgress={progress} />);
     expect(screen.getByText('4.0 KB')).toBeInTheDocument();
     expect(screen.getByText('2.0 KB')).toBeInTheDocument();
+  });
+
+  it('shows B for files smaller than 1 KB', () => {
+    const progress = {
+      progress: { current: 100, total: 500, percentage: 20 },
+      status: 'downloading',
+    };
+    render(<BackupProgressModal isOpen={true} onClose={vi.fn()} currentProgress={progress} />);
+    expect(screen.getByText('500 B')).toBeInTheDocument();
+    expect(screen.getByText('100 B')).toBeInTheDocument();
+  });
+
+  it('shows GB for files larger than 1 GB', () => {
+    const progress = {
+      progress: { current: 2 * 1024 ** 3, total: 3 * 1024 ** 3, percentage: 67 },
+      status: 'downloading',
+    };
+    render(<BackupProgressModal isOpen={true} onClose={vi.fn()} currentProgress={progress} />);
+    expect(screen.getByText('3.00 GB')).toBeInTheDocument();
+    expect(screen.getByText('2.00 GB')).toBeInTheDocument();
+  });
+
+  it('shows elapsed time in minutes and Speed stat after 65 seconds', async () => {
+    vi.useFakeTimers();
+    const progress = {
+      progress: { current: 5 * 1024 * 1024, total: 10 * 1024 * 1024, percentage: 50 },
+      status: 'downloading',
+    };
+    render(<BackupProgressModal isOpen={true} onClose={vi.fn()} currentProgress={progress} />);
+    await act(async () => {
+      vi.advanceTimersByTime(65000);
+    });
+    expect(screen.getByText('1m 5s')).toBeInTheDocument();
+    expect(screen.getByText('Speed')).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 });

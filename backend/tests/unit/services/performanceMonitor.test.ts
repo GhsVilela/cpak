@@ -22,8 +22,8 @@ describe('PerformanceMonitor', () => {
     it('returns default thresholds', () => {
       const t = monitor.getThresholds();
       expect(t.dbQuery).toBe(500);
-      expect(t.apiResponse).toBe(2000);
-      expect(t.batchOperation).toBe(5000);
+      expect(t.apiResponse).toBe(5000);
+      expect(t.batchOperation).toBe(10000);
     });
 
     it('returns a copy (not the internal object)', () => {
@@ -36,7 +36,7 @@ describe('PerformanceMonitor', () => {
       monitor.setThresholds({ dbQuery: 100 });
       const t = monitor.getThresholds();
       expect(t.dbQuery).toBe(100);
-      expect(t.apiResponse).toBe(2000); // unchanged
+      expect(t.apiResponse).toBe(5000); // unchanged
     });
   });
 

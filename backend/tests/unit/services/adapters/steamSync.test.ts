@@ -266,7 +266,7 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
     expect(syncOp.save).toHaveBeenCalled();
     expect(syncOp.totalGames).toBeGreaterThanOrEqual(1);
     expect(findByIdMock).toHaveBeenCalledWith('op123');
-    expect(findByIdAndUpdateMock).toHaveBeenCalledWith('op123', { gamesCompleted: 1 });
+    expect(findByIdAndUpdateMock).toHaveBeenCalledWith('op123', { gamesProcessed: 1 });
   });
 
   it('throws when sync is cancelled mid-operation', async () => {
@@ -325,19 +325,13 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
     expect(result.games).toHaveLength(0);
   });
 
-  it('uses configService settings for batch size and concurrency', async () => {
-    getSettingMock.mockImplementation(async (key: string) => {
-      if (key === 'sync_batch_size') return '3';
-      if (key === 'sync_concurrency') return '2';
-      return null;
-    });
-
+  it('processes games using adaptive defaults (no configService lookup)', async () => {
     stubFetch({
       GetOwnedGames: { response: { games: [] } },
     });
 
-    await adapter.syncGamesAndAchievements('steamid123');
-    expect(getSettingMock).toHaveBeenCalledWith('sync_batch_size');
-    expect(getSettingMock).toHaveBeenCalledWith('sync_concurrency');
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+    expect(result.games).toEqual([]);
+    expect(result.adaptiveStats).toBeDefined();
   });
 });

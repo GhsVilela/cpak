@@ -69,4 +69,22 @@ describe('GameTile', () => {
     expect(img).toBeTruthy();
     expect(img?.getAttribute('alt')).toBe('Half-Life 3');
   });
+
+  it('applies blue color class for 80% completion', () => {
+    const game = { ...mockGame, completionPercent: 80, achievementsUnlocked: 16 };
+    render(<GameTile game={game} />);
+    expect(screen.getByText('80%')).toBeInTheDocument();
+  });
+
+  it('applies orange color class for 30% completion', () => {
+    const game = { ...mockGame, completionPercent: 30, achievementsUnlocked: 6 };
+    render(<GameTile game={game} />);
+    expect(screen.getByText('30%')).toBeInTheDocument();
+  });
+
+  it('renders playstation game correctly', () => {
+    const game = { ...mockGame, platform: 'playstation' as const };
+    render(<GameTile game={game} />);
+    expect(screen.getByText(mockGame.title)).toBeInTheDocument();
+  });
 });

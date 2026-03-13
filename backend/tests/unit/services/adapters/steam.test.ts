@@ -39,11 +39,10 @@ describe('SteamAdapter', () => {
     expect(summary).toBeNull();
   });
 
-  it('getPlayerSummary returns null on network error', async () => {
+  it('getPlayerSummary rejects on network error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
     const adapter = new SteamAdapter('fake-api-key');
-    const summary = await adapter.getPlayerSummary('76561197960287930');
-    expect(summary).toBeNull();
+    await expect(adapter.getPlayerSummary('76561197960287930')).rejects.toThrow('Network error');
   });
 
   // --- getOwnedGames ---
@@ -96,12 +95,11 @@ describe('SteamAdapter', () => {
     expect(achievements.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('getPlayerAchievements returns empty array on network failure', async () => {
+  it('getPlayerAchievements rejects on network failure', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
 
     const adapter = new SteamAdapter('fake-api-key');
-    const achievements = await adapter.getPlayerAchievements('76561197960287930', 10);
-    expect(achievements).toEqual([]);
+    await expect(adapter.getPlayerAchievements('76561197960287930', 10)).rejects.toThrow('Network error');
   });
 
   it('getPlayerAchievements returns empty when playerstats.success is false', async () => {
@@ -137,11 +135,10 @@ describe('SteamAdapter', () => {
     expect(schema!.availableGameStats!.achievements).toHaveLength(1);
   });
 
-  it('getGameSchema returns null on failure', async () => {
+  it('getGameSchema rejects on failure', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('timeout')));
     const adapter = new SteamAdapter('fake-api-key');
-    const schema = await adapter.getGameSchema(10);
-    expect(schema).toBeNull();
+    await expect(adapter.getGameSchema(10)).rejects.toThrow('timeout');
   });
 
   it('getGameSchema returns null when response has no game field', async () => {
@@ -156,11 +153,10 @@ describe('SteamAdapter', () => {
 
   // --- getOwnedGames error handling ---
 
-  it('getOwnedGames returns empty array on network error', async () => {
+  it('getOwnedGames rejects on network error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
     const adapter = new SteamAdapter('fake-api-key');
-    const games = await adapter.getOwnedGames('76561197960287930');
-    expect(games).toEqual([]);
+    await expect(adapter.getOwnedGames('76561197960287930')).rejects.toThrow('Network error');
   });
 
   // --- getGameDetails ---
