@@ -296,8 +296,9 @@ describe('Steam page — app/steam/page.tsx', () => {
     await waitFor(() => {
       expect(screen.getByText('Counter-Strike 2')).toBeInTheDocument();
     });
-    // Default: showHidden=false, so excludeHidden=true should be in the API call
-    const gamesCalls = getMock.mock.calls.filter((c: any[]) => c[0].includes('/games'));
+    // Default: showHidden=false, so excludeHidden=true should be in the main API call
+    // Filter out the internal unfiltered base-count call (limit=1) to get the real game-list call
+    const gamesCalls = getMock.mock.calls.filter((c: any[]) => c[0].includes('/games') && !c[0].includes('limit=1&offset=0'));
     const lastGamesCall = gamesCalls[gamesCalls.length - 1][0];
     expect(lastGamesCall).toContain('excludeHidden=true');
   });

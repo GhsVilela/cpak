@@ -84,6 +84,9 @@ function XboxPageContent() {
   const [generationFilter, setGenerationFilter] = useState('');
   const [totalCurrentGamerscore, setTotalCurrentGamerscore] = useState<number | undefined>(undefined);
   const [totalMaxGamerscore, setTotalMaxGamerscore] = useState<number | undefined>(undefined);
+  // Persistent gamerscore values — unfiltered, only refreshed on profile/sync change
+  const [baseGamerscore, setBaseGamerscore] = useState<number | undefined>(undefined);
+  const [xbox360Gamerscore, setXbox360Gamerscore] = useState<number | undefined>(undefined);
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(
     searchParams.get('profileId') || undefined
   );
@@ -130,6 +133,7 @@ function XboxPageContent() {
       setOnlyCompleted(savedOnlyCompleted);
       loadGames({ onlyCompleted: savedOnlyCompleted });
       loadSyncStatus();
+      loadBaseGamerscore();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, generationFilter]);
@@ -163,6 +167,21 @@ function XboxPageContent() {
     }
     setSelectedProfileId(profileId);
     router.push(`/xbox?profileId=${profileId}`, { scroll: false });
+  };
+
+  // Fetch unfiltered gamerscore totals (persists regardless of UI filters)
+  const loadBaseGamerscore = async () => {
+    if (!selectedProfileId) return;
+    try {
+      const [allRes, x360Res] = await Promise.all([
+        apiClient.get<GamesResponse>(`/games?platform=xbox&profileId=${selectedProfileId}&limit=1&offset=0`),
+        apiClient.get<GamesResponse>(`/games?platform=xbox&profileId=${selectedProfileId}&limit=1&offset=0&device=Xbox360`),
+      ]);
+      setBaseGamerscore(allRes.pagination.totalCurrentGamerscore);
+      setXbox360Gamerscore(x360Res.pagination.totalCurrentGamerscore);
+    } catch {
+      // ignore — not critical
+    }
   };
 
   const handleProfileError = (errorMessage: string) => {
@@ -387,14 +406,25 @@ function XboxPageContent() {
         {/* Last Sync Info */}
         {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
           <div className="mb-4 flex items-center gap-3 text-sm text-gray-400 flex-wrap">
-            {totalMaxGamerscore !== undefined && totalMaxGamerscore > 0 && (
+            {baseGamerscore !== undefined && baseGamerscore > 0 && (
               <>
-                <span>
+                <span title="Total gamerscore from all platforms.">
                   <span>Gamerscore: </span>
                   <span className="font-bold text-[var(--xbox-accent)]">
-                    {(totalCurrentGamerscore ?? 0).toLocaleString()}
+                    {baseGamerscore.toLocaleString()}
                   </span>
                 </span>
+                {xbox360Gamerscore !== undefined && xbox360Gamerscore > 0 && (
+                  <>
+                    <span className="text-gray-600">|</span>
+                    <span title="Total gamerscore from xbox 360 only.">
+                      <span>Xbox 360: </span>
+                      <span className="font-bold text-[var(--xbox-accent)]">
+                        {xbox360Gamerscore.toLocaleString()}
+                      </span>
+                    </span>
+                  </>
+                )}
                 <span className="text-gray-600">|</span>
               </>
             )}

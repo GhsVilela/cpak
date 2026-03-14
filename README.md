@@ -13,14 +13,16 @@ Achievements are more than just a game feature, they're memories. CPAK is a self
 
 ## Features
 
-- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation (Steam, Xbox MVP ready)
+- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation (Steam and Xbox fully supported; PlayStation in progress)
 - **Self-Hosted**: Run on your own infrastructure with Docker
 - **Unified Container**: All-in-one image with web server, backend, frontend, and MongoDB
 - **UI-Based Configuration**: Configure API keys and all other settings through the web interface (no environment variables needed)
 - **Responsive Design**: Mobile-ready UI with Tailwind CSS
 - **Automatic Sync**: Scheduler to keep your achievements up to date
 - **Image Integration**: SteamGridDB support for game artwork
-- **Backup and Restore**: Backups all profiles, games, achievements and images to a zip file
+- **Backup and Restore**: Backup and restore all profiles, games, achievements, and images to a zip file
+- **Steam Profile Showcase**: Displays your total achievement count from your Steam profile showcase alongside tracked and untracked stats
+- **Xbox Gamerscore Tracking**: Shows total Gamerscore and Xbox 360 Gamerscore separately
 
 ## Quick Start
 
@@ -273,10 +275,18 @@ cpak/
 
 ## Contributing
 
-1. Follow the speckit workflow (see `https://github.com/github/spec-kit`)
-2. Update tasks as you go
-3. Ensure all build/tests pass before submitting
-4. Follow constitution principles (see `.specify/memory/constitution.md`)
+Contributions are welcome in any form, with or without AI assistance.
+
+- If you'd like to follow the spec-driven workflow used in this project, see [Speckit](https://github.com/github/spec-kit). It's a great way to keep changes aligned with documented specs and tasks, but it is entirely optional.
+- Traditional contributions (bug fixes, features, tests, docs) are just as welcome, open an issue or a pull request and we'll take it from there.
+- Ensure all builds and tests pass before submitting.
+- Where relevant, follow the existing code conventions in the repo.
+
+## Legal Disclaimer
+
+This project is not affiliated with, endorsed by, or associated with Valve Corporation, Microsoft, or Sony Interactive Entertainment in any way. All trademarks and registered trademarks are the property of their respective owners.
+
+cpak uses publicly available APIs to retrieve achievement and game data on behalf of users, using credentials and API keys that users provide themselves. All data is fetched and stored locally on the user's own infrastructure. No data is sent to any third-party service by this application.
 
 ## License
 

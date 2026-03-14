@@ -440,21 +440,21 @@ function SteamPageContent() {
           <div className="mb-4 flex items-center gap-3 text-sm text-gray-400 flex-wrap">
             {baseTrackedAchievements !== undefined && showcaseAchievements != null ? (
               <>
-                <span>
-                  <span>Achievements Unlocked: </span>
+                <span title="Total unlocked achievements from your steam profile showcase.">
+                  <span>Profile Total: </span>
                   <span className="font-bold text-[var(--steam-accent)]">
                     {showcaseAchievements.toLocaleString()}
                   </span>
                 </span>
                 <span className="text-gray-600">|</span>
-                <span>
+                <span title="Achievements tracked by cpak from API-accessible games.">
                   <span>Tracked: </span>
                   <span className="font-bold text-[var(--steam-accent)]">
                     {baseTrackedAchievements.toLocaleString()}
                   </span>
                 </span>
                 <span className="text-gray-600">|</span>
-                <span>
+                <span title="Achievements cpak couldn't fetch, likely from games with revoked licenses.">
                   <span>Untracked: </span>
                   <span className="font-bold text-yellow-400">
                     {Math.max(0, showcaseAchievements - baseTrackedAchievements).toLocaleString()}
@@ -464,7 +464,7 @@ function SteamPageContent() {
               </>
             ) : baseTrackedAchievements !== undefined ? (
               <>
-                <span>
+                <span title="Total achievements tracked by cpak. May differ from steam profile total if some played games licenses were revoked.">
                   <span>Achievements Unlocked: </span>
                   <span className="font-bold text-[var(--steam-accent)]">
                     {baseTrackedAchievements.toLocaleString()}
@@ -520,7 +520,10 @@ function SteamPageContent() {
               showHidden ? 'translate-x-6' : 'translate-x-1'
             }`} />
           </button>
-          <span className="text-sm">Show Hidden</span>
+          <span
+            className="text-sm cursor-default"
+            title="Show games with revoked licenses. These games may have achievements unlocked but are no longer accessible via the Steam API."
+          >Show Hidden</span>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-400">Sort by:</label>
             <select
