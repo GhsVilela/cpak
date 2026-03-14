@@ -13,7 +13,7 @@ ARG VERSION=dev
 # ============================================================================
 # Stage 1: Backend Builder
 # ============================================================================
-FROM node:${NODE_VERSION}-alpine AS backend-builder
+FROM node:${NODE_VERSION}-slim AS backend-builder
 
 WORKDIR /build/backend
 
