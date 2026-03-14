@@ -117,6 +117,21 @@ describe('Games Route Handlers', () => {
       expect(reply.body.pagination.total).toBe(0);
     });
 
+    it('excludes hidden games when excludeHidden is true', async () => {
+      gameCountDocumentsMock.mockResolvedValue(1);
+      gameFindMock.mockReturnValue(chainedQuery([{ _id: '1', title: 'Visible Game' }]));
+
+      const reply = createMockReply();
+      await getGames({ query: { excludeHidden: 'true' } } as any, reply);
+      expect(reply.body.data).toHaveLength(1);
+      // Verify $or filter was applied to the countDocuments call
+      const filterArg = gameCountDocumentsMock.mock.calls[0][0];
+      expect(filterArg.$or).toEqual([
+        { ownershipSource: { $ne: 'played_history' } },
+        { achievementsFetchFailed: { $ne: true } },
+      ]);
+    });
+
     it('filters by device PlayAnywhere', async () => {
       gameCountDocumentsMock.mockResolvedValue(0);
       gameFindMock.mockReturnValue(chainedQuery([]));

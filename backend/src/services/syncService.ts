@@ -146,6 +146,17 @@ class SyncService {
       logger.warn({ error, profileId: profile.profileId }, 'Failed to fetch Steam display name');
     }
 
+    // Scrape achievement showcase count from Steam community profile page
+    try {
+      const showcaseCount = await steamAdapter.getProfileShowcaseAchievements(profile.profileId);
+      await Profile.findByIdAndUpdate(profile._id, { steamShowcaseAchievements: showcaseCount });
+      if (showcaseCount != null) {
+        logger.info({ profileId: profile.profileId, showcaseCount }, 'Updated Steam showcase achievement count');
+      }
+    } catch (error) {
+      logger.warn({ error, profileId: profile.profileId }, 'Failed to scrape Steam achievement showcase');
+    }
+
     // Fetch previously-synced game IDs so family-shared / removed games aren't lost
     const previousGames = await Game.find(
       { profileId: profile._id, platform: 'steam' },

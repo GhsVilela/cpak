@@ -17,6 +17,8 @@ interface Game {
   completionPercent: number;
   imagePath?: string;
   profileId: string;
+  ownershipSource?: 'owned' | 'played_history';
+  achievementsFetchFailed?: boolean;
 }
 
 interface GamesResponse {
@@ -61,6 +63,7 @@ function SteamPageContent() {
   const [error, setError] = useState('');
   const [noProfiles, setNoProfiles] = useState(false);
   const [onlyCompleted, setOnlyCompleted] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -71,7 +74,11 @@ function SteamPageContent() {
     searchParams.get('profileId') || undefined
   );
   
-  const [totalAchievementsUnlocked, setTotalAchievementsUnlocked] = useState<number | undefined>(undefined);
+  // Persistent tracked achievement count — unfiltered, only refreshed on profile/sync change
+  const [baseTrackedAchievements, setBaseTrackedAchievements] = useState<number | undefined>(undefined);
+
+  // Steam profile showcase achievements (scraped during sync)
+  const [showcaseAchievements, setShowcaseAchievements] = useState<number | null>(null);
 
   // Sync status and polling
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -91,11 +98,30 @@ function SteamPageContent() {
 
   useEffect(() => {
     if (selectedProfileId) {
-      loadGames();
+      // Load per-profile toggle state synchronously before loading games
+      const savedOnlyCompleted = localStorage.getItem(`steam_onlyCompleted_${selectedProfileId}`) === 'true';
+      const savedShowHidden = localStorage.getItem(`steam_showHidden_${selectedProfileId}`) === 'true';
+      setOnlyCompleted(savedOnlyCompleted);
+      setShowHidden(savedShowHidden);
+      loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
+      loadShowcaseData();
+      loadBaseTrackedAchievements();
     }
-  }, [onlyCompleted, selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger]);
+  }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger]);
+
+  // Reload games when toggle state changes (user clicks a toggle)
+  const toggleReloadRef = useRef(false);
+  useEffect(() => {
+    if (!toggleReloadRef.current) {
+      toggleReloadRef.current = true;
+      return;
+    }
+    if (selectedProfileId) {
+      loadGames({ onlyCompleted, showHidden });
+    }
+  }, [onlyCompleted, showHidden]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -124,6 +150,35 @@ function SteamPageContent() {
     router.push(`/steam?profileId=${profileId}`, { scroll: false });
   };
 
+  // Fetch unfiltered total achievements unlocked for this profile (persists regardless of UI filters)
+  const loadBaseTrackedAchievements = async () => {
+    if (!selectedProfileId) return;
+    try {
+      const params = new URLSearchParams({
+        platform: 'steam',
+        profileId: selectedProfileId,
+        limit: '1',
+        offset: '0',
+      });
+      const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
+      setBaseTrackedAchievements(response.pagination.totalAchievementsUnlocked);
+    } catch {
+      // ignore — not critical
+    }
+  };
+
+  // Load existing showcase data from profile
+  const loadShowcaseData = async () => {
+    if (!selectedProfileId) return;
+    try {
+      const profiles = await apiClient.get<any[]>('/profiles?platform=steam');
+      const profile = profiles.find((p: any) => p._id === selectedProfileId);
+      setShowcaseAchievements(profile?.steamShowcaseAchievements ?? null);
+    } catch {
+      // ignore — showcase is optional
+    }
+  };
+
   const handleProfileError = (errorMessage: string) => {
     setError(errorMessage);
   };
@@ -135,7 +190,7 @@ function SteamPageContent() {
     await loadGames({ page: 1, perPage: newItemsPerPage });
   };
 
-  const loadGames = async (overrides?: { page?: number; perPage?: number }) => {
+  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; showHidden?: boolean }) => {
     if (!selectedProfileId) return;
 
     setLoading(true);
@@ -143,6 +198,8 @@ function SteamPageContent() {
 
     const page = overrides?.page ?? currentPage;
     const perPage = overrides?.perPage ?? itemsPerPage;
+    const effectiveOnlyCompleted = overrides?.onlyCompleted ?? onlyCompleted;
+    const effectiveShowHidden = overrides?.showHidden ?? showHidden;
 
     try {
       const params = new URLSearchParams({
@@ -154,14 +211,16 @@ function SteamPageContent() {
         sortOrder: sortOrder,
       });
       
-      if (onlyCompleted) {
+      if (effectiveOnlyCompleted) {
         params.append('onlyCompleted', 'true');
+      }
+      if (!effectiveShowHidden) {
+        params.append('excludeHidden', 'true');
       }
 
       const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
       setGames(response.data);
       setTotalCount(response.pagination.total);
-      setTotalAchievementsUnlocked(response.pagination.totalAchievementsUnlocked);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load games');
     } finally {
@@ -379,17 +438,41 @@ function SteamPageContent() {
         {/* Last Sync Info */}
         {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
           <div className="mb-4 flex items-center gap-3 text-sm text-gray-400 flex-wrap">
-            {totalAchievementsUnlocked !== undefined && (
+            {baseTrackedAchievements !== undefined && showcaseAchievements != null ? (
               <>
                 <span>
-                  <span>Achievements unlocked: </span>
+                  <span>Achievements Unlocked: </span>
                   <span className="font-bold text-[var(--steam-accent)]">
-                    {totalAchievementsUnlocked.toLocaleString()}
+                    {showcaseAchievements.toLocaleString()}
+                  </span>
+                </span>
+                <span className="text-gray-600">|</span>
+                <span>
+                  <span>Tracked: </span>
+                  <span className="font-bold text-[var(--steam-accent)]">
+                    {baseTrackedAchievements.toLocaleString()}
+                  </span>
+                </span>
+                <span className="text-gray-600">|</span>
+                <span>
+                  <span>Untracked: </span>
+                  <span className="font-bold text-yellow-400">
+                    {Math.max(0, showcaseAchievements - baseTrackedAchievements).toLocaleString()}
                   </span>
                 </span>
                 <span className="text-gray-600">|</span>
               </>
-            )}
+            ) : baseTrackedAchievements !== undefined ? (
+              <>
+                <span>
+                  <span>Achievements Unlocked: </span>
+                  <span className="font-bold text-[var(--steam-accent)]">
+                    {baseTrackedAchievements.toLocaleString()}
+                  </span>
+                </span>
+                <span className="text-gray-600">|</span>
+              </>
+            ) : null}
             <span>
               Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
               {syncStatus.lastCompleted.status === 'success' ? (
@@ -403,15 +486,41 @@ function SteamPageContent() {
 
         {selectedProfileId && (
         <div className="flex items-center gap-4 flex-wrap">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={onlyCompleted}
-              onChange={(e) => setOnlyCompleted(e.target.checked)}
-              className="w-4 h-4"
-            />
-            <span>100% Only</span>
-          </label>
+          <button
+            role="switch"
+            aria-checked={onlyCompleted}
+            onClick={() => {
+              const next = !onlyCompleted;
+              setOnlyCompleted(next);
+              if (selectedProfileId) localStorage.setItem(`steam_onlyCompleted_${selectedProfileId}`, String(next));
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              onlyCompleted ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              onlyCompleted ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+          <span className="text-sm">100% Only</span>
+
+          <button
+            role="switch"
+            aria-checked={showHidden}
+            onClick={() => {
+              const next = !showHidden;
+              setShowHidden(next);
+              if (selectedProfileId) localStorage.setItem(`steam_showHidden_${selectedProfileId}`, String(next));
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              showHidden ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              showHidden ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+          <span className="text-sm">Show Hidden</span>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-400">Sort by:</label>
             <select
@@ -514,7 +623,7 @@ function SteamPageContent() {
         <GameGrid 
           games={games} 
           loading={loading}
-          emptyMessage={onlyCompleted ? 'No 100% completed games. Try disabling the filter.' : 'No games found.'}
+          emptyMessage={onlyCompleted ? 'No 100% completed Steam games yet.' : 'No Steam games found. Try syncing your profile.'}
         />
       )}
 

@@ -7,6 +7,7 @@ interface GamesQuery {
   platform?: 'steam' | 'xbox' | 'playstation';
   profileId?: string;
   onlyCompleted?: string;
+  excludeHidden?: string;
   limit?: string;
   offset?: string;
   sortBy?: string;
@@ -24,6 +25,7 @@ export async function getGames(
       platform, 
       profileId, 
       onlyCompleted, 
+      excludeHidden,
       limit = '50', 
       offset = '0',
       sortBy = 'title',
@@ -57,6 +59,14 @@ export async function getGames(
     // Filter by completion (100% only)
     if (onlyCompleted === 'true') {
       filter.completionPercent = 100;
+    }
+
+    // Exclude hidden games (revoked licenses: played_history + achievementsFetchFailed)
+    if (excludeHidden === 'true') {
+      filter.$or = [
+        { ownershipSource: { $ne: 'played_history' } },
+        { achievementsFetchFailed: { $ne: true } },
+      ];
     }
 
     // Filter by console generation / platform (Xbox only — matches devices[] array field)

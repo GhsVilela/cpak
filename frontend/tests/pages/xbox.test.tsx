@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const pushMock = vi.fn();
 
@@ -54,6 +55,7 @@ vi.mock('../../services/apiClient', () => ({
 
 describe('Xbox page — app/xbox/page.tsx (T020)', () => {
   beforeEach(() => {
+    localStorage.clear();
     mockApiGet.mockImplementation((path: string) => {
       if (path.startsWith('/profiles')) {
         return Promise.resolve([mockXboxProfile]);
@@ -142,5 +144,37 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
           document.body.firstChild,
       ).toBeTruthy();
     });
+  });
+
+  it('renders 100% Only as a toggle switch', async () => {
+    const { default: XboxPage } = await import('../../app/xbox/page');
+    render(<XboxPage />);
+    await waitFor(() => {
+      expect(screen.queryByText(/halo/i) || document.body.firstChild).toBeTruthy();
+    });
+    const toggle = screen.getByRole('switch');
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('100% Only')).toBeInTheDocument();
+  });
+
+  it('persists 100% Only toggle per profile in localStorage', async () => {
+    const user = userEvent.setup();
+    const { default: XboxPage } = await import('../../app/xbox/page');
+    render(<XboxPage />);
+    await waitFor(() => {
+      expect(screen.getByRole('switch')).toBeInTheDocument();
+    });
+    const toggle = screen.getByRole('switch');
+    await user.click(toggle);
+    expect(localStorage.getItem('xbox_onlyCompleted_xbox-profile-1')).toBe('true');
+  });
+
+  it('does not render a Show Hidden toggle', async () => {
+    const { default: XboxPage } = await import('../../app/xbox/page');
+    render(<XboxPage />);
+    await waitFor(() => {
+      expect(screen.queryByText(/halo/i) || document.body.firstChild).toBeTruthy();
+    });
+    expect(screen.queryByText('Show Hidden')).not.toBeInTheDocument();
   });
 });

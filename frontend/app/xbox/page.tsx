@@ -126,11 +126,25 @@ function XboxPageContent() {
 
   useEffect(() => {
     if (selectedProfileId) {
-      loadGames();
+      const savedOnlyCompleted = localStorage.getItem(`xbox_onlyCompleted_${selectedProfileId}`) === 'true';
+      setOnlyCompleted(savedOnlyCompleted);
+      loadGames({ onlyCompleted: savedOnlyCompleted });
       loadSyncStatus();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onlyCompleted, selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, generationFilter]);
+  }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, generationFilter]);
+
+  // Reload games when toggle state changes (user clicks a toggle)
+  const toggleReloadRef = useRef(false);
+  useEffect(() => {
+    if (!toggleReloadRef.current) {
+      toggleReloadRef.current = true;
+      return;
+    }
+    if (selectedProfileId) {
+      loadGames({ onlyCompleted });
+    }
+  }, [onlyCompleted]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -264,7 +278,7 @@ function XboxPageContent() {
     }
   };
 
-  const loadGames = async (overrides?: { page?: number; perPage?: number }) => {
+  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean }) => {
     if (!selectedProfileId) return;
 
     setLoading(true);
@@ -272,6 +286,7 @@ function XboxPageContent() {
 
     const page = overrides?.page ?? currentPage;
     const perPage = overrides?.perPage ?? itemsPerPage;
+    const effectiveOnlyCompleted = overrides?.onlyCompleted ?? onlyCompleted;
 
     try {
       const params = new URLSearchParams({
@@ -283,7 +298,7 @@ function XboxPageContent() {
         sortOrder: sortOrder,
       });
 
-      if (onlyCompleted) {
+      if (effectiveOnlyCompleted) {
         params.append('onlyCompleted', 'true');
       }
       if (generationFilter) {
@@ -397,15 +412,23 @@ function XboxPageContent() {
         {/* Filters */}
         {selectedProfileId && (
           <div className="flex items-center gap-4 flex-wrap">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={onlyCompleted}
-                onChange={(e) => setOnlyCompleted(e.target.checked)}
-                className="w-4 h-4"
-              />
-              <span>100% Only</span>
-            </label>
+            <button
+              role="switch"
+              aria-checked={onlyCompleted}
+              onClick={() => {
+                const next = !onlyCompleted;
+                setOnlyCompleted(next);
+                if (selectedProfileId) localStorage.setItem(`xbox_onlyCompleted_${selectedProfileId}`, String(next));
+              }}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                onlyCompleted ? 'bg-[var(--xbox-accent)]' : 'bg-gray-600'
+              }`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                onlyCompleted ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+            <span className="text-sm">100% Only</span>
 
             {/* Generation filter */}
             <div className="flex items-center gap-2">
@@ -521,7 +544,7 @@ function XboxPageContent() {
           loading={loading}
           emptyMessage={
             onlyCompleted
-              ? 'No 100% completed Xbox games yet'
+              ? 'No 100% completed Xbox games yet.'
               : 'No Xbox games found. Try syncing your profile.'
           }
         />

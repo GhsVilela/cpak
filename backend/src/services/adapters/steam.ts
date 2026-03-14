@@ -938,6 +938,89 @@ export class SteamAdapter {
       appId.toString()
     );
   }
+  /**
+   * Scrape the Steam community profile page for the total achievements count
+   * shown in the achievement showcase. Returns null if the user doesn't have
+   * the achievement showcase enabled or the profile is private.
+   */
+  async getProfileShowcaseAchievements(steamId: string): Promise<number | null> {
+    const url = `https://steamcommunity.com/profiles/${steamId}`;
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(15_000),
+        redirect: 'follow',
+        headers: {
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      });
+      if (!response.ok) return null;
+      const html = await response.text();
+
+      // The achievement showcase is wrapped in <div class="achievement_showcase">.
+      // Inside it, a showcase_stats_row contains showcase_stat divs:
+      //   <div class="showcase_stat" data-tooltip-text="2,384 achievements in 412 different games.">
+      //     <div class="value">2,384</div>
+      //     <div class="label">Achievements</div>
+      //   </div>
+      //
+      // Other showcases on the page also use showcase_stat, so we MUST first
+      // isolate the achievement_showcase section to avoid false matches.
+      // We use indexOf to find the section start, then take a bounded window
+      // that covers the whole showcase block (stats row is within ~3000 chars).
+
+      const sectionStart = html.indexOf('achievement_showcase');
+      if (sectionStart === -1) {
+        logger.debug({ steamId }, 'No achievement_showcase div found on profile page');
+        return null;
+      }
+      // Take a generous window — the stats row sits within 3000 chars of the section start
+      const section = html.slice(sectionStart, sectionStart + 5000);
+
+      // Pattern 1: tooltip with "X achievements in N different games."
+      const tooltipMatch = section.match(
+        /data-tooltip-text="([\d,.]+)\s+achievements?\s+in\s+[\d,]+\s+different\s+games/i
+      );
+      if (tooltipMatch?.[1]) {
+        const count = parseInt(tooltipMatch[1].replace(/,/g, ''), 10);
+        if (!isNaN(count) && count > 0) {
+          logger.info({ steamId, count }, 'Found achievement showcase count (tooltip pattern)');
+          return count;
+        }
+      }
+
+      // Pattern 2: value div with "Achievements" label inside a showcase_stat block
+      const statMatch = section.match(
+        /<div[^>]*class="value"[^>]*>\s*([\d,]+)\s*<\/div>\s*<div[^>]*class="label"[^>]*>\s*Achievements\s*<\/div>/i
+      );
+      if (statMatch?.[1]) {
+        const count = parseInt(statMatch[1].replace(/,/g, ''), 10);
+        if (!isNaN(count) && count > 0) {
+          logger.info({ steamId, count }, 'Found achievement showcase count (stat block pattern)');
+          return count;
+        }
+      }
+
+      // Pattern 3: "+N" in showcase_achievement plus_more (total = shown + N)
+      const plusMoreMatch = section.match(
+        /showcase_achievement\s+plus_more[^>]*>\s*\+([\d,]+)/i
+      );
+      if (plusMoreMatch?.[1]) {
+        const shownCount = (section.match(/showcase_achievement\s+(?:first|")/gi) || []).length;
+        const moreCount = parseInt(plusMoreMatch[1].replace(/,/g, ''), 10);
+        const total = shownCount + moreCount;
+        if (!isNaN(total) && total > 0) {
+          logger.info({ steamId, count: total }, 'Found achievement showcase count (plus_more pattern)');
+          return total;
+        }
+      }
+
+      logger.debug({ steamId }, 'No achievement showcase found on profile page');
+      return null;
+    } catch (error) {
+      logger.debug({ error: String(error), steamId }, 'Failed to scrape achievement showcase');
+      return null;
+    }
+  }
 }
 
 export async function createSteamAdapter(apiKey?: string): Promise<SteamAdapter> {

@@ -13,6 +13,8 @@ export interface IProfile extends Document {
     expiresAt?: Date;
     scopes?: string[];
   };
+  /** Total achievements from Steam profile achievement showcase (null if not available). */
+  steamShowcaseAchievements?: number | null;
   createdAt: Date;
   updatedAt: Date;
   getDecryptedCredentials(): any;
@@ -28,6 +30,7 @@ const ProfileSchema = new Schema<IProfile>(
     profileId: { type: String, required: true },
     displayName: { type: String, required: true },
     credentials: { type: Schema.Types.Mixed, default: {} },
+    steamShowcaseAchievements: { type: Number, default: null },
   },
   { timestamps: true }
 );
