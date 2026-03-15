@@ -94,9 +94,9 @@ describe('Setup page — platform card selector (T008 / T017 / US1 / US4)', () =
     if (!xboxCard) { expect(document.body.firstChild).toBeTruthy(); return; }
     fireEvent.click(xboxCard);
     const signInBtn = await screen.findByRole('button', { name: /sign in with xbox/i });
+    // getAllSettings resolves async — wait for xboxConfigured=true so the button is enabled
+    await waitFor(() => expect(signInBtn).not.toBeDisabled());
     fireEvent.click(signInBtn);
-    await waitFor(() => {
-      const lastCallArg = mockApiGet.mock.calls[mockApiGet.mock.calls.length - 1][0] as string;
       expect(lastCallArg).toContain('/auth/xbox/url');
     });
     await waitFor(() => { expect(window.location.href).toBe('https://login.live.com/mock-auth-url'); });
@@ -110,11 +110,15 @@ describe('Setup page — platform card selector (T008 / T017 / US1 / US4)', () =
     if (!xboxCard) return;
     fireEvent.click(xboxCard);
     const signInBtn = await screen.findByRole('button', { name: /sign in with xbox/i });
+    // getAllSettings resolves async — wait for xboxConfigured=true so the button is enabled
+    await waitFor(() => expect(signInBtn).not.toBeDisabled());
     fireEvent.click(signInBtn);
     await waitFor(() => {
       expect(
         screen.queryByText(/not configured/i) ||
-          screen.queryByText(/configure|settings/i) ||
+          // use queryAllByText to avoid throwing when the static "configured" text
+          // in the "Before you connect" box also matches the same pattern
+          screen.queryAllByText(/configure|settings/i)[0] ||
           screen.queryByText(/error|failed/i),
       ).toBeTruthy();
     });
