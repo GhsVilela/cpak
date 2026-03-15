@@ -6,28 +6,13 @@
 		format json
 		level INFO
 	}
-	# auto_https off — TLS is managed explicitly by "tls internal" in the site
-	# block below.  Leaving auto_https on causes it to add its own TLS
-	# connection policies which conflict with the listener_wrappers { tls }
-	# wrapper and break the TLS handshake (ERR_SSL_PROTOCOL_ERROR).
-	auto_https off
-
-	# Intercept plain HTTP connections arriving on port 443 and redirect to
-	# HTTPS before the TLS handshake.  This means a single mapped port handles
-	# both http:// (auto-redirected) and https://.  The redirect URL preserves
-	# the Host header including any non-standard port, so
-	# http://host:30151/ correctly redirects to https://host:30151/.
-	servers :443 {
-		listener_wrappers {
-			http_redirect
-			tls
-		}
-		protocols h1 h2
-	}
 }
 
-# HTTPS on port 443 — self-signed certificate via Caddy internal CA
-https://:443 {
+# HTTPS on port 443 - self-signed certificate via Caddy internal CA.
+# Caddy automatically provisions a cert from its built-in CA and enables TLS.
+# It also creates an internal HTTP→HTTPS redirect listener on :80 which is
+# harmless if the host doesn’t map port 80.
+:443 {
 	tls internal
 
 	# API routes proxy to backend

@@ -123,7 +123,7 @@ When `ENCRYPTION_KEY` is set, all credentials are encrypted using AES-256-GCM be
 
 By default, cpak serves over plain HTTP (port 80). If you need HTTPS, for example, to register a non-localhost Xbox OAuth redirect URI, set `HTTPS_MODE=self-signed`. Caddy will automatically generate a self-signed certificate via its built-in CA.
 
-Only a single port needs to be mapped. Caddy detects whether an incoming connection is plain HTTP or TLS on the same port, plain HTTP requests are automatically redirected to HTTPS, preserving the host and port. For example, with `-p 30151:443`, both `http://host:30151` and `https://host:30151` work; the former redirects to the latter.
+Only a single port (443) needs to be mapped. Access cpak using `https://` in your browser.
 
 ```bash
 docker run -d \
