@@ -153,7 +153,8 @@ fi
 
 echo ""
 echo "📋 Configuration Summary:"
-echo "   Database Mode:    ${EXTERNAL_DB:+External}${EXTERNAL_DB:-Bundled}"
+   DB_MODE="${EXTERNAL_DB:+External}";
+   echo "   Database Mode:    ${DB_MODE:-Bundled}"
 echo "   Volume Mode:      $(mountpoint -q /app/data/db 2>/dev/null && echo 'Split' || echo 'Unified')"
 echo "   Images Path:      $IMAGES_PATH"
 echo "   MongoDB URI:      ${MONGO_URI}"

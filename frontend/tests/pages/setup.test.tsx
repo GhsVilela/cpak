@@ -97,6 +97,8 @@ describe('Setup page — platform card selector (T008 / T017 / US1 / US4)', () =
     // getAllSettings resolves async — wait for xboxConfigured=true so the button is enabled
     await waitFor(() => expect(signInBtn).not.toBeDisabled());
     fireEvent.click(signInBtn);
+    await waitFor(() => {
+      const lastCallArg = mockApiGet.mock.calls[mockApiGet.mock.calls.length - 1][0] as string;
       expect(lastCallArg).toContain('/auth/xbox/url');
     });
     await waitFor(() => { expect(window.location.href).toBe('https://login.live.com/mock-auth-url'); });

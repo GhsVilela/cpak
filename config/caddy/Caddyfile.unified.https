@@ -6,9 +6,11 @@
 		format json
 		level INFO
 	}
-	# auto_https is intentionally left on so Caddy can manage internal TLS;
-	# each site block below uses "tls internal" to opt into self-signed certs
-	# issued by Caddy's built-in CA instead of ACME / Let's Encrypt.
+	# auto_https off — TLS is managed explicitly by "tls internal" in the site
+	# block below.  Leaving auto_https on causes it to add its own TLS
+	# connection policies which conflict with the listener_wrappers { tls }
+	# wrapper and break the TLS handshake (ERR_SSL_PROTOCOL_ERROR).
+	auto_https off
 
 	# Intercept plain HTTP connections arriving on port 443 and redirect to
 	# HTTPS before the TLS handshake.  This means a single mapped port handles
@@ -31,7 +33,6 @@
 	handle /api/* {
 		reverse_proxy localhost:8080 {
 			header_up X-Real-IP {remote_host}
-			header_up X-Forwarded-For {remote_host}
 			header_up X-Forwarded-Proto https
 		}
 	}
@@ -45,7 +46,6 @@
 	handle {
 		reverse_proxy localhost:3000 {
 			header_up X-Real-IP {remote_host}
-			header_up X-Forwarded-For {remote_host}
 			header_up X-Forwarded-Proto https
 		}
 	}
