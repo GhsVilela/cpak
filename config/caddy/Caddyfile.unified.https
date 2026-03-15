@@ -22,11 +22,12 @@
 			http_redirect
 			tls
 		}
+		protocols h1 h2
 	}
 }
 
 # HTTPS on port 443 — self-signed certificate via Caddy internal CA
-:443 {
+https://:443 {
 	tls internal
 
 	# API routes proxy to backend

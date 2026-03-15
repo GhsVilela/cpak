@@ -19,12 +19,13 @@
 			http_redirect
 			tls
 		}
+		protocols h1 h2
 	}
 }
 
 # HTTPS on port 443 — user-provided certificate and private key.
 # Mount your cert to /etc/caddy/tls/cert.pem and key to /etc/caddy/tls/key.pem.
-:443 {
+https://:443 {
 	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
 
 	# API routes proxy to backend
