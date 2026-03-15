@@ -1,0 +1,61 @@
+{
+	# Global options
+	admin off
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+	# auto_https off — certificate is provided by the user via bind-mount
+	auto_https off
+
+	# Intercept plain HTTP connections arriving on port 443 and redirect to
+	# HTTPS before the TLS handshake.  This means a single mapped port handles
+	# both http:// (auto-redirected) and https://.  The redirect URL preserves
+	# the Host header including any non-standard port, so
+	# http://host:30151/ correctly redirects to https://host:30151/.
+	servers :443 {
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+	}
+}
+
+# HTTPS on port 443 — user-provided certificate and private key.
+# Mount your cert to /etc/caddy/tls/cert.pem and key to /etc/caddy/tls/key.pem.
+:443 {
+	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
+
+	# API routes proxy to backend
+	handle /api/* {
+		reverse_proxy localhost:8080 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Health check endpoint
+	handle /health {
+		reverse_proxy localhost:8080
+	}
+
+	# Frontend routes proxy to Next.js
+	handle {
+		reverse_proxy localhost:3000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Enable gzip compression
+	encode gzip
+
+	# Logging
+	log {
+		output stdout
+		format json
+	}
+}

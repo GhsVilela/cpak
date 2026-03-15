@@ -2187,8 +2187,10 @@ export class XboxAdapter {
     const throttler = new AdaptiveThrottler(SYNC_DEFAULTS.DELAY);
     const concurrencyController = new AdaptiveConcurrencyController(SYNC_DEFAULTS.CONCURRENCY, SYNC_DEFAULTS.MAX_CONCURRENCY, SYNC_DEFAULTS.MIN_CONCURRENCY);
 
-    // Separate concurrency limiter for icon downloads within each title
-    const iconLimit = pLimit(SYNC_DEFAULTS.CONCURRENCY);
+    // Separate concurrency limiter for icon downloads within each title.
+    // Capped at 5 because modern Xbox icons are 1080p+ (5-10 MB each) and
+    // higher concurrency saturates bandwidth, causing timeouts on NAS/server setups.
+    const iconLimit = pLimit(Math.min(SYNC_DEFAULTS.CONCURRENCY, 5));
 
     let achievementsSynced = 0;
     let titlesProcessed = 0;
@@ -2340,15 +2342,27 @@ export class XboxAdapter {
             logger.debug({ titleId: title.titleId, name: title.name, achievementCount: achievements.length }, 'GS4 title — icon URLs generated from public CDN, downloading below');
           }
 
+          // Build Xbox Live auth headers for non-360 icon downloads.
+          // The images-eds-ssl.xboxlive.com CDN may throttle/block unauthenticated
+          // requests from server IPs; passing the XBL3.0 token prevents timeouts.
+          const xblIconHeaders: Record<string, string> = {
+            Authorization: `XBL3.0 x=${userHash};${xstsToken}`,
+          };
+
           // Download achievement icons concurrently with staggered starts
           // to avoid overwhelming the Xbox CDN (images-eds-ssl.xboxlive.com).
+          // All Xbox icons (360 and modern) use wget — it streams directly to disk
+          // which is far better for modern 1080p+ images (5-10 MB each) than
+          // buffering in Node.js memory via fetch.
+          const ICON_CONCURRENCY = Math.min(SYNC_DEFAULTS.CONCURRENCY, 5);
+          const ICON_TIMEOUT_SECS = 120; // 2 minutes per icon
           let iconIndex = 0;
           const iconPromises = achievements.map((ach) =>
             iconLimit(async () => {
-              // Stagger concurrent requests: 50ms per slot to spread CDN load
+              // Stagger concurrent requests: 100ms per slot to spread CDN load
               const myIndex = iconIndex++;
               if (myIndex > 0) {
-                await new Promise((r) => setTimeout(r, 50 * (myIndex % SYNC_DEFAULTS.CONCURRENCY)));
+                await new Promise((r) => setTimeout(r, 100 * (myIndex % ICON_CONCURRENCY)));
               }
               let iconPath: string | undefined;
 
@@ -2358,8 +2372,10 @@ export class XboxAdapter {
                     ? await imageStorage.downloadAndStoreViaWget(
                         ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
                       )
-                    : await imageStorage.downloadAndStore(
+                    : await imageStorage.downloadAndStoreViaWget(
                         ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
+                        xblIconHeaders,
+                        ICON_TIMEOUT_SECS,
                       );
                   logger.debug({ url: ach.iconUrl, titleId: title.titleId, achievementId: ach.achievementId, isXbox360Title }, 'Xbox achievement icon downloaded');
                 } catch (err) {

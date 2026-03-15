@@ -119,6 +119,70 @@ environment:
 
 When `ENCRYPTION_KEY` is set, all credentials are encrypted using AES-256-GCM before storage. Without it, credentials are stored in plain text (suitable for testing/development or trusted environments).
 
+### Optional: HTTPS with Self-Signed Certificate
+
+By default, cpak serves over plain HTTP (port 80). If you need HTTPS, for example, to register a non-localhost Xbox OAuth redirect URI, set `HTTPS_MODE=self-signed`. Caddy will automatically generate a self-signed certificate via its built-in CA.
+
+Only a single port needs to be mapped. Caddy detects whether an incoming connection is plain HTTP or TLS on the same port, plain HTTP requests are automatically redirected to HTTPS, preserving the host and port. For example, with `-p 30151:443`, both `http://host:30151` and `https://host:30151` work; the former redirects to the latter.
+
+```bash
+docker run -d \
+  -p 443:443 \
+  -e HTTPS_MODE=self-signed \
+  -v cpak_data:/app/data \
+  docker.io/ghsvilela/cpak:latest
+```
+
+Or with docker compose on a custom host port (e.g. NAS on port 30052):
+
+```yaml
+services:
+  cpak:
+    image: docker.io/ghsvilela/cpak:latest
+    ports:
+      - '30151:443'   # HTTPS - access via https://<nas-ip>:30151
+    environment:
+      - HTTPS_MODE=self-signed
+    volumes:
+      - cpak_data:/app/data
+```
+
+Access cpak at `https://<your-host>:30151`. Your browser will show an **untrusted certificate** warning the first time, click **Advanced → Proceed** to accept it. After that everything works normally, including the Xbox OAuth sign-in flow (Microsoft accepts HTTPS with self-signed certs as a valid redirect URI target once the browser has the exception).
+
+> **Xbox redirect URI**: Register `https://<your-host>:<port>/api/auth/xbox/callback` in your Azure app registration. See the in-app Xbox OAuth Setup Guide (Settings → Xbox OAuth Settings → Setup Guide) for full instructions.
+
+### Optional: HTTPS with Your Own Certificate
+
+If you already have a certificate (e.g. from Let's Encrypt, ZeroSSL, or issued by your own CA), set `HTTPS_MODE=custom-cert` and mount your certificate and private key into the container at the fixed paths Caddy expects:
+
+```bash
+docker run -d \
+  -p 443:443 \
+  -e HTTPS_MODE=custom-cert \
+  -v /path/to/cert.pem:/etc/caddy/tls/cert.pem:ro \
+  -v /path/to/key.pem:/etc/caddy/tls/key.pem:ro \
+  -v cpak_data:/app/data \
+  docker.io/ghsvilela/cpak:latest
+```
+
+Or with docker compose:
+
+```yaml
+services:
+  cpak:
+    image: docker.io/ghsvilela/cpak:latest
+    ports:
+      - '30151:443'   # HTTPS - access via https://<nas-ip>:30151
+    environment:
+      - HTTPS_MODE=custom-cert
+    volumes:
+      - cpak_data:/app/data
+      - /path/to/cert.pem:/etc/caddy/tls/cert.pem:ro
+      - /path/to/key.pem:/etc/caddy/tls/key.pem:ro
+```
+
+Both files must be PEM-encoded. The container will fail to start if either file is missing.
+
 ### Environment Variables (Container Configuration)
 
 These variables configure the container infrastructure (not application settings):
@@ -126,6 +190,7 @@ These variables configure the container infrastructure (not application settings
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `ENCRYPTION_KEY` | Encryption key for secret settings (API keys, tokens) | Plain text storage | Optional (recommended) |
+| `HTTPS_MODE` | `self-signed` - Caddy-issued self-signed cert; `custom-cert` - user-provided cert | HTTP only | Optional |
 | `EXTERNAL_DB` | Use external MongoDB | (empty = bundled) | No |
 | `MONGO_URI` | MongoDB connection (external mode) | `mongodb://mongo:27017/cpak` | External DB mode only |
 

@@ -1,0 +1,61 @@
+{
+	# Global options
+	admin off
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+	# auto_https is intentionally left on so Caddy can manage internal TLS;
+	# each site block below uses "tls internal" to opt into self-signed certs
+	# issued by Caddy's built-in CA instead of ACME / Let's Encrypt.
+
+	# Intercept plain HTTP connections arriving on port 443 and redirect to
+	# HTTPS before the TLS handshake.  This means a single mapped port handles
+	# both http:// (auto-redirected) and https://.  The redirect URL preserves
+	# the Host header including any non-standard port, so
+	# http://host:30151/ correctly redirects to https://host:30151/.
+	servers :443 {
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+	}
+}
+
+# HTTPS on port 443 — self-signed certificate via Caddy internal CA
+:443 {
+	tls internal
+
+	# API routes proxy to backend
+	handle /api/* {
+		reverse_proxy localhost:8080 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Health check endpoint
+	handle /health {
+		reverse_proxy localhost:8080
+	}
+
+	# Frontend routes proxy to Next.js
+	handle {
+		reverse_proxy localhost:3000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Enable gzip compression
+	encode gzip
+
+	# Logging
+	log {
+		output stdout
+		format json
+	}
+}

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 function Step({ number, title, children }: { number: number; title: string; children: React.ReactNode }) {
@@ -42,6 +43,26 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 
 export default function XboxGuidePage() {
   const router = useRouter();
+
+  const [nasHost, setNasHost] = useState('<nas-ip>');
+  const [nasPort, setNasPort] = useState('<port>');
+  const [isHttps, setIsHttps] = useState(false);
+
+  useEffect(() => {
+    const host = window.location.hostname;
+    const port = window.location.port;
+    const https = window.location.protocol === 'https:';
+    setNasHost(host);
+    // If on a default port (80/443), port string is empty - make it explicit
+    setNasPort(port || (https ? '443' : '80'));
+    setIsHttps(https);
+  }, []);
+
+  const isLocalhost = nasHost === 'localhost' || nasHost === '127.0.0.1';
+  // Callback URL using the protocol and address the user is currently on
+  const currentCallbackUrl = `${isHttps ? 'https' : 'http'}://${nasHost}${nasPort !== (isHttps ? '443' : '80') ? `:${nasPort}` : ''}/api/auth/xbox/callback`;
+  // HTTPS callback URL for options E/F - keep same host, assume port 443 mapping
+  const httpsCallbackUrl = `https://${nasHost}:${nasPort}/api/auth/xbox/callback`;
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
@@ -106,9 +127,72 @@ export default function XboxGuidePage() {
             <li>5. Click <strong className="text-white">Register</strong></li>
           </ol>
           <Note>
-            <strong>Redirect URI</strong>: If running locally use{' '}
-            <Code>http://localhost:8000/api/auth/xbox/callback</Code>. If deployed on a NAS or server, replace <Code>localhost:8000</Code> with your server hostname and port, e.g.{' '}
-            <Code>http://nas.local:8000/api/auth/xbox/callback</Code>.
+            <strong>Redirect URI - important:</strong> Microsoft requires HTTPS for any redirect URI that is not <Code>localhost</Code>.
+            Depending on how you are running cpak, choose one of the options below:
+            <ul className="mt-2 space-y-3 list-none">
+              <li>
+                <strong className="text-yellow-200">Option A - running on this machine (localhost)</strong><br />
+                Use <Code>{`http://localhost:${isLocalhost ? nasPort : '8000'}/api/auth/xbox/callback`}</Code>. HTTP is allowed for localhost on any port. Access cpak via <Code>{`http://localhost:${isLocalhost ? nasPort : '8000'}`}</Code> when adding your Xbox profile.
+              </li>
+              <li>
+                <strong className="text-yellow-200">Option B - local port-forward from your desktop to the NAS</strong><br />
+                Forward a local port on your desktop to cpak running on the NAS, then register <Code>http://localhost:8000/api/auth/xbox/callback</Code>.
+                Open cpak via <Code>http://localhost:8000</Code>, complete sign-in, then remove the rule. Subsequent syncs do not use OAuth.
+                <div className="mt-3 space-y-3 text-xs">
+                  <div>
+                    <span className="text-gray-400 uppercase tracking-wide font-semibold">SSH tunnel (any OS)</span>
+                    <div className="mt-1 space-y-1">
+                      <div className="flex items-start gap-2"><span className="text-green-400 shrink-0">Create</span><Code>{`ssh -L 8000:localhost:${nasPort} user@${nasHost}`}</Code></div>
+                      <div className="flex items-start gap-2"><span className="text-red-400 shrink-0">Undo</span><span className="text-gray-400">Close the terminal / Ctrl+C</span></div>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 uppercase tracking-wide font-semibold">Windows - netsh (run as Administrator)</span>
+                    <div className="mt-1 space-y-1">
+                      <div className="flex items-start gap-2"><span className="text-green-400 shrink-0">Create</span><Code>{`netsh interface portproxy add v4tov4 listenport=8000 listenaddress=127.0.0.1 connectport=${nasPort} connectaddress=${nasHost}`}</Code></div>
+                      <div className="flex items-start gap-2"><span className="text-red-400 shrink-0">Undo</span><Code>netsh interface portproxy delete v4tov4 listenport=8000 listenaddress=127.0.0.1</Code></div>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 uppercase tracking-wide font-semibold">macOS - pfctl</span>
+                    <div className="mt-1 space-y-1">
+                      <div className="flex items-start gap-2"><span className="text-green-400 shrink-0">Create</span><Code>{`echo "rdr pass on lo0 proto tcp from any to 127.0.0.1 port 8000 -> ${nasHost} port ${nasPort}" | sudo pfctl -ef -`}</Code></div>
+                      <div className="flex items-start gap-2"><span className="text-red-400 shrink-0">Undo</span><Code>sudo pfctl -F all -f /etc/pf.conf</Code></div>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 uppercase tracking-wide font-semibold">Linux - socat</span>
+                    <div className="mt-1 space-y-1">
+                      <div className="flex items-start gap-2"><span className="text-green-400 shrink-0">Create</span><Code>{`socat TCP-LISTEN:8000,bind=127.0.0.1,fork TCP:${nasHost}:${nasPort}`}</Code></div>
+                      <div className="flex items-start gap-2"><span className="text-red-400 shrink-0">Undo</span><span className="text-gray-400">Kill the socat process (Ctrl+C or pkill socat)</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 text-gray-400 text-xs">The commands above are pre-filled with <Code>{nasHost}</Code> and port <Code>{nasPort}</Code> detected from the address bar.</div>
+                <div className="mt-2 bg-red-900/20 border border-red-600/40 rounded px-3 py-2 text-red-300 text-xs">
+                  <strong>⚠ SSH &quot;administratively prohibited&quot; error?</strong> Your NAS has TCP forwarding disabled in sshd_config, common on Synology, QNAP, and similar appliances, on truenas scale this can be enabled in the UI. Use the <strong>netsh / pfctl / socat</strong> approach above, or switch to <strong>Option C</strong> or <strong>Option D</strong>.
+                </div>
+              </li>
+              <li>
+                <strong className="text-yellow-200">Option C - self-signed certificate (built-in)</strong><br />
+                cpak includes built-in support for self-signed HTTPS via Caddy&apos;s internal CA. Set the environment variable
+                <div className="mt-1 mb-1"><Code>HTTPS_MODE=self-signed</Code></div>
+                when running the container. Caddy will serve HTTPS on port 443 and automatically redirect port 80 to HTTPS. Map port 443 in your container, e.g.{' '}
+                <Code>{`-p ${nasPort}:443`}</Code>, then register
+                <div className="mt-1 mb-1"><Code>{httpsCallbackUrl}</Code></div>
+                as the redirect URI. The first time you open cpak your browser will show an &quot;untrusted certificate&quot; warning, click <strong className="text-yellow-200">Advanced → Proceed</strong> to accept it. After that, the OAuth sign-in flow will work normally because the browser has already accepted the certificate exception.
+              </li>
+              <li>
+                <strong className="text-yellow-200">Option D - your own certificate (Let&apos;s Encrypt, ZeroSSL, corporate CA…)</strong><br />
+                If you already have a valid certificate for your domain or IP, set{' '}
+                <Code>HTTPS_MODE=custom-cert</Code> and mount the PEM files into the container:
+                <div className="mt-2 space-y-1 text-xs">
+                  <div className="flex items-start gap-2"><span className="text-gray-400 shrink-0">cert</span><Code>-v /path/to/cert.pem:/etc/caddy/tls/cert.pem:ro</Code></div>
+                  <div className="flex items-start gap-2"><span className="text-gray-400 shrink-0">key</span><Code>-v /path/to/key.pem:/etc/caddy/tls/key.pem:ro</Code></div>
+                </div>
+                <div className="mt-2">Register <Code>{httpsCallbackUrl}</Code> as the redirect URI. Because the certificate is trusted by browsers, no warning is shown and Microsoft will also accept the redirect URI without issues.</div>
+              </li>
+            </ul>
           </Note>
         </Step>
 
@@ -116,7 +200,7 @@ export default function XboxGuidePage() {
         <Step number={3} title="Copy the Application (Client) ID">
           <p>
             After the app is created you will land on its Overview page. Find and copy the{' '}
-            <strong className="text-white">Application (client) ID</strong> — it looks like{' '}
+            <strong className="text-white">Application (client) ID</strong> - it looks like{' '}
             <Code>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</Code>.
           </p>
           <p>This is the <strong className="text-white">Client ID</strong> you will paste into cpak Settings.</p>
@@ -128,7 +212,7 @@ export default function XboxGuidePage() {
             <li>1. In the left sidebar of your app, click <strong className="text-white">Certificates &amp; secrets</strong></li>
             <li>2. Under <strong className="text-white">Client secrets</strong>, click <strong className="text-white">New client secret</strong></li>
             <li>3. Add a description (e.g. <Code>cpak</Code>) and choose an expiry. Click <strong className="text-white">Add</strong></li>
-            <li>4. Copy the <strong className="text-white">Value</strong> column immediately — it is only shown once</li>
+            <li>4. Copy the <strong className="text-white">Value</strong> column immediately - it is only shown once</li>
           </ol>
           <Note>
             Copy the <strong>Value</strong>, not the Secret ID. The value will start with random characters and contain letters, numbers and symbols.
@@ -173,9 +257,9 @@ export default function XboxGuidePage() {
         <Step number={6} title="Enter the Credentials in cpak">
           <p>Go back to <strong className="text-white">Settings → Xbox OAuth Settings</strong> and fill in:</p>
           <ul className="mt-2 ml-4 space-y-1.5">
-            <li>• <strong className="text-white">Application (Client) ID</strong> — from Step 3</li>
-            <li>• <strong className="text-white">Client Secret</strong> — the Value from Step 4</li>
-            <li>• <strong className="text-white">Redirect URI</strong> — the same URI you registered in Step 2</li>
+            <li>• <strong className="text-white">Application (Client) ID</strong> - from Step 3</li>
+            <li>• <strong className="text-white">Client Secret</strong> - the Value from Step 4</li>
+            <li>• <strong className="text-white">Redirect URI</strong> - the same URI you registered in Step 2</li>
           </ul>
           <p className="mt-2">Click <strong className="text-white">Save Xbox Settings</strong>, then add your Xbox profile and sign in.</p>
         </Step>

@@ -35,6 +35,8 @@ export class ImageStorage {
     imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule',
     /** Optional HTTP headers to include in the download request (e.g. Xbox Live auth) */
     headers?: Record<string, string>,
+    /** Per-request timeout in ms (default 60 000). Increase for large images. */
+    timeoutMs?: number,
   ): Promise<string> {
     try {
       // Fast-path: check if ANY previously-saved version of this image already exists
@@ -95,7 +97,7 @@ export class ImageStorage {
         try {
           response = await fetch(url, {
             headers: { ...defaultHeaders, ...(headers ?? {}) },
-            signal: AbortSignal.timeout(60_000),
+            signal: AbortSignal.timeout(timeoutMs ?? 60_000),
           });
           if (response.ok) break;
           // Terminal client errors — no point retrying.
@@ -114,8 +116,15 @@ export class ImageStorage {
           }
         } catch (err) {
           const msg = (err as any)?.message ?? String(err);
-          // Re-throw terminal errors immediately.
+          // Re-throw terminal errors immediately (no retry).
           if (msg.includes('Image not found') || msg.includes('403') || msg.includes('invalid URL')) throw err;
+          // Timeouts are terminal — retrying a 120s timeout wastes minutes
+          // for images that are likely too slow to download right now.
+          // They will be retried on the next sync instead.
+          if (msg.includes('abort') || msg.includes('timeout') || (err as any)?.name === 'AbortError' || (err as any)?.name === 'TimeoutError') {
+            logger.warn({ url, platform, gameId, imageType, attempt, err: msg }, 'Download timed out — skipping (will retry on next sync)');
+            throw err;
+          }
           if (attempt === MAX_ATTEMPTS) throw err;
           fetchErr = err;
           logger.warn({ url, platform, gameId, imageType, attempt, err: msg }, 'Fetch error — retrying');
@@ -134,44 +143,7 @@ export class ImageStorage {
          contentType.includes('gif') ? '.gif' : '.png'); // default .png
 
       const buffer = await response.arrayBuffer();
-
-      // Resize icon/iconGray images to 512×512 max and normalise to PNG.
-      // Achievement icons from Xbox/PlayStation CDNs can be large (1–2 MB originals);
-      // resizing here keeps storage uniform regardless of source CDN behaviour.
-      const MAX_ICON_DIMENSION = 512;
-      // Xbox achievement artwork: the icon is centered within a wide canvas
-      // (typically 1920×1080). Center-crop to a square using min(w, h) — i.e. a
-      // 1080×1080 region for a 1920×1080 source — so the icon fills the frame
-      // with no portrait/landscape distortion, then resize down to 512×512.
       let fileBuffer: Buffer = Buffer.from(buffer) as Buffer;
-      if (imageType === 'icon' || imageType === 'iconGray') {
-        try {
-          let sharpPipeline = sharp(fileBuffer);
-
-          if (platform === 'xbox') {
-            const meta = await sharpPipeline.metadata();
-            const srcW = meta.width ?? 0;
-            const srcH = meta.height ?? 0;
-            const side = Math.min(srcW, srcH);
-            if (side > 0) {
-              sharpPipeline = sharpPipeline.extract({
-                left: Math.floor((srcW - side) / 2),
-                top: Math.floor((srcH - side) / 2),
-                width: side,
-                height: side,
-              });
-            }
-          }
-
-          fileBuffer = await sharpPipeline
-            .resize(MAX_ICON_DIMENSION, MAX_ICON_DIMENSION, { fit: 'inside', withoutEnlargement: true })
-            .png()
-            .toBuffer();
-          ext = '.png'; // output is always PNG after resize
-        } catch (resizeErr) {
-          logger.warn({ url, platform, gameId, achievementId, imageType, err: String(resizeErr) }, 'Failed to resize icon image, storing original');
-        }
-      }
 
       // Resize grid images to the standard 600×900 cover art size and normalise
       // to JPEG. Sources like PCGamingWiki can return originals up to 3000×4000+
@@ -266,6 +238,10 @@ export class ImageStorage {
     gameId: string,
     achievementId: string,
     imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule',
+    /** Optional extra HTTP headers (e.g. XBL auth) passed as wget --header args */
+    headers?: Record<string, string>,
+    /** Per-request timeout in seconds for wget -T flag (default 60) */
+    timeoutSecs?: number,
   ): Promise<string | undefined> {
     // Cache hit — no download needed.
     const cached = this.checkLocalFile(platform, gameId, achievementId, imageType);
@@ -308,9 +284,11 @@ export class ImageStorage {
       // warning but still serve the content. Scoped only to that host.
       const skipCertCheck = url.includes('image.xboxlive.com');
       const wgetBaseArgs = [
-        '-q', '-T', '60',
+        '-q', '-T', String(timeoutSecs ?? 60),
         ...(skipCertCheck ? ['--no-check-certificate'] : []),
         ...(isWikimedia ? ['--user-agent', 'cpak/1.0 (game-image-lookup; contact via GitHub)'] : []),
+        // Inject any extra HTTP headers (e.g. Authorization for Xbox Live CDN)
+        ...Object.entries(headers ?? {}).flatMap(([k, v]) => ['--header', `${k}: ${v}`]),
       ];
       let wgetErr: unknown;
       for (let attempt = 1; attempt <= MAX_WGET_ATTEMPTS; attempt++) {
@@ -363,6 +341,37 @@ export class ImageStorage {
           await fs.promises.writeFile(destPath, resized);
         } catch (resizeErr) {
           logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, '[wget] Failed to resize grid image, keeping original');
+        }
+      }
+
+      // Xbox achievement icons: center-crop to square then resize to 512×512 PNG.
+      // Modern Xbox icons are 1920×1080+ wide-canvas images (5-10 MB) with the
+      // icon centered; this extracts the useful part and shrinks storage to ~100 KB.
+      if ((imageType === 'icon' || imageType === 'iconGray') && platform === 'xbox') {
+        try {
+          const raw = await fs.promises.readFile(destPath);
+          let pipeline = sharp(raw);
+          const meta = await pipeline.metadata();
+          const srcW = meta.width ?? 0;
+          const srcH = meta.height ?? 0;
+          const side = Math.min(srcW, srcH);
+          if (side > 0) {
+            pipeline = pipeline.extract({
+              left: Math.floor((srcW - side) / 2),
+              top: Math.floor((srcH - side) / 2),
+              width: side,
+              height: side,
+            });
+          }
+          const resized = await pipeline
+            .resize(512, 512, { fit: 'inside', withoutEnlargement: true })
+            .png()
+            .toBuffer();
+          fs.rmSync(destPath, { force: true });
+          destPath = path.join(gameDir, `${this.sanitizeFilename(achievementId)}_${imageType}.png`);
+          await fs.promises.writeFile(destPath, resized);
+        } catch (resizeErr) {
+          logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, '[wget] Failed to crop/resize Xbox icon, keeping original');
         }
       }
 

@@ -244,6 +244,22 @@ function SetupPageContent() {
                 </p>
               </div>
 
+              {/* First sync performance notice */}
+              <div className="bg-yellow-900/20 border border-yellow-700/50 rounded p-4">
+                <h3 className="text-sm font-semibold text-yellow-400 mb-2">⚠️ Important: First Sync Duration</h3>
+                <p className="text-xs text-gray-300 mb-2">
+                  Achievement icons for <strong>modern Xbox titles</strong> (Xbox One and later) are served as
+                  high-resolution images (1080p or higher, typically 5–10 MB each). During the{' '}
+                  <strong>first sync</strong>, cpak downloads every icon and automatically crops and resizes it
+                  for local storage, this can take a while depending on your internet connection and how many
+                  games you have.
+                </p>
+                <p className="text-xs text-gray-400">
+                  Subsequent syncs skip any icons that are already stored locally, so only new achievements
+                  will be downloaded.
+                </p>
+              </div>
+
               {error && (
                 <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-2 rounded">
                   {error}

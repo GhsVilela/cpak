@@ -20,6 +20,34 @@ else
 fi
 
 # ============================================================================
+# HTTPS Mode Detection
+# ============================================================================
+
+if [ "$HTTPS_MODE" = "self-signed" ]; then
+    echo "🔒 HTTPS mode: self-signed certificate (Caddy internal CA)"
+    echo "   Swapping Caddyfile to HTTPS configuration..."
+    cp /etc/caddy/Caddyfile.https /etc/caddy/Caddyfile
+    echo "   ✓ Caddy will serve HTTPS on port 443 with a self-signed certificate"
+    echo "   ℹ️  Your browser will warn about the certificate — accept it once to proceed"
+elif [ "$HTTPS_MODE" = "custom-cert" ]; then
+    echo "🔒 HTTPS mode: user-provided certificate"
+    # Validate that both cert and key files are present at the expected mount paths
+    if [ ! -f "/etc/caddy/tls/cert.pem" ]; then
+        echo "❌ ERROR: HTTPS_MODE=custom-cert requires a certificate at /etc/caddy/tls/cert.pem"
+        echo "   Mount your certificate: -v /path/to/cert.pem:/etc/caddy/tls/cert.pem:ro"
+        exit 1
+    fi
+    if [ ! -f "/etc/caddy/tls/key.pem" ]; then
+        echo "❌ ERROR: HTTPS_MODE=custom-cert requires a private key at /etc/caddy/tls/key.pem"
+        echo "   Mount your key: -v /path/to/key.pem:/etc/caddy/tls/key.pem:ro"
+        exit 1
+    fi
+    echo "   Swapping Caddyfile to custom certificate configuration..."
+    cp /etc/caddy/Caddyfile.custom-cert /etc/caddy/Caddyfile
+    echo "   ✓ Caddy will serve HTTPS on port 443 using your certificate"
+fi
+
+# ============================================================================
 # Database Mode Detection
 # ============================================================================
 
@@ -130,6 +158,7 @@ echo "   Volume Mode:      $(mountpoint -q /app/data/db 2>/dev/null && echo 'Spl
 echo "   Images Path:      $IMAGES_PATH"
 echo "   MongoDB URI:      ${MONGO_URI}"
 echo "   Encryption Key:   ${ENCRYPTION_KEY:0:8}... (${#ENCRYPTION_KEY} chars)"
+echo "   HTTPS Mode:       ${HTTPS_MODE:-off (HTTP only)}"
 echo ""
 
 # ============================================================================

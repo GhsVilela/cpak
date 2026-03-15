@@ -441,7 +441,7 @@ function SteamPageContent() {
             {baseTrackedAchievements !== undefined && showcaseAchievements != null ? (
               <>
                 <span title="Total unlocked achievements from your steam profile showcase.">
-                  <span>Profile Total: </span>
+                  <span>Achievements Unlocked: </span>
                   <span className="font-bold text-[var(--steam-accent)]">
                     {showcaseAchievements.toLocaleString()}
                   </span>

@@ -110,6 +110,9 @@ COPY --from=frontend-builder /build/frontend/public /app/frontend/public
 # Copy configuration files
 COPY config/supervisord/supervisord.conf /etc/supervisor/conf.d/cpak.conf
 COPY config/caddy/Caddyfile.unified /etc/caddy/Caddyfile
+COPY config/caddy/Caddyfile.unified.https /etc/caddy/Caddyfile.https
+COPY config/caddy/Caddyfile.unified.custom-cert /etc/caddy/Caddyfile.custom-cert
+RUN mkdir -p /etc/caddy/tls
 
 # Copy entrypoint script
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
