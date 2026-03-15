@@ -143,9 +143,10 @@ LABEL org.opencontainers.image.title="CPAK" \
 # Expose HTTP port (Caddy listens on 80)
 EXPOSE 80
 
-# Health check
+# Health check — targets the backend directly on port 8080 (always plain HTTP)
+# to avoid SSL issues when HTTPS_MODE is set and Caddy would redirect port 80.
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
-    CMD wget --quiet --tries=1 --spider http://localhost/api/health || exit 1
+    CMD wget --quiet --tries=1 --spider http://localhost:8080/api/health || exit 1
 
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
