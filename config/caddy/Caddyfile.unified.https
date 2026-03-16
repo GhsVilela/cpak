@@ -6,14 +6,24 @@
 		format json
 		level INFO
 	}
+	# Disable automatic cert provisioning, user provides their own cert.
+	# TLS connection policies are still active so HTTPS works normally.
+	auto_https disable_certs
+	# Same-port HTTP redirect: when a plain HTTP request arrives on the HTTPS
+	# port, Caddy detects it before the TLS handshake and issues a redirect.
+	servers :443 {
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+		protocols h1 h2
+	}
 }
 
-# HTTPS on port 443 - self-signed certificate via Caddy internal CA.
-# Caddy automatically provisions a cert from its built-in CA and enables TLS.
-# It also creates an internal HTTP→HTTPS redirect listener on :80 which is
-# harmless if the host doesn’t map port 80.
+# HTTPS on port 443 - user-provided certificate and private key.
+# Mount your cert to /etc/caddy/tls/cert.pem and key to /etc/caddy/tls/key.pem.
 :443 {
-	tls internal
+	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
 
 	# API routes proxy to backend
 	handle /api/* {

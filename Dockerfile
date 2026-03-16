@@ -77,6 +77,7 @@ RUN apt-get update && apt-get install -y \
     mongodb-org-tools \
     bash \
     procps \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create MongoDB user and directories
@@ -111,7 +112,6 @@ COPY --from=frontend-builder /build/frontend/public /app/frontend/public
 COPY config/supervisord/supervisord.conf /etc/supervisor/conf.d/cpak.conf
 COPY config/caddy/Caddyfile.unified /etc/caddy/Caddyfile
 COPY config/caddy/Caddyfile.unified.https /etc/caddy/Caddyfile.https
-COPY config/caddy/Caddyfile.unified.custom-cert /etc/caddy/Caddyfile.custom-cert
 RUN mkdir -p /etc/caddy/tls
 
 # Copy entrypoint script

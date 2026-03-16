@@ -24,10 +24,18 @@ fi
 # ============================================================================
 
 if [ "$HTTPS_MODE" = "self-signed" ]; then
-    echo "🔒 HTTPS mode: self-signed certificate (Caddy internal CA)"
+    echo "🔒 HTTPS mode: self-signed certificate (openssl, valid 10 years)"
+    mkdir -p /etc/caddy/tls
+    openssl req -x509 -newkey rsa:2048 -sha256 \
+        -keyout /etc/caddy/tls/key.pem \
+        -out /etc/caddy/tls/cert.pem \
+        -days 3650 -nodes \
+        -subj "/CN=CPAK Self-Signed" \
+        -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+        2>/dev/null
     echo "   Swapping Caddyfile to HTTPS configuration..."
     cp /etc/caddy/Caddyfile.https /etc/caddy/Caddyfile
-    echo "   ✓ Caddy will serve HTTPS on port 443 with a self-signed certificate"
+    echo "   ✓ Caddy will serve HTTPS on port 443 with a self-signed certificate (expires in 10 years)"
     echo "   ℹ️  Your browser will warn about the certificate — accept it once to proceed"
 elif [ "$HTTPS_MODE" = "custom-cert" ]; then
     echo "🔒 HTTPS mode: user-provided certificate"
@@ -42,8 +50,8 @@ elif [ "$HTTPS_MODE" = "custom-cert" ]; then
         echo "   Mount your key: -v /path/to/key.pem:/etc/caddy/tls/key.pem:ro"
         exit 1
     fi
-    echo "   Swapping Caddyfile to custom certificate configuration..."
-    cp /etc/caddy/Caddyfile.custom-cert /etc/caddy/Caddyfile
+    echo "   Swapping Caddyfile to HTTPS configuration..."
+    cp /etc/caddy/Caddyfile.https /etc/caddy/Caddyfile
     echo "   ✓ Caddy will serve HTTPS on port 443 using your certificate"
 fi
 
