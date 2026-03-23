@@ -46,6 +46,15 @@ interface SyncStatus {
   };
 }
 
+interface BackupRestoreStatus {
+  backup: {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+  };
+  restore: {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+  };
+}
+
 interface XboxProfile {
   _id: string;
   profileId: string;
@@ -98,6 +107,10 @@ function XboxPageContent() {
   const [syncPollInterval, setSyncPollInterval] = useState<NodeJS.Timeout | null>(null);
   const lastSyncNotified = useRef<string | null>(null);
 
+  // Backup/Restore status (to block sync during backup/restore)
+  const [backupRestoreStatus, setBackupRestoreStatus] = useState<BackupRestoreStatus | null>(null);
+  const [backupRestorePollInterval, setBackupRestorePollInterval] = useState<NodeJS.Timeout | null>(null);
+
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -133,6 +146,7 @@ function XboxPageContent() {
       setOnlyCompleted(savedOnlyCompleted);
       loadGames({ onlyCompleted: savedOnlyCompleted });
       loadSyncStatus();
+      loadBackupRestoreStatus();
       loadBaseGamerscore();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -156,14 +170,21 @@ function XboxPageContent() {
       if (syncPollInterval) {
         clearInterval(syncPollInterval);
       }
+      if (backupRestorePollInterval) {
+        clearInterval(backupRestorePollInterval);
+      }
     };
-  }, [syncPollInterval]);
+  }, [syncPollInterval, backupRestorePollInterval]);
 
   const handleProfileChange = (profileId: string) => {
     // Stop any existing polling
     if (syncPollInterval) {
       clearInterval(syncPollInterval);
       setSyncPollInterval(null);
+    }
+    if (backupRestorePollInterval) {
+      clearInterval(backupRestorePollInterval);
+      setBackupRestorePollInterval(null);
     }
     setSelectedProfileId(profileId);
     router.push(`/xbox?profileId=${profileId}`, { scroll: false });
@@ -192,6 +213,46 @@ function XboxPageContent() {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1);
     await loadGames({ page: 1, perPage: newItemsPerPage });
+  };
+
+  // Load backup/restore status to check if operations are in progress
+  const loadBackupRestoreStatus = async () => {
+    try {
+      const response = await fetch('/api/backup/status');
+      if (response.ok) {
+        const data = await response.json();
+        setBackupRestoreStatus(data);
+
+        // Start polling if there's an active operation
+        if ((data.backup?.current || data.restore?.current) && !backupRestorePollInterval) {
+          startBackupRestorePolling();
+        }
+
+        return data;
+      }
+    } catch (err) {
+      console.error('Failed to load backup/restore status:', err);
+    }
+    return null;
+  };
+
+  // Start polling for backup/restore status
+  const startBackupRestorePolling = () => {
+    if (backupRestorePollInterval) {
+      clearInterval(backupRestorePollInterval);
+    }
+
+    const interval = setInterval(async () => {
+      const status = await loadBackupRestoreStatus();
+
+      // Stop polling when both backup and restore are idle
+      if (!status?.backup?.current && !status?.restore?.current) {
+        clearInterval(interval);
+        setBackupRestorePollInterval(null);
+      }
+    }, 2000); // Poll every 2 seconds (less frequent than sync)
+
+    setBackupRestorePollInterval(interval);
   };
 
   // Load sync status from server
@@ -353,7 +414,9 @@ function XboxPageContent() {
             {selectedProfileId && !syncStatus?.current && (
               <button
                 onClick={triggerSync}
-                className="px-4 py-2 bg-[var(--xbox-accent)] hover:opacity-90 rounded font-medium text-sm transition whitespace-nowrap text-black"
+                disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                className="px-4 py-2 bg-[var(--xbox-accent)] hover:opacity-90 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-black"
+                title={backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'Sync disabled during backup/restore operations' : ''}
               >
                 Sync Now
               </button>
