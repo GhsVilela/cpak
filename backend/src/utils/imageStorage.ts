@@ -344,9 +344,10 @@ export class ImageStorage {
         }
       }
 
-      // Xbox achievement icons: center-crop to square then resize to 512×512 PNG.
+      // Xbox achievement icons: center-crop to square then resize to 512×512 WebP.
       // Modern Xbox icons are 1920×1080+ wide-canvas images (5-10 MB) with the
-      // icon centered; this extracts the useful part and shrinks storage to ~100 KB.
+      // icon centered; this extracts the useful part and encodes it as WebP
+      // (quality 85) which shrinks storage to ~15–30 KB vs ~100 KB for PNG.
       if ((imageType === 'icon' || imageType === 'iconGray') && platform === 'xbox') {
         try {
           const raw = await fs.promises.readFile(destPath);
@@ -365,10 +366,10 @@ export class ImageStorage {
           }
           const resized = await pipeline
             .resize(512, 512, { fit: 'inside', withoutEnlargement: true })
-            .png()
+            .webp({ quality: 85 })
             .toBuffer();
           fs.rmSync(destPath, { force: true });
-          destPath = path.join(gameDir, `${this.sanitizeFilename(achievementId)}_${imageType}.png`);
+          destPath = path.join(gameDir, `${this.sanitizeFilename(achievementId)}_${imageType}.webp`);
           await fs.promises.writeFile(destPath, resized);
         } catch (resizeErr) {
           logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, '[wget] Failed to crop/resize Xbox icon, keeping original');
