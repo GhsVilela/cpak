@@ -6,7 +6,10 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --require ./polyfill.cjs node_modules/vitest/vitest.mjs run",
+    "test:watch": "node --require ./polyfill.cjs node_modules/vitest/vitest.mjs",
+    "test:coverage": "node --require ./polyfill.cjs node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
     "next": "^15.1.4",
@@ -14,14 +17,23 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5.1.4",
+    "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.20",
     "eslint": "^9",
     "eslint-config-next": "^15.1.4",
+    "happy-dom": "^20.7.0",
+    "jsdom": "^28.1.0",
+    "msw": "^2.12.10",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.0.18"
   }
 }
