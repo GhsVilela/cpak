@@ -9,6 +9,20 @@ export interface IGame extends Document {
   achievementsUnlocked: number;
   completionPercent: number;
   imagePath?: string;
+  /** Xbox-specific: console generations the game supports (e.g. Xbox360, XboxOne, XboxSeries, PC) */
+  devices?: string[];
+  /** Xbox-specific: how much gamerscore the user has earned for this game */
+  currentGamerscore?: number;
+  /** Xbox-specific: total gamerscore possible for this game */
+  maxGamerscore?: number;
+  /** Xbox-specific: last played / last achievement unlock timestamp */
+  lastPlayed?: Date;
+  /** Xbox-specific: total minutes played (from TitleHub API) */
+  playTimeMinutes?: number;
+  /** How the game was discovered: owned or played_history (ClientGetLastPlayedTimes / recent) */
+  ownershipSource?: 'owned' | 'played_history';
+  /** True when achievement data could not be fetched (e.g. refunded/expired license) */
+  achievementsFetchFailed?: boolean;
   lastSyncedAt: Date;
 }
 
@@ -26,6 +40,13 @@ const GameSchema = new Schema<IGame>(
     achievementsUnlocked: { type: Number, required: true, default: 0 },
     completionPercent: { type: Number, required: true, default: 0 },
     imagePath: String,
+    devices: { type: [String], default: undefined },
+    currentGamerscore: { type: Number },
+    maxGamerscore: { type: Number },
+    lastPlayed: { type: Date },
+    playTimeMinutes: { type: Number },
+    ownershipSource: { type: String, enum: ['owned', 'played_history'] },
+    achievementsFetchFailed: { type: Boolean },
     lastSyncedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

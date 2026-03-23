@@ -10,6 +10,10 @@ description: "Task list template for feature implementation"
 
 **Tests**: Tests are REQUIRED per Constitution Principle VI for every new frontend page and new backend route/service. Include test tasks by default. Omit only for work that introduces no new pages or routes (e.g., pure refactors, config-only changes, documentation).
 
+**Coverage Floor**: Both `frontend/` and `backend/` MUST maintain ≥60% line coverage after every change (Principle VI). After any implementation task, verify with `npm run test --coverage` — if coverage drops below 60%, add tests before marking the feature done.
+
+**Change Validation**: When modifying an existing source file, include a task to run the tests for that file and fix any failures or behavior-changed tests before merging. Implementation and test updates are one atomic unit of work.
+
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
 ## Format: `[ID] [P?] [Story] Description`

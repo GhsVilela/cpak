@@ -12,6 +12,8 @@ interface Game {
   completionPercent: number;
   imagePath?: string;
   profileId: string;
+  currentGamerscore?: number;
+  maxGamerscore?: number;
 }
 
 interface GameGridProps {

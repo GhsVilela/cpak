@@ -6,32 +6,35 @@ import { logger } from '../utils/logger.js';
  * 
  * Dynamically adjusts the maximum number of concurrent operations based on API performance.
  * Uses p-limit to enforce concurrency limits with adaptive adjustment.
+ * Starts at a configured starting value and can grow up to maxConcurrency.
  * 
  * Algorithm:
- * - Starts at user-configured maximum concurrency
- * - If operations take > 2000ms: Reduce concurrency by 1
- * - If operations take < 500ms: Increase concurrency by 1
- * - Never exceed user-configured maximum (backwards compatible)
- * - Never go below minimum of 1
- * 
- * Target: Keep API response times under 2s
+ * - If operations take > slowThreshold: Reduce concurrency by 1
+ * - If operations take < fastThreshold: Increase concurrency by 1
+ * - Never exceed maxConcurrency
+ * - Never go below minConcurrency
  */
 export class AdaptiveConcurrencyController {
   private currentConcurrency: number;
-  private readonly minConcurrency = 1;
+  private readonly startingConcurrency: number;
+  private readonly minConcurrency: number;
   private readonly maxConcurrency: number;
   private limiter: LimitFunction;
   private recentOperationTimes: number[] = [];
   private readonly windowSize = 10; // Track last 10 operations
-  private readonly slowThreshold = 2000; // ms - reduce concurrency if exceeded
+  private readonly slowThreshold = 5000; // ms - reduce concurrency if exceeded
   private readonly fastThreshold = 500; // ms - increase concurrency if under
   
   /**
-   * @param userConfiguredMax - Maximum concurrency from user settings
+   * @param startingConcurrency - Initial concurrency to begin with
+   * @param maxConcurrency - Ceiling the controller can scale up to
+   * @param minConcurrency - Floor the controller will never go below
    */
-  constructor(userConfiguredMax: number) {
-    this.maxConcurrency = Math.max(userConfiguredMax, this.minConcurrency);
-    this.currentConcurrency = this.maxConcurrency;
+  constructor(startingConcurrency: number, maxConcurrency?: number, minConcurrency?: number) {
+    this.minConcurrency = minConcurrency ?? 5;
+    this.maxConcurrency = Math.max(maxConcurrency ?? startingConcurrency, this.minConcurrency);
+    this.startingConcurrency = Math.min(Math.max(startingConcurrency, this.minConcurrency), this.maxConcurrency);
+    this.currentConcurrency = this.startingConcurrency;
     this.limiter = pLimit(this.currentConcurrency);
     
     logger.debug({
@@ -130,6 +133,19 @@ export class AdaptiveConcurrencyController {
   getConcurrency(): number {
     return this.currentConcurrency;
   }
+
+  /**
+   * Cap concurrency to a maximum value (e.g. current batch size).
+   * Ensures concurrency never exceeds the number of items being processed.
+   */
+  capConcurrency(cap: number): void {
+    if (cap < this.currentConcurrency) {
+      const prev = this.currentConcurrency;
+      this.currentConcurrency = Math.max(this.minConcurrency, cap);
+      this.limiter = pLimit(this.currentConcurrency);
+      logger.info({ previousConcurrency: prev, newConcurrency: this.currentConcurrency, cap }, 'Concurrency capped to batch size');
+    }
+  }
   
   /**
    * Get pending and active operation counts
@@ -160,7 +176,7 @@ export class AdaptiveConcurrencyController {
    * Reset controller to initial state
    */
   reset(): void {
-    this.currentConcurrency = this.maxConcurrency;
+    this.currentConcurrency = this.startingConcurrency;
     this.limiter = pLimit(this.currentConcurrency);
     this.recentOperationTimes = [];
     logger.debug('AdaptiveConcurrencyController reset to initial state');

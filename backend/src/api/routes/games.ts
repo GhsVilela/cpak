@@ -7,10 +7,13 @@ interface GamesQuery {
   platform?: 'steam' | 'xbox' | 'playstation';
   profileId?: string;
   onlyCompleted?: string;
+  excludeHidden?: string;
   limit?: string;
   offset?: string;
   sortBy?: string;
   sortOrder?: string;
+  /** Console generation / platform filter for Xbox games: Xbox360 | XboxOne | XboxSeries | PC | PlayAnywhere | ConsoleOnly */
+  device?: string;
 }
 
 export async function getGames(
@@ -22,10 +25,12 @@ export async function getGames(
       platform, 
       profileId, 
       onlyCompleted, 
+      excludeHidden,
       limit = '50', 
       offset = '0',
       sortBy = 'title',
-      sortOrder = 'asc'
+      sortOrder = 'asc',
+      device,
     } = req.query;
 
     // Parse and validate pagination params
@@ -56,17 +61,82 @@ export async function getGames(
       filter.completionPercent = 100;
     }
 
+    // Exclude hidden games (revoked licenses: played_history + achievementsFetchFailed)
+    if (excludeHidden === 'true') {
+      filter.$or = [
+        { ownershipSource: { $ne: 'played_history' } },
+        { achievementsFetchFailed: { $ne: true } },
+      ];
+    }
+
+    // Filter by console generation / platform (Xbox only — matches devices[] array field)
+    if (device === 'PlayAnywhere') {
+      // Games available on both PC and at least one Xbox console
+      filter.$and = [
+        { devices: 'PC' },
+        { devices: { $in: ['XboxSeries', 'XboxOne', 'Xbox360'] } },
+      ];
+    } else if (device === 'ConsoleOnly') {
+      // Games on Xbox consoles but NOT on PC
+      filter.$and = [
+        { devices: { $in: ['XboxSeries', 'XboxOne', 'Xbox360'] } },
+        { devices: { $nin: ['PC'] } },
+      ];
+    } else if (device) {
+      // Inclusive match: games that include this platform (e.g. XboxSeries includes Play Anywhere)
+      filter.devices = device;
+    }
+
     // Validate and build sort object
-    const validSortFields = ['title', 'completionPercent', 'lastSyncedAt', 'achievementsTotal'];
+    const validSortFields = ['title', 'completionPercent', 'lastSyncedAt', 'achievementsTotal', 'currentGamerscore'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'title';
     const sortDirection = sortOrder === 'desc' ? -1 : 1;
 
     // Get total count for pagination metadata
     const totalCount = await Game.countDocuments(filter);
 
+    // For Xbox profiles, aggregate total gamerscore across all games (not just current page)
+    let totalCurrentGamerscore: number | undefined;
+    let totalMaxGamerscore: number | undefined;
+    if (filter.platform === 'xbox' && filter.profileId) {
+      const gsAgg = await Game.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: null,
+            totalCurrentGamerscore: { $sum: { $ifNull: ['$currentGamerscore', 0] } },
+            totalMaxGamerscore: { $sum: { $ifNull: ['$maxGamerscore', 0] } },
+          },
+        },
+      ]);
+      if (gsAgg.length > 0) {
+        totalCurrentGamerscore = gsAgg[0].totalCurrentGamerscore;
+        totalMaxGamerscore = gsAgg[0].totalMaxGamerscore;
+      }
+    }
+
+    // For Steam profiles, aggregate total achievements unlocked across all games
+    let totalAchievementsUnlocked: number | undefined;
+    if (filter.platform === 'steam' && filter.profileId) {
+      const achAgg = await Game.aggregate([
+        { $match: filter },
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$achievementsUnlocked', 0] } } } },
+      ]);
+      if (achAgg.length > 0) {
+        totalAchievementsUnlocked = achAgg[0].total;
+      }
+    }
+
+    // When sorting by completionPercent, use achievementsUnlocked as tiebreaker
+    // so that games with 1 unlocked (0%) sort above games with 0 unlocked (0%)
+    const sortSpec: Record<string, 1 | -1> = { [sortField]: sortDirection as 1 | -1 };
+    if (sortField === 'completionPercent') {
+      sortSpec.achievementsUnlocked = sortDirection as 1 | -1;
+    }
+
     const games = await Game.find(filter)
       .collation({ locale: 'en', strength: 2 }) // Case-insensitive sorting
-      .sort({ [sortField]: sortDirection })
+      .sort(sortSpec)
       .limit(limitNum)
       .skip(offsetNum)
       .lean();
@@ -77,7 +147,10 @@ export async function getGames(
         total: totalCount,
         limit: limitNum,
         offset: offsetNum,
-        hasMore: offsetNum + games.length < totalCount
+        hasMore: offsetNum + games.length < totalCount,
+        ...(totalCurrentGamerscore !== undefined && { totalCurrentGamerscore }),
+        ...(totalMaxGamerscore !== undefined && { totalMaxGamerscore }),
+        ...(totalAchievementsUnlocked !== undefined && { totalAchievementsUnlocked }),
       }
     });
   } catch (error) {

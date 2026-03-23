@@ -10,14 +10,14 @@ export default defineConfig({
     setupFiles: ['./tests/polyfill.ts', './tests/setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],
     coverage: {
-      provider: 'v8',
+      provider: 'istanbul',
       reporter: ['text', 'lcov', 'json-summary'],
       include: ['components/**/*.{ts,tsx}', 'app/**/*.{ts,tsx}', 'services/**/*.{ts,tsx}'],
       exclude: ['**/*.d.ts', '**/layout.tsx', '**/globals.css'],
       thresholds: {
-        lines: 40,
-        functions: 35,
-        branches: 30,
+        lines: 60,
+        functions: 50,
+        branches: 50,
       },
     },
     testTimeout: 15000,

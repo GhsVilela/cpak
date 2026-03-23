@@ -15,6 +15,7 @@ interface ProfileSelectorProps {
   selectedProfileId?: string;
   onSelectProfile: (profileId: string) => void;
   onError?: (error: string) => void;
+  onProfilesLoaded?: (count: number) => void;
 }
 
 export default function ProfileSelector({
@@ -22,6 +23,7 @@ export default function ProfileSelector({
   selectedProfileId,
   onSelectProfile,
   onError,
+  onProfilesLoaded,
 }: ProfileSelectorProps) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +40,10 @@ export default function ProfileSelector({
       const allProfiles = await apiClient.get<Profile[]>('/profiles');
       const platformProfiles = allProfiles.filter((p) => p.platform === platform);
       setProfiles(platformProfiles);
+
+      if (onProfilesLoaded) {
+        onProfilesLoaded(platformProfiles.length);
+      }
 
       // Auto-select first profile if none selected
       if (!selectedProfileId && platformProfiles.length > 0) {
@@ -64,11 +70,7 @@ export default function ProfileSelector({
   }
 
   if (profiles.length === 0) {
-    return (
-      <div className="text-gray-400 text-sm">
-        No {platform} profiles configured. <a href="/setup" className="text-blue-400 hover:underline">Add one</a>
-      </div>
-    );
+    return null;
   }
 
   if (profiles.length === 1) {

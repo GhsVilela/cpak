@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { AdaptiveThrottler } from '../../../src/services/adaptiveThrottler.js';
 
 describe('AdaptiveThrottler', () => {
@@ -35,5 +35,38 @@ describe('AdaptiveThrottler', () => {
     throttler.calculateDelay(100);
     const delay = throttler.calculateDelay(200);
     expect(delay).toBe(100);
+  });
+
+  it('getCurrentDelay returns the current delay value', () => {
+    const throttler = new AdaptiveThrottler();
+    throttler.calculateDelay(2000); // Set to max
+    expect(throttler.getCurrentDelay()).toBe(400);
+  });
+
+  it('getStats returns correct shape', () => {
+    const throttler = new AdaptiveThrottler();
+    const stats = throttler.getStats();
+    expect(stats).toEqual({
+      currentDelay: 100,
+      minDelay: 100,
+      maxDelay: 400,
+    });
+  });
+
+  it('throttle waits for the calculated delay', async () => {
+    const throttler = new AdaptiveThrottler();
+    vi.useFakeTimers();
+    const promise = throttler.throttle(50); // Fast response → 100ms delay
+    vi.advanceTimersByTime(100);
+    await promise;
+    vi.useRealTimers();
+  });
+
+  it('reset restores initial state', () => {
+    const throttler = new AdaptiveThrottler();
+    throttler.calculateDelay(2000); // Set to max
+    expect(throttler.getCurrentDelay()).toBe(400);
+    throttler.reset();
+    expect(throttler.getCurrentDelay()).toBe(100);
   });
 });

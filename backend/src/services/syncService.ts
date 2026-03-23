@@ -5,10 +5,10 @@ import { SyncRun } from '../models/syncRun.js';
 import { SyncOperation } from '../models/syncOperation.js';
 import { createSteamAdapter } from './adapters/steam.js';
 import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
+import { createXboxAdapter } from './adapters/xbox.js';
 import { logger } from '../utils/logger.js';
-import { imageStorage } from '../utils/imageStorage.js';
-import pLimit from 'p-limit';
 import { configService } from './configService.js';
+import { SYNC_DEFAULTS } from './syncDefaults.js';
 import { performanceMonitor } from './performanceMonitor.js';
 import { markSyncAsCompleted } from './syncCancellation.js';
 
@@ -24,7 +24,7 @@ class SyncService {
       status: 'running',
       startedAt: startTime,
       totalGames: 0,
-      gamesCompleted: 0,
+      gamesProcessed: 0,
       gamesFailed: 0,
       totalAchievements: 0,
       achievementsSynced: 0,
@@ -33,9 +33,9 @@ class SyncService {
       iconDownloadsFailed: 0,
       errors: [],
       adaptiveParams: {
-        batchSize: parseInt(await configService.getSetting('sync_batch_size') || '30', 30),
-        concurrency: parseInt(await configService.getSetting('sync_concurrency') || '15', 15),
-        delay: 250, // Initial throttle delay
+        batchSize: SYNC_DEFAULTS.BATCH_SIZE,
+        concurrency: SYNC_DEFAULTS.CONCURRENCY,
+        delay: SYNC_DEFAULTS.DELAY,
       },
     });
 
@@ -45,8 +45,7 @@ class SyncService {
       if (profile.platform === 'steam') {
         await this.syncSteam(profile, syncOperation);
       } else if (profile.platform === 'xbox') {
-        logger.warn({ profileId: profile.profileId }, 'Xbox sync not yet implemented');
-        throw new Error('Xbox sync not implemented');
+        await this.syncXbox(profile, syncOperation);
       } else if (profile.platform === 'playstation') {
         logger.warn({ profileId: profile.profileId }, 'PlayStation sync not yet implemented');
         throw new Error('PlayStation sync not implemented');
@@ -147,7 +146,25 @@ class SyncService {
       logger.warn({ error, profileId: profile.profileId }, 'Failed to fetch Steam display name');
     }
 
-    const result = await steamAdapter.syncGamesAndAchievements(profile.profileId, syncOperation);
+    // Scrape achievement showcase count from Steam community profile page
+    try {
+      const showcaseCount = await steamAdapter.getProfileShowcaseAchievements(profile.profileId);
+      await Profile.findByIdAndUpdate(profile._id, { steamShowcaseAchievements: showcaseCount });
+      if (showcaseCount != null) {
+        logger.info({ profileId: profile.profileId, showcaseCount }, 'Updated Steam showcase achievement count');
+      }
+    } catch (error) {
+      logger.warn({ error, profileId: profile.profileId }, 'Failed to scrape Steam achievement showcase');
+    }
+
+    // Fetch previously-synced game IDs so family-shared / removed games aren't lost
+    const previousGames = await Game.find(
+      { profileId: profile._id, platform: 'steam' },
+      { gameId: 1 }
+    ).lean();
+    const knownGameIds = previousGames.map((g) => parseInt(g.gameId, 10)).filter((id) => !isNaN(id));
+
+    const result = await steamAdapter.syncGamesAndAchievements(profile.profileId, syncOperation, knownGameIds);
 
     // T031: Update SyncOperation with final counts
     syncOperation.totalGames = result.games.length;
@@ -171,143 +188,9 @@ class SyncService {
       adaptiveParams: syncOperation.adaptiveParams,
     }, 'Sync data fetched, beginning database updates');
 
-    // Check if SteamGridDB API key is configured
+    // Download game images (adaptive concurrency inside steam adapter)
     const steamGridDBAdapter = await createSteamGridDBAdapter();
-    const hasSteamGridDB = steamGridDBAdapter !== null;
-    
-    // Get image download concurrency from settings (database > env > default)
-    let imageConcurrency = 5; // default
-    const concurrencySetting = await configService.getSetting('sync_concurrency');
-    imageConcurrency = concurrencySetting ? parseInt(concurrencySetting, 10) : 5;
-
-    // Create concurrency limiter for all image downloads (game covers and achievement icons)
-    const limit = pLimit(imageConcurrency);
-
-    // Download game images in parallel batches
-    const gameImagePromises: Promise<{ appId: number; imagePath?: string }>[] = [];
-
-    for (const game of result.games) {
-      const promise = limit(async () => {
-        let imagePath: string | undefined;
-
-        // Priority 1: Check for existing local grid files first (avoid unnecessary downloads)
-        imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
-        if (imagePath) {
-          logger.info({ appId: game.appId, imagePath }, 'Using existing local grid file');
-          return { appId: game.appId, imagePath };
-        }
-
-        // Priority 2: Try direct Steam CDN library grid URL
-        if (!imagePath) {
-          try {
-            const steamCdnUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg`;
-            imagePath = await imageStorage.downloadAndStore(
-              steamCdnUrl,
-              'steam',
-              game.appId.toString(),
-              'game',
-              'grid'
-            );
-            logger.info({ appId: game.appId }, 'Downloaded image from Steam CDN (library grid)');
-          } catch (error) {
-            logger.debug({ error, appId: game.appId }, 'Steam CDN library grid not available');
-            // Check if file exists locally with different extension
-            imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
-            if (imagePath) {
-              logger.debug({ appId: game.appId }, 'Using existing local file (grid)');
-            }
-          }
-        }
-
-        // Fallback 1: SteamGridDB (if API key configured)
-        if (!imagePath && hasSteamGridDB) {
-          try {
-            imagePath = await steamGridDBAdapter.downloadGameImage(game.appId) || undefined;
-            if (imagePath) {
-              logger.info({ appId: game.appId }, 'Downloaded image from SteamGridDB');
-            }
-          } catch (error) {
-            logger.warn({ error, appId: game.appId }, 'SteamGridDB download failed');
-          }
-        }
-
-        // Fallback 2: Try Steam Store API for header or capsule image (only if no grid was found)
-        if (!imagePath) {
-          // Double-check if grid was downloaded before trying header/capsule fallbacks
-          const gridExists = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
-          if (gridExists) {
-            logger.debug({ appId: game.appId }, 'Grid file found locally, skipping header/capsule fallback');
-            imagePath = gridExists;
-          } else {
-            try {
-              const gameDetails = await steamAdapter.getGameDetails(game.appId);
-              
-              // Try header image first
-              if (gameDetails?.headerImage) {
-                try {
-                  imagePath = await imageStorage.downloadAndStore(
-                    gameDetails.headerImage,
-                    'steam',
-                    game.appId.toString(),
-                    'game',
-                    'header'
-                  );
-                  logger.info({ appId: game.appId }, 'Downloaded header image from Steam Store API');
-                } catch (error) {
-                  logger.debug({ error, appId: game.appId }, 'Failed to download header image');
-                }
-              }
-              
-              // Try capsule image if header failed
-              if (!imagePath && gameDetails?.capsuleImage) {
-                try {
-                  imagePath = await imageStorage.downloadAndStore(
-                    gameDetails.capsuleImage,
-                    'steam',
-                    game.appId.toString(),
-                    'game',
-                    'capsule'
-                  );
-                  logger.info({ appId: game.appId }, 'Downloaded capsule image from Steam Store API');
-                } catch (error) {
-                  logger.debug({ error, appId: game.appId }, 'Failed to download capsule image');
-                }
-              }
-            } catch (error) {
-              logger.warn({ error, appId: game.appId }, 'Steam Store API failed');
-            }
-          }
-        }
-
-        // Fallback 3: Check for any other existing local files (header or capsule)
-        if (!imagePath) {
-          imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'header');
-          if (imagePath) {
-            logger.debug({ appId: game.appId }, 'Using existing local file (header)');
-          } else {
-            imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'capsule');
-            if (imagePath) {
-              logger.debug({ appId: game.appId }, 'Using existing local file (capsule)');
-            }
-          }
-        }
-
-        return { appId: game.appId, imagePath };
-      });
-
-      gameImagePromises.push(promise);
-    }
-
-    // Wait for ALL game image downloads to complete
-    logger.info({ total: gameImagePromises.length, syncOperationId: syncOperation._id }, 'Starting game image downloads');
-    
-    const gameImageResults = await Promise.all(gameImagePromises);
-    const gameImageMap = new Map(gameImageResults.map((r) => [r.appId, r.imagePath]));
-    
-    logger.info({ 
-      total: gameImagePromises.length,
-      syncOperationId: syncOperation._id,
-    }, 'All game images downloaded');
+    const gameImageMap = await steamAdapter.downloadGameImages(result.games, syncOperation, steamGridDBAdapter);
 
     // Upsert games with downloaded images (with performance monitoring)
     await performanceMonitor.measureDbQuery(
@@ -324,8 +207,15 @@ class SyncService {
                 game.totalAchievements > 0
                   ? Math.round((game.earnedAchievements / game.totalAchievements) * 100)
                   : 0,
+              playTimeMinutes: game.playtimeMinutes,
+              ownershipSource: game.ownershipSource,
+              achievementsFetchFailed: game.achievementsFetchFailed || false,
               lastSyncedAt: new Date(),
             };
+
+            if (game.lastPlayed) {
+              updateData.lastPlayed = game.lastPlayed;
+            }
 
             // Only update imagePath if we successfully downloaded an image
             const imagePath = gameImageMap.get(game.appId);
@@ -359,148 +249,13 @@ class SyncService {
       gamesProcessed: result.games.length,
     }, 'Games upserted to database');
 
-    // Group achievements by game and download icons in parallel
-    const achievementsByGame = new Map<string, typeof result.achievements>();
-    for (const achievement of result.achievements) {
-      const gameId = achievement.appId.toString();
-      if (!achievementsByGame.has(gameId)) {
-        achievementsByGame.set(gameId, []);
-      }
-      achievementsByGame.get(gameId)!.push(achievement);
-    }
-
-    // Download achievement icons with concurrency limit (uses same limit as game images)
-    const achievementIconPromises: Promise<{
-      appId: number;
-      achievementId: string;
-      iconPath?: string;
-      iconGrayPath?: string;
-    }>[] = [];
-
-    for (const achievement of result.achievements) {
-      const promise = limit(async () => {
-        const downloads: Promise<string | undefined>[] = [];
-
-        if (achievement.icon) {
-          downloads.push(
-            imageStorage
-              .downloadAndStore(
-                achievement.icon,
-                'steam',
-                achievement.appId.toString(),
-                achievement.achievementId,
-                'icon'
-              )
-              .catch((error) => {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download icon');
-                // Check if file exists locally even if download failed
-                const localPath = imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'icon');
-                if (localPath) {
-                  logger.debug({ achievementId: achievement.achievementId }, 'Using existing local file (icon)');
-                }
-                return localPath;
-              })
-          );
-        } else {
-          downloads.push(Promise.resolve(undefined));
-        }
-
-        if (achievement.iconGray) {
-          downloads.push(
-            imageStorage
-              .downloadAndStore(
-                achievement.iconGray,
-                'steam',
-                achievement.appId.toString(),
-                achievement.achievementId,
-                'iconGray'
-              )
-              .catch((error) => {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download iconGray');
-                // Check if file exists locally even if download failed
-                const localPath = imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'iconGray');
-                if (localPath) {
-                  logger.debug({ achievementId: achievement.achievementId }, 'Using existing local file (iconGray)');
-                }
-                return localPath;
-              })
-          );
-        } else {
-          downloads.push(Promise.resolve(undefined));
-        }
-
-        const [iconPath, iconGrayPath] = await Promise.all(downloads);
-        return {
-          appId: achievement.appId,
-          achievementId: achievement.achievementId,
-          iconPath,
-          iconGrayPath,
-        };
-      });
-
-      achievementIconPromises.push(promise);
-    }
-
-    // Process all achievement icon downloads with progress logging
-    logger.info({ total: achievementIconPromises.length, syncOperationId: syncOperation._id }, 'Starting achievement icon downloads');
-    
-    let completed = 0;
-    let failed = 0;
-    const progressPromises = achievementIconPromises.map(async (promise) => {
-      try {
-        const result = await promise;
-        completed++;
-        
-        // T031: Update icon download progress - save every 50 icons for responsive UI feedback
-        if (completed % 50 === 0 || completed === achievementIconPromises.length) {
-          await SyncOperation.findByIdAndUpdate(syncOperation._id, {
-            iconDownloadsCompleted: completed,
-            iconDownloadsFailed: failed
-          });
-          logger.info({ 
-            completed, 
-            total: achievementIconPromises.length, 
-            progress: `${Math.round((completed / achievementIconPromises.length) * 100)}%`,
-            syncOperationId: syncOperation._id,
-          }, 'Achievement icon download progress');
-        }
-        
-        // Update in-memory copy for final stats
-        syncOperation.iconDownloadsCompleted++;
-        
-        return result;
-      } catch (error) {
-        failed++;
-        syncOperation.iconDownloadsFailed++;
-        logger.warn({ error }, 'Achievement icon download failed');
-        throw error;
-      }
-    });
-    
-    const achievementIconResults = await Promise.all(progressPromises.map(p => p.catch(e => null)));
-    const achievementIconMap = new Map(
-      achievementIconResults
-        .filter((r): r is NonNullable<typeof r> => r !== null)
-        .map((r) => [`${r.appId}:${r.achievementId}`, { iconPath: r.iconPath, iconGrayPath: r.iconGrayPath }])
+    // Download achievement icons (adaptive concurrency inside steam adapter)
+    const { iconMap: achievementIconMap, completed, failed } = await steamAdapter.downloadAchievementIcons(
+      result.achievements, syncOperation,
     );
-
-    // Final save of icon download stats (already saved via atomic updates above)
     syncOperation.iconDownloadsCompleted = completed;
     syncOperation.iconDownloadsFailed = failed;
     await syncOperation.save();
-
-    logger.info(
-      { 
-        totalAchievements: result.achievements.length,
-        iconMapSize: achievementIconMap.size,
-        iconsCompleted: completed,
-        iconsFailed: failed,
-        syncOperationId: syncOperation._id
-      }, 
-      'Achievement icon download completed'
-    );
 
     // PERFORMANCE FIX: Pre-fetch all games into a Map to avoid 26k+ sequential queries
     logger.info({ syncOperationId: syncOperation._id }, 'Pre-fetching all games for achievement upsert');
@@ -548,7 +303,7 @@ class SyncService {
     let achievementsUpserted = 0;
     let achievementsSkipped = 0;
     let achievementErrors = 0;
-    const batchSize = 500; // Process 500 achievements at a time (reduced for memory safety)
+    const batchSize = syncOperation.adaptiveParams.batchSize;
     
     try {
       for (let i = 0; i < result.achievements.length; i += batchSize) {
@@ -683,6 +438,165 @@ class SyncService {
     // Clear large data structures to free memory
     achievementIconMap.clear();
     gameIdToMongoId.clear();
+  }
+
+  // -------------------------------------------------------------------------
+  // Xbox sync (T014 / T016)
+  // -------------------------------------------------------------------------
+
+  private async syncXbox(profile: IProfile, syncOperation: any): Promise<void> {
+    // -----------------------------------------------------------------------
+    // Phase 1: Token refresh
+    // Xbox XSTS tokens expire in ~24 h and we need userHash from the bundle.
+    // Always refresh at the start of sync using the stored MSO refresh token.
+    // -----------------------------------------------------------------------
+
+    const clientId = await configService.getSetting('xbox_client_id');
+    const clientSecret = await configService.getSetting('xbox_client_secret');
+
+    if (!clientId || !clientSecret) {
+      throw new Error('Xbox Client ID and Secret not configured. Please add them in Settings → Xbox.');
+    }
+
+    const credentials = profile.getDecryptedCredentials();
+    if (!credentials?.refreshToken || credentials.tokenType !== 'xbox') {
+      throw new Error('Profile is missing Xbox refresh token. Please re-authenticate in Settings.');
+    }
+
+    const adapter = createXboxAdapter(syncOperation.adaptiveParams.concurrency);
+
+    logger.info({ profileId: profile.profileId }, 'Refreshing Xbox XSTS token before sync');
+
+    const tokenBundle = await adapter.refreshXboxTokens(
+      credentials.refreshToken,
+      clientId,
+      clientSecret,
+    );
+
+    // Persist refreshed token (encrypted by pre-save hook)
+    await Profile.findByIdAndUpdate(profile._id, {
+      'credentials.accessToken': tokenBundle.xstsToken,
+      'credentials.refreshToken': tokenBundle.refreshToken ?? credentials.refreshToken,
+      'credentials.expiresAt': tokenBundle.expiresAt,
+    });
+
+    const { xstsToken, userHash, xuid } = tokenBundle;
+
+    // -----------------------------------------------------------------------
+    // Phase 2: Update profile display name (gamertag)
+    // -----------------------------------------------------------------------
+
+    try {
+      const xboxProfile = await adapter.getXboxProfile(xuid, xstsToken, userHash);
+      if (xboxProfile.gamertag && xboxProfile.gamertag !== profile.displayName) {
+        await Profile.findByIdAndUpdate(profile._id, { displayName: xboxProfile.gamertag });
+        logger.info({ xuid, gamertag: xboxProfile.gamertag }, 'Updated Xbox profile display name');
+      }
+    } catch (error) {
+      logger.warn({ error, xuid }, 'Failed to update Xbox profile display name');
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 3: Game discovery
+    // -----------------------------------------------------------------------
+
+    const titles = await adapter.getTitleHistory(xuid, xstsToken, userHash);
+
+    // Enrich devices from TitleHub — the only source that returns the full devices array,
+    // which correctly classifies Play Anywhere games as both PC and XboxSeries.
+    const titleHubDevicesMap = await adapter.getTitleHubDevices(xuid, xstsToken, userHash);
+    for (const title of titles) {
+      const hubDevices = titleHubDevicesMap.get(title.titleId);
+      if (hubDevices && hubDevices.length > 0) {
+        title.devices = hubDevices;
+      }
+    }
+
+    const totalAchievements = titles.reduce((sum, t) => sum + t.totalAchievements, 0);
+
+    const gamesWithAchievements = titles.filter((t) => t.inEarnedScan || t.currentAchievements > 0).length;
+
+    syncOperation.totalGames = gamesWithAchievements;
+    syncOperation.totalAchievements = totalAchievements;
+    syncOperation.iconDownloadsPending = totalAchievements; // one icon per achievement
+    await syncOperation.save();
+
+    logger.info(
+      { syncOperationId: syncOperation._id, totalGames: gamesWithAchievements, totalTitles: titles.length, totalAchievements },
+      'Xbox title history fetched',
+    );
+
+    // -----------------------------------------------------------------------
+    // Phase 4: Game image downloads (adaptive concurrency inside xbox adapter)
+    // -----------------------------------------------------------------------
+
+    const steamGridDBAdapter = await createSteamGridDBAdapter();
+    const gameImageMap = await adapter.downloadGameImages(titles, syncOperation, steamGridDBAdapter);
+
+    // Upsert games
+    await performanceMonitor.measureDbQuery(
+      'syncService.upsertXboxGames',
+      async () => Promise.all(
+      titles.map((title) => {
+        const completionPercent =
+          title.totalAchievements > 0
+            ? Math.round((title.currentAchievements / title.totalAchievements) * 100)
+            : 0;
+
+        // Strip C0/C1 control characters (e.g. U+009E in "Rush: A Disney\u009EPixar Adventure")
+        // while preserving all printable characters including ™ (U+2122).
+        const cleanTitle = title.name
+          .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, '')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+
+        const updateData: any = {
+          platform: 'xbox',
+          title: cleanTitle,
+          achievementsTotal: title.totalAchievements,
+          achievementsUnlocked: title.currentAchievements,
+          completionPercent,
+          devices: title.devices,
+          currentGamerscore: title.currentGamerscore ?? 0,
+          maxGamerscore: title.maxGamerscore ?? 0,
+          ...(title.lastPlayed !== undefined && { lastPlayed: new Date(title.lastPlayed) }),
+          lastSyncedAt: new Date(),
+        };
+
+        const imagePath = gameImageMap.get(title.titleId);
+        if (imagePath) updateData.imagePath = imagePath;
+
+        return Game.findOneAndUpdate(
+          { profileId: profile._id, platform: 'xbox', gameId: title.titleId },
+          { $set: updateData },
+          { upsert: true, new: true },
+        ).catch((error) => {
+          logger.error({ error, titleId: title.titleId }, 'Failed to upsert Xbox game');
+          syncOperation.gamesFailed++;
+        });
+      }),
+    ));
+
+    syncOperation.gamesProcessed = titles.length;
+    await syncOperation.save();
+
+    logger.info({ syncOperationId: syncOperation._id, gamesUpserted: titles.length, gamesWithAchievements }, 'Xbox games upserted');
+
+    // -----------------------------------------------------------------------
+    // Phase 5: Achievement sync (adaptive batch/throttle/concurrency inside xbox adapter)
+    // -----------------------------------------------------------------------
+
+    const allGames = await Game.find({ profileId: profile._id, platform: 'xbox' })
+      .select('_id gameId')
+      .lean();
+    const gameIdToMongoId = new Map(allGames.map((g) => [g.gameId, g._id]));
+
+    const achievementsSynced = await adapter.syncAchievements(
+      titles, xuid, xstsToken, userHash, syncOperation, gameIdToMongoId,
+    );
+
+    syncOperation.achievementsSynced = achievementsSynced;
+    await syncOperation.save();
   }
 }
 

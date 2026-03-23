@@ -33,7 +33,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
       level: process.env.LOG_LEVEL || 'info',
       transport: process.env.NODE_ENV !== 'production' ? {
         target: 'pino-pretty',
-        options: { colorize: true },
+        options: { colorize: Boolean(process.stdout.isTTY) },
       } : undefined,
     },
   } = options;

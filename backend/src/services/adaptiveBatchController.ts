@@ -4,30 +4,34 @@ import { logger } from '../utils/logger.js';
  * Adaptive Batch Controller
  * 
  * Implements feedback-controlled batch sizing to maintain optimal API performance.
- * Starts at user-configured maximum and dynamically adjusts based on response times.
+ * Starts at a configured starting value and dynamically adjusts based on response times.
+ * Can grow beyond the starting value up to maxBatchSize when performance is good.
  * 
  * Algorithm:
- * - If avg response time > 1000ms (2x target): Reduce batch size by 25%
- * - If avg response time < 350ms (0.7x target): Increase batch size by 15%
- * - Never exceed user-configured maximum (backwards compatible)
- * - Never go below minimum of 5 items
- * 
- * Target: 500ms average response time (balanced between speed and reliability)
+ * - If avg response time > targetResponseTime * 2.5: Reduce batch size by 25%
+ * - If avg response time < targetResponseTime * 1.2: Increase batch size by 20%
+ * - Never exceed maxBatchSize
+ * - Never go below minBatchSize
  */
 export class AdaptiveBatchController {
   private currentBatchSize: number;
-  private readonly minBatchSize = 5;
+  private readonly startingBatchSize: number;
+  private readonly minBatchSize: number;
   private readonly maxBatchSize: number;
   private readonly targetResponseTime = 800; // ms - More tolerant for network latency
   private recentResponseTimes: number[] = [];
   private readonly windowSize = 5; // Track last 5 responses
   
   /**
-   * @param userConfiguredMax - Maximum batch size from user settings
+   * @param startingBatchSize - Initial batch size to begin with
+   * @param maxBatchSize - Ceiling the controller can scale up to
+   * @param minBatchSize - Floor the controller will never go below
    */
-  constructor(userConfiguredMax: number) {
-    this.maxBatchSize = Math.max(userConfiguredMax, this.minBatchSize);
-    this.currentBatchSize = this.maxBatchSize;
+  constructor(startingBatchSize: number, maxBatchSize?: number, minBatchSize?: number) {
+    this.minBatchSize = minBatchSize ?? 20;
+    this.maxBatchSize = Math.max(maxBatchSize ?? startingBatchSize, this.minBatchSize);
+    this.startingBatchSize = Math.min(Math.max(startingBatchSize, this.minBatchSize), this.maxBatchSize);
+    this.currentBatchSize = this.startingBatchSize;
     
     logger.debug({
       initialBatchSize: this.currentBatchSize,
@@ -115,7 +119,7 @@ export class AdaptiveBatchController {
    * Reset controller to initial state
    */
   reset(): void {
-    this.currentBatchSize = this.maxBatchSize;
+    this.currentBatchSize = this.startingBatchSize;
     this.recentResponseTimes = [];
     logger.debug('AdaptiveBatchController reset to initial state');
   }

@@ -4,10 +4,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    setupFiles: ['./tests/setup.ts'],
+    setupFiles: ['./tests/polyfill-setup.ts', './tests/setup.ts'],
     include: ['tests/**/*.test.ts'],
     coverage: {
-      provider: 'v8',
+      provider: 'istanbul',
       reporter: ['text', 'lcov', 'json-summary'],
       include: ['src/**/*.ts'],
       exclude: [
@@ -19,9 +19,9 @@ export default defineConfig({
         'src/utils/imageStorage.ts',
       ],
       thresholds: {
-        lines: 30,
-        functions: 38,
-        branches: 24,
+        lines: 60,
+        functions: 60,
+        branches: 48,
       },
     },
     testTimeout: 30000,

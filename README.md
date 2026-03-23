@@ -2,25 +2,27 @@
 
 [![Build](https://github.com/ghsvilela/cpak/actions/workflows/build.yml/badge.svg)](https://github.com/ghsvilela/cpak/actions/workflows/build.yml)
 [![Release](https://github.com/ghsvilela/cpak/actions/workflows/release.yml/badge.svg)](https://github.com/ghsvilela/cpak/actions/workflows/release.yml)
-[![Docker Hub](https://img.shields.io/docker/v/ghsvilela/cpak?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/ghsvilela/cpak)
+[![Docker Hub](https://img.shields.io/docker/v/ghsvilela/cpak?label=Docker%20Hub&logo=docker&sort=semver&filter=^[0-9]+\.[0-9]+\.[0-9]+$)](https://hub.docker.com/r/ghsvilela/cpak)
 [![GitHub Container Registry](https://img.shields.io/badge/ghcr.io-cpak-blue?logo=github)](https://ghcr.io/ghsvilela/cpak)
 [![Docker Image Size](https://img.shields.io/docker/image-size/ghsvilela/cpak/latest?label=image%20size)](https://hub.docker.com/r/ghsvilela/cpak)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 Achievements are more than just a game feature, they're memories. CPAK is a self-hosted, cross-platform achievement keeper for Steam, Xbox, and PlayStation that lets you preserve your gaming memories locally, forever. Remember to backup regularly to keep them safe.
 
-> **Note on Development Approach**: This project leverages AI-assisted "vibe coding" with [Speckit](https://github.com/github/spec-kit) for spec-driven development. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
+> **Note on Development Approach**: This project started as a self-learning journey to improve my skills in AI-assisted development, exploring how AI tools can be used effectively in real-world software projects, with the goal of bringing that knowledge and experience to my daily professional work. It leverages AI-assisted "vibe coding" with [Speckit](https://github.com/github/spec-kit) for spec-driven development. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
 
 ## Features
 
-- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation (Steam MVP ready)
+- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation (Steam and Xbox fully supported; PlayStation in progress)
 - **Self-Hosted**: Run on your own infrastructure with Docker
 - **Unified Container**: All-in-one image with web server, backend, frontend, and MongoDB
 - **UI-Based Configuration**: Configure API keys and all other settings through the web interface (no environment variables needed)
 - **Responsive Design**: Mobile-ready UI with Tailwind CSS
 - **Automatic Sync**: Scheduler to keep your achievements up to date
 - **Image Integration**: SteamGridDB support for game artwork
-- **Backup and Restore**: Backups all profiles, games, achievements and images to a zip file
+- **Backup and Restore**: Backup and restore all profiles, games, achievements, and images to a zip file
+- **Steam Profile Showcase**: Displays your total achievement count from your Steam profile showcase alongside tracked and untracked stats
+- **Xbox Gamerscore Tracking**: Shows total Gamerscore and Xbox 360 Gamerscore separately
 
 ## Quick Start
 
@@ -117,6 +119,68 @@ environment:
 
 When `ENCRYPTION_KEY` is set, all credentials are encrypted using AES-256-GCM before storage. Without it, credentials are stored in plain text (suitable for testing/development or trusted environments).
 
+### Optional: HTTPS with Self-Signed Certificate
+
+By default, cpak serves over plain HTTP (port 80). If you need HTTPS, for example, to register a non-localhost Xbox OAuth redirect URI, set `HTTPS_MODE=self-signed`. Only 443 port needs to be mapped. Both `http://` and `https://` works, plain HTTP requests are automatically redirected to HTTPS.
+
+```bash
+docker run -d \
+  -p 443:443 \
+  -e HTTPS_MODE=self-signed \
+  -v cpak_data:/app/data \
+  docker.io/ghsvilela/cpak:latest
+```
+
+Or with docker compose on a custom host port (e.g. NAS on port 30052):
+
+```yaml
+services:
+  cpak:
+    image: docker.io/ghsvilela/cpak:latest
+    ports:
+      - '30151:443'   # HTTPS - access via https://<nas-ip>:30151
+    environment:
+      - HTTPS_MODE=self-signed
+    volumes:
+      - cpak_data:/app/data
+```
+
+Access cpak at `https://<your-host>:30151`. Your browser will show an **untrusted certificate** warning the first time, click **Advanced → Proceed** to accept it. After that everything works normally, including the Xbox OAuth sign-in flow (Microsoft accepts HTTPS with self-signed certs as a valid redirect URI target once the browser has the exception).
+
+> **Xbox redirect URI**: Register `https://<your-host>:<port>/api/auth/xbox/callback` in your Azure app registration. See the in-app Xbox OAuth Setup Guide (Settings → Xbox OAuth Settings → Setup Guide) for full instructions.
+
+### Optional: HTTPS with Your Own Certificate
+
+If you already have a certificate (e.g. from Let's Encrypt, ZeroSSL, or issued by your own CA), set `HTTPS_MODE=custom-cert` and mount your certificate and private key into the container at the fixed paths Caddy expects:
+
+```bash
+docker run -d \
+  -p 443:443 \
+  -e HTTPS_MODE=custom-cert \
+  -v /path/to/cert.pem:/etc/caddy/tls/cert.pem:ro \
+  -v /path/to/key.pem:/etc/caddy/tls/key.pem:ro \
+  -v cpak_data:/app/data \
+  docker.io/ghsvilela/cpak:latest
+```
+
+Or with docker compose:
+
+```yaml
+services:
+  cpak:
+    image: docker.io/ghsvilela/cpak:latest
+    ports:
+      - '30151:443'   # HTTPS - access via https://<nas-ip>:30151
+    environment:
+      - HTTPS_MODE=custom-cert
+    volumes:
+      - cpak_data:/app/data
+      - /path/to/cert.pem:/etc/caddy/tls/cert.pem:ro
+      - /path/to/key.pem:/etc/caddy/tls/key.pem:ro
+```
+
+Both files must be PEM-encoded. The container will fail to start if either file is missing.
+
 ### Environment Variables (Container Configuration)
 
 These variables configure the container infrastructure (not application settings):
@@ -124,6 +188,7 @@ These variables configure the container infrastructure (not application settings
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `ENCRYPTION_KEY` | Encryption key for secret settings (API keys, tokens) | Plain text storage | Optional (recommended) |
+| `HTTPS_MODE` | `self-signed` - Caddy-issued self-signed cert; `custom-cert` - user-provided cert | HTTP only | Optional |
 | `EXTERNAL_DB` | Use external MongoDB | (empty = bundled) | No |
 | `MONGO_URI` | MongoDB connection (external mode) | `mongodb://mongo:27017/cpak` | External DB mode only |
 
@@ -273,10 +338,18 @@ cpak/
 
 ## Contributing
 
-1. Follow the speckit workflow (see `https://github.com/github/spec-kit`)
-2. Update tasks as you go
-3. Ensure all build/tests pass before submitting
-4. Follow constitution principles (see `.specify/memory/constitution.md`)
+Contributions are welcome in any form, with or without AI assistance.
+
+- If you'd like to follow the spec-driven workflow used in this project, see [Speckit](https://github.com/github/spec-kit). It's a great way to keep changes aligned with documented specs and tasks, but it is entirely optional.
+- Traditional contributions (bug fixes, features, tests, docs) are just as welcome, open an issue or a pull request and we'll take it from there.
+- Ensure all builds and tests pass before submitting.
+- Where relevant, follow the existing code conventions in the repo.
+
+## Legal Disclaimer
+
+This project is not affiliated with, endorsed by, or associated with Valve Corporation, Microsoft, or Sony Interactive Entertainment in any way. All trademarks and registered trademarks are the property of their respective owners.
+
+cpak uses publicly available APIs to retrieve achievement and game data on behalf of users, using credentials and API keys that users provide themselves. All data is fetched and stored locally on the user's own infrastructure. No data is sent to any third-party service by this application.
 
 ## License
 

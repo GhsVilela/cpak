@@ -17,6 +17,8 @@ interface Game {
   completionPercent: number;
   imagePath?: string;
   profileId: string;
+  ownershipSource?: 'owned' | 'played_history';
+  achievementsFetchFailed?: boolean;
 }
 
 interface GamesResponse {
@@ -26,6 +28,7 @@ interface GamesResponse {
     limit: number;
     offset: number;
     hasMore: boolean;
+    totalAchievementsUnlocked?: number;
   };
 }
 
@@ -58,7 +61,9 @@ function SteamPageContent() {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [noProfiles, setNoProfiles] = useState(false);
   const [onlyCompleted, setOnlyCompleted] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -69,6 +74,12 @@ function SteamPageContent() {
     searchParams.get('profileId') || undefined
   );
   
+  // Persistent tracked achievement count — unfiltered, only refreshed on profile/sync change
+  const [baseTrackedAchievements, setBaseTrackedAchievements] = useState<number | undefined>(undefined);
+
+  // Steam profile showcase achievements (scraped during sync)
+  const [showcaseAchievements, setShowcaseAchievements] = useState<number | null>(null);
+
   // Sync status and polling
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncPollInterval, setSyncPollInterval] = useState<NodeJS.Timeout | null>(null);
@@ -87,11 +98,30 @@ function SteamPageContent() {
 
   useEffect(() => {
     if (selectedProfileId) {
-      loadGames();
+      // Load per-profile toggle state synchronously before loading games
+      const savedOnlyCompleted = localStorage.getItem(`steam_onlyCompleted_${selectedProfileId}`) === 'true';
+      const savedShowHidden = localStorage.getItem(`steam_showHidden_${selectedProfileId}`) === 'true';
+      setOnlyCompleted(savedOnlyCompleted);
+      setShowHidden(savedShowHidden);
+      loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
+      loadShowcaseData();
+      loadBaseTrackedAchievements();
     }
-  }, [onlyCompleted, selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger]);
+  }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger]);
+
+  // Reload games when toggle state changes (user clicks a toggle)
+  const toggleReloadRef = useRef(false);
+  useEffect(() => {
+    if (!toggleReloadRef.current) {
+      toggleReloadRef.current = true;
+      return;
+    }
+    if (selectedProfileId) {
+      loadGames({ onlyCompleted, showHidden });
+    }
+  }, [onlyCompleted, showHidden]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -120,6 +150,35 @@ function SteamPageContent() {
     router.push(`/steam?profileId=${profileId}`, { scroll: false });
   };
 
+  // Fetch unfiltered total achievements unlocked for this profile (persists regardless of UI filters)
+  const loadBaseTrackedAchievements = async () => {
+    if (!selectedProfileId) return;
+    try {
+      const params = new URLSearchParams({
+        platform: 'steam',
+        profileId: selectedProfileId,
+        limit: '1',
+        offset: '0',
+      });
+      const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
+      setBaseTrackedAchievements(response.pagination.totalAchievementsUnlocked);
+    } catch {
+      // ignore — not critical
+    }
+  };
+
+  // Load existing showcase data from profile
+  const loadShowcaseData = async () => {
+    if (!selectedProfileId) return;
+    try {
+      const profiles = await apiClient.get<any[]>('/profiles?platform=steam');
+      const profile = profiles.find((p: any) => p._id === selectedProfileId);
+      setShowcaseAchievements(profile?.steamShowcaseAchievements ?? null);
+    } catch {
+      // ignore — showcase is optional
+    }
+  };
+
   const handleProfileError = (errorMessage: string) => {
     setError(errorMessage);
   };
@@ -131,7 +190,7 @@ function SteamPageContent() {
     await loadGames({ page: 1, perPage: newItemsPerPage });
   };
 
-  const loadGames = async (overrides?: { page?: number; perPage?: number }) => {
+  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; showHidden?: boolean }) => {
     if (!selectedProfileId) return;
 
     setLoading(true);
@@ -139,6 +198,8 @@ function SteamPageContent() {
 
     const page = overrides?.page ?? currentPage;
     const perPage = overrides?.perPage ?? itemsPerPage;
+    const effectiveOnlyCompleted = overrides?.onlyCompleted ?? onlyCompleted;
+    const effectiveShowHidden = overrides?.showHidden ?? showHidden;
 
     try {
       const params = new URLSearchParams({
@@ -150,8 +211,11 @@ function SteamPageContent() {
         sortOrder: sortOrder,
       });
       
-      if (onlyCompleted) {
+      if (effectiveOnlyCompleted) {
         params.append('onlyCompleted', 'true');
+      }
+      if (!effectiveShowHidden) {
+        params.append('excludeHidden', 'true');
       }
 
       const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
@@ -329,6 +393,7 @@ function SteamPageContent() {
               selectedProfileId={selectedProfileId}
               onSelectProfile={handleProfileChange}
               onError={handleProfileError}
+              onProfilesLoaded={(count) => setNoProfiles(count === 0)}
             />
             {selectedProfileId && !syncStatus?.current && (
               <button
@@ -372,26 +437,93 @@ function SteamPageContent() {
 
         {/* Last Sync Info */}
         {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
-          <div className="mb-4 text-sm text-gray-400">
-            Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
-            {syncStatus.lastCompleted.status === 'success' ? (
-              <span className="text-green-400 ml-2">✓</span>
-            ) : (
-              <span className="text-red-400 ml-2">✗</span>
-            )}
+          <div className="mb-4 flex items-center gap-3 text-sm text-gray-400 flex-wrap">
+            {baseTrackedAchievements !== undefined && showcaseAchievements != null ? (
+              <>
+                <span title="Total unlocked achievements from your steam profile showcase.">
+                  <span>Achievements Unlocked: </span>
+                  <span className="font-bold text-[var(--steam-accent)]">
+                    {showcaseAchievements.toLocaleString()}
+                  </span>
+                </span>
+                <span className="text-gray-600">|</span>
+                <span title="Achievements tracked by cpak from API-accessible games.">
+                  <span>Tracked: </span>
+                  <span className="font-bold text-[var(--steam-accent)]">
+                    {baseTrackedAchievements.toLocaleString()}
+                  </span>
+                </span>
+                <span className="text-gray-600">|</span>
+                <span title="Achievements cpak couldn't fetch, likely from games with revoked licenses.">
+                  <span>Untracked: </span>
+                  <span className="font-bold text-yellow-400">
+                    {Math.max(0, showcaseAchievements - baseTrackedAchievements).toLocaleString()}
+                  </span>
+                </span>
+                <span className="text-gray-600">|</span>
+              </>
+            ) : baseTrackedAchievements !== undefined ? (
+              <>
+                <span title="Total achievements tracked by cpak. May differ from steam profile total if some played games licenses were revoked.">
+                  <span>Achievements Unlocked: </span>
+                  <span className="font-bold text-[var(--steam-accent)]">
+                    {baseTrackedAchievements.toLocaleString()}
+                  </span>
+                </span>
+                <span className="text-gray-600">|</span>
+              </>
+            ) : null}
+            <span>
+              Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
+              {syncStatus.lastCompleted.status === 'success' ? (
+                <span className="text-green-400 ml-2">✓</span>
+              ) : (
+                <span className="text-red-400 ml-2">✗</span>
+              )}
+            </span>
           </div>
         )}
 
+        {selectedProfileId && (
         <div className="flex items-center gap-4 flex-wrap">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={onlyCompleted}
-              onChange={(e) => setOnlyCompleted(e.target.checked)}
-              className="w-4 h-4"
-            />
-            <span>100% Complete Only</span>
-          </label>
+          <button
+            role="switch"
+            aria-checked={onlyCompleted}
+            onClick={() => {
+              const next = !onlyCompleted;
+              setOnlyCompleted(next);
+              if (selectedProfileId) localStorage.setItem(`steam_onlyCompleted_${selectedProfileId}`, String(next));
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              onlyCompleted ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              onlyCompleted ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+          <span className="text-sm">100% Only</span>
+
+          <button
+            role="switch"
+            aria-checked={showHidden}
+            onClick={() => {
+              const next = !showHidden;
+              setShowHidden(next);
+              if (selectedProfileId) localStorage.setItem(`steam_showHidden_${selectedProfileId}`, String(next));
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              showHidden ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              showHidden ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+          <span
+            className="text-sm cursor-default"
+            title="Show games with revoked licenses. These games may have achievements unlocked but are no longer accessible via the Steam API."
+          >Show Hidden</span>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-400">Sort by:</label>
             <select
@@ -417,6 +549,7 @@ function SteamPageContent() {
             </select>
           </div>
         </div>
+        )}
       </div>
 
       {loading && selectedProfileId && <p>Loading games...</p>}
@@ -427,10 +560,23 @@ function SteamPageContent() {
         </div>
       )}
 
-      {!selectedProfileId && (
-        <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-400 px-4 py-3 rounded mb-4">
-          <p className="font-semibold">No Steam Profile Configured</p>
-          <p className="text-sm mt-1">No Steam profiles configured. Add one in the Settings page to start syncing your games.</p>
+      {!selectedProfileId && noProfiles && (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-16 h-16 rounded-full bg-[var(--steam-accent)]/10 flex items-center justify-center mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-[var(--steam-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-white mb-2">No Steam profile yet</h2>
+          <p className="text-gray-400 text-sm mb-6 max-w-sm">
+            Add a Steam profile to start tracking your games and achievements.
+          </p>
+          <a
+            href="/setup?platform=steam"
+            className="px-5 py-2.5 bg-[var(--steam-accent)] hover:opacity-90 text-gray-900 rounded-lg font-semibold text-sm transition"
+          >
+            Add Steam Profile
+          </a>
         </div>
       )}
 
@@ -480,7 +626,7 @@ function SteamPageContent() {
         <GameGrid 
           games={games} 
           loading={loading}
-          emptyMessage={onlyCompleted ? 'No 100% completed games. Try disabling the filter.' : 'No games found.'}
+          emptyMessage={onlyCompleted ? 'No 100% completed Steam games yet.' : 'No Steam games found. Try syncing your profile.'}
         />
       )}
 

@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSyncControls from '../../components/ProfileSyncControls';
 import SchedulerSettings from '../../components/SchedulerSettings';
-import SyncSettings from '../../components/SyncSettings';
 import Toast from '../../components/Toast';
 import BackupProgressModal from '../../components/BackupProgressModal';
 import RestoreProgressModal from '../../components/RestoreProgressModal';
@@ -18,6 +17,11 @@ interface Profile {
   displayName: string;
   createdAt: string;
   updatedAt: string;
+  credentials?: {
+    expiresAt?: string;
+    tokenType?: string;
+    hasApiKey?: boolean;
+  };
 }
 
 interface SyncRun {
@@ -33,13 +37,15 @@ interface SettingsState {
   // Scheduler
   scheduler_enabled?: string;
   scheduler_cron?: string;
-  // Sync
-  sync_batch_size?: string;
-  sync_concurrency?: string;
+  // Xbox OAuth
+  xbox_client_id?: string;
+  xbox_client_secret?: string;
+  xbox_redirect_uri?: string;
 }
 
 interface ConfiguredState {
   steamgrid_api_key?: boolean;
+  xbox_client_secret?: boolean;
 }
 
 const platformColors = {
@@ -63,6 +69,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [showSteamGridApiKey, setShowSteamGridApiKey] = useState(false);
+  const [showXboxClientSecret, setShowXboxClientSecret] = useState(false);
   
   // Toast state
   const [toast, setToast] = useState<{
@@ -224,6 +231,33 @@ export default function SettingsPage() {
     }
   };
 
+  const handleXboxSettingsSave = async () => {
+    try {
+      const updates: Promise<{ message: string }>[] = [];
+
+      if (settings.xbox_client_id && settings.xbox_client_id.trim() !== '') {
+        updates.push(apiClient.updateSetting('xbox_client_id', settings.xbox_client_id, 'auth'));
+      }
+      if (settings.xbox_client_secret && settings.xbox_client_secret.trim() !== '') {
+        updates.push(apiClient.updateSetting('xbox_client_secret', settings.xbox_client_secret, 'auth'));
+      }
+      if (settings.xbox_redirect_uri && settings.xbox_redirect_uri.trim() !== '') {
+        updates.push(apiClient.updateSetting('xbox_redirect_uri', settings.xbox_redirect_uri, 'auth'));
+      }
+
+      if (updates.length === 0) {
+        showToast('No Xbox settings to save', 'error');
+        return;
+      }
+
+      await Promise.all(updates);
+      showToast('Xbox settings saved successfully!', 'success');
+      await loadSettings();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to save Xbox settings', 'error');
+    }
+  };
+
   const handleSchedulerSettingsSave = async () => {
     try {
       if (settings.scheduler_enabled !== undefined) {
@@ -236,21 +270,6 @@ export default function SettingsPage() {
       showToast('Scheduler settings saved successfully!', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to save scheduler settings', 'error');
-    }
-  };
-
-  const handleSyncSettingsSave = async () => {
-    try {
-      if (settings.sync_batch_size !== undefined) {
-        await apiClient.updateSetting('sync_batch_size', settings.sync_batch_size, 'sync');
-      }
-      if (settings.sync_concurrency !== undefined) {
-        await apiClient.updateSetting('sync_concurrency', settings.sync_concurrency, 'sync');
-      }
-
-      showToast('Sync settings saved successfully!', 'success');
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to save sync settings', 'error');
     }
   };
 
@@ -848,16 +867,124 @@ export default function SettingsPage() {
           onChange={handleSettingChange}
           onSave={handleSchedulerSettingsSave}
         />
+      </div>
 
-        {/* Sync Performance Settings */}
-        <SyncSettings
-          values={{
-            sync_batch_size: settings.sync_batch_size || '30',
-            sync_concurrency: settings.sync_concurrency || '15'
-          }}
-          onChange={handleSettingChange}
-          onSave={handleSyncSettingsSave}
-        />
+      {/* Xbox OAuth Settings */}
+      <div className="bg-gray-900 rounded-lg p-6 mb-6">
+        <div className="flex items-start justify-between gap-4 mb-1">
+          <h2 className="text-xl font-semibold">Xbox OAuth Settings</h2>
+          <a
+            href="/xbox-guide"
+            className="flex items-center gap-1.5 text-xs text-[var(--xbox-accent)] hover:underline whitespace-nowrap mt-1"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+            </svg>
+            Setup Guide
+          </a>
+        </div>
+        <p className="text-sm text-gray-400 mb-4">
+          Configure your Azure app registration credentials to enable Xbox sign-in.
+          You will need a free Azure account and an app registered at{' '}
+          <a
+            href="https://entra.microsoft.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[var(--xbox-accent)] hover:underline"
+          >
+            entra.microsoft.com
+          </a>
+          . See the <a href="/xbox-guide" className="text-[var(--xbox-accent)] hover:underline">Setup Guide</a> for step-by-step instructions.
+        </p>
+
+        <div className="space-y-4">
+          {/* Client ID */}
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Application (Client) ID
+            </label>
+            <input
+              type="text"
+              value={settings.xbox_client_id || ''}
+              onChange={(e) => handleSettingChange('xbox_client_id', e.target.value)}
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-[var(--xbox-accent)]"
+            />
+          </div>
+
+          {/* Client Secret */}
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Client Secret
+            </label>
+            <div className="relative">
+              <input
+                type={showXboxClientSecret ? 'text' : 'password'}
+                value={settings.xbox_client_secret || ''}
+                onChange={(e) => handleSettingChange('xbox_client_secret', e.target.value)}
+                placeholder={configured.xbox_client_secret ? 'Enter new secret to replace' : 'Client secret value'}
+                className="w-full px-4 py-2 pr-24 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-[var(--xbox-accent)]"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                {configured.xbox_client_secret && !settings.xbox_client_secret && (
+                  <div className="flex items-center gap-1 text-green-400" title="Client secret is configured">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-xs font-medium">Configured</span>
+                  </div>
+                )}
+                {settings.xbox_client_secret && (
+                  <button
+                    type="button"
+                    onClick={() => setShowXboxClientSecret(!showXboxClientSecret)}
+                    className="text-gray-400 hover:text-gray-200"
+                    aria-label={showXboxClientSecret ? 'Hide secret' : 'Show secret'}
+                  >
+                    {showXboxClientSecret ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Stored encrypted. Leave blank to keep existing secret.
+            </p>
+          </div>
+
+          {/* Redirect URI */}
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Redirect URI
+            </label>
+            <input
+              type="text"
+              value={settings.xbox_redirect_uri || ''}
+              onChange={(e) => handleSettingChange('xbox_redirect_uri', e.target.value)}
+              placeholder="http://localhost:8000/api/auth/xbox/callback"
+              className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-[var(--xbox-accent)]"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Must match the redirect URI registered in your Azure app.
+              For local use: <code className="bg-gray-800 px-1 rounded">http://localhost:8000/api/auth/xbox/callback</code>
+            </p>
+          </div>
+
+          <button
+            onClick={handleXboxSettingsSave}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition"
+          >
+            Save Xbox Settings
+          </button>
+        </div>
       </div>
 
       {/* Backup & Restore Section */}
@@ -1071,6 +1198,17 @@ export default function SettingsPage() {
                       {platformNames[profile.platform]}
                     </span>
                     <h3 className="text-xl font-semibold break-words">{profile.displayName}</h3>
+                    {/* T026: Xbox re-auth badge */}
+                    {profile.platform === 'xbox' &&
+                      profile.credentials?.expiresAt &&
+                      new Date(profile.credentials.expiresAt) < new Date() && (
+                        <span
+                          className="px-2 py-0.5 rounded text-xs font-semibold bg-yellow-900/40 text-yellow-400 border border-yellow-600 whitespace-nowrap"
+                          title="Xbox token has expired. Re-connect Xbox in setup to resume syncing."
+                        >
+                          ⚠️ Token expired
+                        </span>
+                      )}
                   </div>
                   <p className="text-sm text-gray-400 break-all">Profile ID: {profile.profileId}</p>
                   <p className="text-xs text-gray-500 mt-2">

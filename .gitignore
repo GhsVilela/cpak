@@ -41,3 +41,10 @@ data/
 # Temporary files
 *.tmp
 .cache/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Docker runtime data (keys, cached repos)
+docker/keys/
+docker/repos/

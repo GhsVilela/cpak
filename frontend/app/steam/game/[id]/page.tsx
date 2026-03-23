@@ -12,6 +12,10 @@ interface Game {
   achievementsUnlocked: number;
   completionPercent: number;
   platform: string;
+  lastPlayed?: string;
+  playTimeMinutes?: number;
+  ownershipSource?: 'owned' | 'played_history';
+  achievementsFetchFailed?: boolean;
 }
 
 interface Achievement {
@@ -26,6 +30,25 @@ interface Achievement {
 
 // Make this page dynamic (not static)
 export const dynamic = 'force-dynamic';
+
+function formatLastPlayed(iso: string): string {
+  const date = new Date(iso);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / 86_400_000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) === 1 ? '' : 's'} ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) === 1 ? '' : 's'} ago`;
+  return date.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function formatPlaytime(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
 
 export default function GameDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -109,15 +132,41 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
       {/* Game header */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-4">{game.title}</h1>
-        <div className="flex gap-8 text-sm">
-          <div>
-            <span className="text-gray-400">Achievements: </span>
-            <span className="font-semibold">{game.achievementsUnlocked} / {game.achievementsTotal}</span>
+        <div className="flex items-center gap-0 text-sm divide-x divide-gray-600 overflow-x-auto flex-nowrap">
+          <div className="pr-5 shrink-0 whitespace-nowrap">
+            <div className="text-gray-400 text-xs uppercase tracking-wide">Achievements</div>
+            <div className="font-semibold mt-0.5">
+              {game.achievementsUnlocked} / {game.achievementsTotal}
+            </div>
           </div>
-          <div>
-            <span className="text-gray-400">Completion: </span>
-            <span className="font-semibold text-[var(--steam-accent)]">{game.completionPercent}%</span>
+          <div className="px-5 shrink-0 whitespace-nowrap">
+            <div className="text-gray-400 text-xs uppercase tracking-wide">Completion</div>
+            <div className="font-semibold mt-0.5">
+              {game.completionPercent}%
+            </div>
           </div>
+          {game.playTimeMinutes !== undefined && game.playTimeMinutes > 0 && (
+            <div className="px-5 shrink-0 whitespace-nowrap">
+              <div className="text-gray-400 text-xs uppercase tracking-wide">Time Played</div>
+              <div className="font-semibold mt-0.5">{formatPlaytime(game.playTimeMinutes)}</div>
+            </div>
+          )}
+          {game.lastPlayed && (
+            <div className="px-5 shrink-0 whitespace-nowrap">
+              <div className="text-gray-400 text-xs uppercase tracking-wide">Last Played</div>
+              <div className="font-semibold mt-0.5" title={new Date(game.lastPlayed).toLocaleString()}>
+                {formatLastPlayed(game.lastPlayed)}
+              </div>
+            </div>
+          )}
+          {game.ownershipSource === 'played_history' && (
+            <div className="px-5 shrink-0 whitespace-nowrap">
+              <div className="text-gray-400 text-xs uppercase tracking-wide">Source</div>
+              <div className="font-semibold mt-0.5 text-yellow-400" title="This game is not in the owned games list">
+                {game.achievementsFetchFailed ? 'Revoked License' : 'Family Sharing'}
+              </div>
+            </div>
+          )}
         </div>
         <div className="mt-4 bg-gray-700 rounded-full h-3 overflow-hidden">
           <div
@@ -126,6 +175,21 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
           />
         </div>
       </div>
+
+      {/* Warning banner for games with failed achievement fetch */}
+      {game.achievementsFetchFailed && (
+        <div className="bg-yellow-900/20 border border-yellow-600 text-yellow-400 px-4 py-3 rounded-lg mb-6 flex items-start gap-3">
+          <span className="text-xl mt-0.5">⚠️</span>
+          <div>
+            <p className="font-semibold">Achievement data unavailable</p>
+            <p className="text-sm text-yellow-500 mt-1">
+              This game appears in your play history but unlocked achievements could not be fetched.
+              This usually happens when a game license has been revoked due to a refunded game, a limited-time free-to-play campaign, or no longer being part of a family sharing group.
+              The game is still shown in your library for reference.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Achievements list */}
       <div className="space-y-6">
@@ -159,7 +223,7 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
                     )}
                     {achievement.unlockedAt && (
                       <p className="text-xs text-gray-500 mt-2">
-                        Unlocked: {new Date(achievement.unlockedAt).toLocaleDateString()}
+                        Unlocked: {new Date(achievement.unlockedAt).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}
                       </p>
                     )}
                   </div>

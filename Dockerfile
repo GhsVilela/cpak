@@ -13,7 +13,7 @@ ARG VERSION=dev
 # ============================================================================
 # Stage 1: Backend Builder
 # ============================================================================
-FROM node:${NODE_VERSION}-alpine AS backend-builder
+FROM node:${NODE_VERSION}-slim AS backend-builder
 
 WORKDIR /build/backend
 
@@ -77,6 +77,7 @@ RUN apt-get update && apt-get install -y \
     mongodb-org-tools \
     bash \
     procps \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create MongoDB user and directories
@@ -110,12 +111,18 @@ COPY --from=frontend-builder /build/frontend/public /app/frontend/public
 # Copy configuration files
 COPY config/supervisord/supervisord.conf /etc/supervisor/conf.d/cpak.conf
 COPY config/caddy/Caddyfile.unified /etc/caddy/Caddyfile
+COPY config/caddy/Caddyfile.unified.https /etc/caddy/Caddyfile.https
+RUN mkdir -p /etc/caddy/tls
 
 # Copy entrypoint script
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Set metadata labels
+ARG VERSION=dev
+ARG BUILD_DATE
+ARG GIT_SHA
+
 LABEL org.opencontainers.image.title="CPAK" \
       org.opencontainers.image.description="Cross-Platform Achievement Keeper - Unified container with backend, frontend, web server, and database" \
       org.opencontainers.image.vendor="ghsvilela" \
@@ -136,9 +143,10 @@ LABEL org.opencontainers.image.title="CPAK" \
 # Expose HTTP port (Caddy listens on 80)
 EXPOSE 80
 
-# Health check
+# Health check — targets the backend directly on port 8080 (always plain HTTP)
+# to avoid SSL issues when HTTPS_MODE is set and Caddy would redirect port 80.
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
-    CMD wget --quiet --tries=1 --spider http://localhost/api/health || exit 1
+    CMD wget --quiet --tries=1 --spider http://localhost:8080/api/health || exit 1
 
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

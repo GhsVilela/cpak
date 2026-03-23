@@ -1,21 +1,23 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version Change: 0.2.0 → 0.3.0 (MINOR)
+Version Change: 0.3.0 → 0.4.0 (MINOR)
 
 Modified Principles:
-- Principle V: "Observability & Operations" → Unchanged
+- Principle VI: "Test Coverage by Default" — materially expanded with two new
+  non-negotiable rules: (a) 60% minimum line coverage enforced by Vitest + istanbul
+  thresholds in CI; (b) mandatory run-and-fix of affected tests whenever an existing
+  source file is changed.
 
 Added Sections:
-- Principle VI: "Test Coverage by Default" — mandates test files for every new frontend
-  page and new backend route/service, committed in the same PR as the feature.
+- None
 
 Removed Sections:
 - None
 
 Templates Requiring Updates:
-✅ tasks-template.md — "Tests are OPTIONAL" language replaced with
-   Constitution-aligned mandatory testing guidance (.specify/templates/tasks-template.md)
+✅ tasks-template.md — Tests note updated to reference 60% coverage floor and
+   run-on-change validation requirement (.specify/templates/tasks-template.md)
 ✅ spec-template.md — No hardcoded constitutional gates (dynamically generated)
 ✅ plan-template.md — No hardcoded constitutional gates (dynamically generated)
 ✅ checklist-template.md — Architecture-agnostic, no updates needed
@@ -23,10 +25,12 @@ Templates Requiring Updates:
 Follow-up TODOs:
 - None; all placeholders filled.
 
-Rationale for MINOR Version Bump (0.2.0 → 0.3.0):
-- New principle (VI) added; materially expands governance by mandating test coverage
-  for frontend pages and backend routes.
-- No existing principles removed or redefined → MINOR (not MAJOR).
+Rationale for MINOR Version Bump (0.3.0 → 0.4.0):
+- Principle VI materially expanded with new mandatory, measurable obligations:
+  coverage floor (≥60% lines, enforced by vitest.config.ts thresholds) and
+  run-and-fix discipline for changes to existing files. These are non-trivial
+  additions to governance, warranting MINOR. No principles removed or redefined
+  → not MAJOR.
 -->
 
 # cpak Constitution
@@ -75,6 +79,20 @@ MUST ship with a corresponding test file under `backend/tests/integration/routes
 commit as the feature implementation — a page or route MUST NOT be merged without its
 accompanying test file.
 
+**Coverage Threshold**: Both `frontend/` and `backend/` MUST maintain a minimum of
+60% line coverage at all times. This threshold is enforced by the `lines: 60` entry
+in each workspace's `vitest.config.ts` (istanbul provider). If any change causes line
+coverage to drop below 60%, additional tests MUST be added to restore coverage before
+that change is merged. The CI `npm run test --coverage` command MUST exit with code 0
+(threshold met) for both workspaces before a PR may be merged.
+
+**Validation on Change**: Whenever an existing source file is modified — whether to
+implement a new feature, fix a bug, or refactor — the developer MUST run the tests that
+exercise that file and verify they still pass. If the change alters the observable
+behavior of the file, the affected tests MUST be updated to reflect the new behavior;
+leaving tests broken or silently skipped is not permitted. Implementation change and
+test update MUST be treated as a single atomic unit of work committed together.
+
 Frontend tests MUST use Vitest + Testing Library + MSW (no real network calls, no
 running server required). Backend tests MUST use Vitest + mongodb-memory-server (no
 external database required). All tests MUST pass via `npm run test` in CI (Node 20)
@@ -83,10 +101,13 @@ interaction for each new page or route; exhaustive edge-case coverage is encoura
 but not required beyond the happy path.
 
 **Rationale**: Mandating tests at the time a feature lands prevents regression debt from
-accumulating, ensures every page and route can be validated in CI without a live
-environment, and keeps the project maintainable as the feature set grows. The Testing
-Library + MSW stack has already been established and all existing pages are covered;
-this principle locks in that standard going forward.
+accumulating. Enforcing a 60% line coverage floor ensures that every feature area
+remains exercised as the codebase grows, and the vitest.config.ts threshold makes
+coverage enforcement automatic rather than manual. The run-and-fix obligation for
+existing-file changes ensures that refactors and feature extensions do not silently
+break previously validated behavior. The Testing Library + MSW stack has already been
+established and all existing pages are covered; this principle locks in that standard
+going forward.
 
 ## Minimal Requirements
 
@@ -352,6 +373,11 @@ volumes:
   - Every new backend route module or service has a matching test file in
     `backend/tests/integration/routes/` or `backend/tests/unit/` (Principle VI)
   - All tests pass via `npm run test` in CI before merge (Principle VI)
+  - Line coverage meets or exceeds 60% for both `frontend/` and `backend/` after the
+    change — verified by `npm run test --coverage` (Principle VI)
+  - When modifying an existing source file, the tests for that file have been run
+    locally to confirm no regressions, and any tests affected by behavior changes
+    have been updated in the same commit (Principle VI)
 - Feature specifications MUST include a "Constitution Check" section validating alignment with principles.
 - Breaking changes to deployment model (e.g., splitting unified container) require constitution amendment before implementation.
 
@@ -359,7 +385,8 @@ volumes:
 - **0.1.0** (2026-01-24): Initial ratification with multi-service architecture and environment variable configuration
 - **0.2.0** (2026-02-13): Major update reflecting unified container deployment, UI-first configuration, minimal environment variables (≤3), settings database with encryption, dynamic scheduler reload, backup/restore system, and mobile-responsive design
 - **0.3.0** (2026-07-10): Added Principle VI (Test Coverage by Default) mandating test files for every new frontend page and backend route/service; updated Compliance & Review checklist; updated tasks-template.md to reflect mandatory testing
+- **0.4.0** (2026-03-08): Expanded Principle VI with 60% line coverage floor enforced by vitest.config.ts thresholds and mandatory run-and-fix validation when modifying existing source files; updated Compliance & Review checklist with coverage and change-validation bullets; updated tasks-template.md
 
 ---
 
-**Version**: 0.3.0 | **Ratified**: 2026-01-24 | **Last Amended**: 2026-07-10
+**Version**: 0.4.0 | **Ratified**: 2026-01-24 | **Last Amended**: 2026-03-08

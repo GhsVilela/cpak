@@ -14,6 +14,11 @@ const profileSchema = z.object({
     steamApiKey: z.string().optional(),
     xboxRefreshToken: z.string().optional(),
     psnRefreshToken: z.string().optional(),
+    // OAuth generic credential fields (used by Xbox OAuth flow)
+    refreshToken: z.string().optional(),
+    tokenType: z.string().optional(),
+    expiresAt: z.coerce.date().optional(),
+    scopes: z.array(z.string()).optional(),
   }).optional(),
 });
 
@@ -23,6 +28,10 @@ const updateProfileSchema = z.object({
     steamApiKey: z.string().optional(),
     xboxRefreshToken: z.string().optional(),
     psnRefreshToken: z.string().optional(),
+    refreshToken: z.string().optional(),
+    tokenType: z.string().optional(),
+    expiresAt: z.coerce.date().optional(),
+    scopes: z.array(z.string()).optional(),
   }).optional(),
 });
 

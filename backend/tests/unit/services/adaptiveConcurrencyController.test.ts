@@ -1,20 +1,20 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { AdaptiveConcurrencyController } from '../../../src/services/adaptiveConcurrencyController.js';
 
 describe('AdaptiveConcurrencyController', () => {
-  it('starts at the user-configured max concurrency', () => {
-    const controller = new AdaptiveConcurrencyController(10);
+  it('starts at the configured starting concurrency', () => {
+    const controller = new AdaptiveConcurrencyController(10, 20);
     expect(controller.getConcurrency()).toBe(10);
   });
 
   it('executes operations and returns their results', async () => {
-    const controller = new AdaptiveConcurrencyController(5);
+    const controller = new AdaptiveConcurrencyController(5, 10);
     const result = await controller.execute(() => Promise.resolve(42));
     expect(result).toBe(42);
   });
 
   it('enforces concurrency limit — no more than N concurrent operations', async () => {
-    const controller = new AdaptiveConcurrencyController(2);
+    const controller = new AdaptiveConcurrencyController(2, 10, 1);
     let concurrent = 0;
     let maxConcurrent = 0;
 
@@ -38,23 +38,133 @@ describe('AdaptiveConcurrencyController', () => {
     expect(maxConcurrent).toBeLessThanOrEqual(2);
   });
 
-  it('never goes below minimum concurrency of 1', () => {
-    const controller = new AdaptiveConcurrencyController(1);
+  it('never goes below minimum concurrency', () => {
+    const controller = new AdaptiveConcurrencyController(5, 10, 5);
+    expect(controller.getConcurrency()).toBeGreaterThanOrEqual(5);
+  });
+
+  it('respects custom minConcurrency of 1', () => {
+    const controller = new AdaptiveConcurrencyController(1, 10, 1);
     expect(controller.getConcurrency()).toBe(1);
   });
 
   it('reset() restores the controller to its initial state', () => {
-    const controller = new AdaptiveConcurrencyController(5);
+    const controller = new AdaptiveConcurrencyController(5, 10);
     controller.reset();
     expect(controller.getConcurrency()).toBe(5);
   });
 
   it('getStats() returns expected shape', () => {
-    const controller = new AdaptiveConcurrencyController(4);
+    const controller = new AdaptiveConcurrencyController(4, 10);
     const stats = controller.getStats();
     expect(stats).toHaveProperty('currentConcurrency');
     expect(stats).toHaveProperty('maxConcurrency');
     expect(stats).toHaveProperty('activeCount');
     expect(stats).toHaveProperty('pendingCount');
+  });
+
+  it('decreases concurrency when operations are slow', async () => {
+    const controller = new AdaptiveConcurrencyController(8, 10, 3);
+    // Simulate slow operations by mocking Date.now
+    let callCount = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      callCount++;
+      // Alternate between start and end calls with 6000ms gap (> 5000ms slow threshold)
+      return callCount % 2 === 1 ? 1000 : 7000;
+    });
+
+    // Execute enough operations to trigger adjustment (need 5+ samples)
+    for (let i = 0; i < 6; i++) {
+      await controller.execute(() => Promise.resolve());
+    }
+
+    expect(controller.getConcurrency()).toBeLessThan(8);
+
+    vi.spyOn(Date, 'now').mockRestore();
+  });
+
+  it('increases concurrency when operations are fast', async () => {
+    const controller = new AdaptiveConcurrencyController(8, 20, 3);
+    // First, artificially reduce concurrency
+    let callCount = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      callCount++;
+      return callCount % 2 === 1 ? 1000 : 7000; // 6000ms > 5000ms slow threshold
+    });
+    for (let i = 0; i < 6; i++) {
+      await controller.execute(() => Promise.resolve());
+    }
+    const reducedLevel = controller.getConcurrency();
+    expect(reducedLevel).toBeLessThan(8);
+
+    // Now simulate fast operations
+    callCount = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      callCount++;
+      return callCount % 2 === 1 ? 1000 : 1100; // 100ms (< 500ms fast threshold)
+    });
+    // Need more operations to fill window
+    for (let i = 0; i < 12; i++) {
+      await controller.execute(() => Promise.resolve());
+    }
+
+    expect(controller.getConcurrency()).toBeGreaterThan(reducedLevel);
+    vi.spyOn(Date, 'now').mockRestore();
+  });
+
+  it('propagates errors from execute', async () => {
+    const controller = new AdaptiveConcurrencyController(2, 10, 1);
+    await expect(
+      controller.execute(() => Promise.reject(new Error('test error')))
+    ).rejects.toThrow('test error');
+  });
+
+  it('getStats averageOperationTime computes correctly', async () => {
+    const controller = new AdaptiveConcurrencyController(3, 10);
+    let callCount = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      callCount++;
+      return callCount % 2 === 1 ? 1000 : 1500; // 500ms per op
+    });
+
+    await controller.execute(() => Promise.resolve());
+    await controller.execute(() => Promise.resolve());
+
+    const stats = controller.getStats();
+    expect(stats.averageOperationTime).toBe(500);
+    expect(stats.recentOperationTimes).toHaveLength(2);
+    vi.spyOn(Date, 'now').mockRestore();
+  });
+
+  it('clamps starting value to at least minConcurrency', () => {
+    const controller = new AdaptiveConcurrencyController(0, 10);
+    expect(controller.getConcurrency()).toBe(5);
+  });
+
+  it('clamps to custom minConcurrency of 1', () => {
+    const controller = new AdaptiveConcurrencyController(0, 10, 1);
+    expect(controller.getConcurrency()).toBe(1);
+  });
+
+  it('scales up beyond starting value to max when operations are fast', async () => {
+    const controller = new AdaptiveConcurrencyController(5, 20);
+    let callCount = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      callCount++;
+      return callCount % 2 === 1 ? 1000 : 1100; // 100ms (< 500ms)
+    });
+    for (let i = 0; i < 15; i++) {
+      await controller.execute(() => Promise.resolve());
+    }
+    expect(controller.getConcurrency()).toBeGreaterThan(5);
+    expect(controller.getConcurrency()).toBeLessThanOrEqual(20);
+    vi.spyOn(Date, 'now').mockRestore();
+  });
+
+  it('clearQueue() clears pending operations', () => {
+    const controller = new AdaptiveConcurrencyController(5, 10);
+    controller.clearQueue();
+    // After clearing, stats should show 0 pending
+    expect(controller.getStats().pendingCount).toBe(0);
   });
 });

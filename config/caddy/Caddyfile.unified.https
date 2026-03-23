@@ -1,0 +1,57 @@
+{
+	# Global options
+	admin off
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+	# Disable automatic cert provisioning, user provides their own cert.
+	# TLS connection policies are still active so HTTPS works normally.
+	auto_https disable_certs
+	# Same-port HTTP redirect: when a plain HTTP request arrives on the HTTPS
+	# port, Caddy detects it before the TLS handshake and issues a redirect.
+	servers :443 {
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+		protocols h1 h2
+	}
+}
+
+# HTTPS on port 443 - user-provided certificate and private key.
+# Mount your cert to /etc/caddy/tls/cert.pem and key to /etc/caddy/tls/key.pem.
+:443 {
+	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
+
+	# API routes proxy to backend
+	handle /api/* {
+		reverse_proxy localhost:8080 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Health check endpoint
+	handle /health {
+		reverse_proxy localhost:8080
+	}
+
+	# Frontend routes proxy to Next.js
+	handle {
+		reverse_proxy localhost:3000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Enable gzip compression
+	encode gzip
+
+	# Logging
+	log {
+		output stdout
+		format json
+	}
+}

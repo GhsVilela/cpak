@@ -13,12 +13,15 @@ import { logger } from '../utils/logger.js';
  * - Gradual adjustment based on response time trends
  */
 export class AdaptiveThrottler {
-  private readonly minDelay = 100; // ms - reduced from 250ms for faster syncs
-  private readonly maxDelay = 400; // ms - reduced from 500ms
+  private readonly minDelay = 100; // ms
+  private readonly maxDelay = 400; // ms
   private currentDelay: number;
   
-  constructor() {
-    this.currentDelay = this.minDelay;
+  constructor(initialDelay?: number) {
+    // Clamp the caller-supplied initial delay to [minDelay, maxDelay].
+    this.currentDelay = initialDelay
+      ? Math.max(this.minDelay, Math.min(initialDelay, this.maxDelay))
+      : this.minDelay;
     logger.debug({
       minDelay: this.minDelay,
       maxDelay: this.maxDelay,
@@ -98,8 +101,10 @@ export class AdaptiveThrottler {
   /**
    * Reset throttler to initial state
    */
-  reset(): void {
-    this.currentDelay = this.minDelay;
-    logger.debug('AdaptiveThrottler reset to initial state');
+  reset(initialDelay?: number): void {
+    this.currentDelay = initialDelay
+      ? Math.max(this.minDelay, Math.min(initialDelay, this.maxDelay))
+      : this.minDelay;
+    logger.debug({ delay: this.currentDelay }, 'AdaptiveThrottler reset');
   }
 }
