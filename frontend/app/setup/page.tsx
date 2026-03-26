@@ -24,6 +24,9 @@ function SetupPageContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // PlayStation form state
+  const [npssoToken, setNpssoToken] = useState('');
+
   // Xbox OAuth config check
   const [xboxConfigured, setXboxConfigured] = useState<boolean | null>(null);
 
@@ -65,6 +68,46 @@ function SetupPageContent() {
       router.push(`/steam?profileId=${createdProfile._id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to setup Steam profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePlayStationSetup = async () => {
+    if (!npssoToken.trim()) {
+      setError('NPSSO token is required');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Validate NPSSO before creating the profile
+      const validation = await apiClient.post<{ valid: boolean; accountId?: string; onlineId?: string; error?: string }>(
+        '/auth/playstation/validate',
+        { npssoToken: npssoToken.trim() },
+      );
+
+      if (!validation.valid || !validation.accountId) {
+        setError(validation.error ?? 'Invalid NPSSO token. Make sure you copied it correctly.');
+        return;
+      }
+
+      // Create the profile (backend exchanges NPSSO → OAuth internally)
+      const created = await apiClient.post<{ _id: string }>('/profiles', {
+        platform: 'playstation' as const,
+        profileId: validation.accountId,
+        displayName: validation.onlineId ?? validation.accountId,
+        npssoToken: npssoToken.trim(),
+      });
+
+      // Trigger initial sync
+      await apiClient.post(`/sync/playstation?profileId=${created._id}`, {});
+
+      router.push(`/playstation?profileId=${created._id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to setup PlayStation profile');
     } finally {
       setLoading(false);
     }
@@ -295,15 +338,57 @@ function SetupPageContent() {
         {/* PlayStation Form */}
         {selectedPlatform === 'playstation' && (
           <div>
-            <h2 className="text-xl font-semibold mb-4" style={{ color: '#003791' }}>
-              PlayStation
-            </h2>
-            <div className="bg-gray-800 border border-gray-700 rounded-lg p-8 text-center">
-              <div className="text-4xl mb-3">🕹️</div>
-              <h3 className="text-lg font-semibold mb-2 text-gray-200">Coming Soon</h3>
-              <p className="text-gray-400 text-sm">
-                PlayStation Network integration is not yet available. Check back in a future update.
+            <h2 className="text-xl font-semibold mb-4 text-[var(--playstation-accent)]">PlayStation Sign In</h2>
+            <div className="space-y-4">
+              <p className="text-gray-300">
+                Connect your PlayStation Network account using an NPSSO token. Your trophy history will be
+                synced automatically.
               </p>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">NPSSO Token</label>
+                <input
+                  type="password"
+                  value={npssoToken}
+                  onChange={(e) => setNpssoToken(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded focus:outline-none focus:border-[var(--playstation-accent)] font-mono text-sm"
+                  placeholder="Paste your NPSSO token here"
+                />
+              </div>
+
+              <div className="bg-gray-800 border border-gray-700 rounded p-4 text-sm text-gray-400 space-y-2">
+                <p className="font-semibold text-gray-200">How to get your NPSSO token:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Sign in to <a href="https://store.playstation.com" target="_blank" rel="noopener noreferrer" className="text-[var(--playstation-accent)] hover:underline">store.playstation.com</a></li>
+                  <li>Visit <a href="https://ca.account.sony.com/api/v1/ssocookie" target="_blank" rel="noopener noreferrer" className="text-[var(--playstation-accent)] hover:underline">ca.account.sony.com/api/v1/ssocookie</a></li>
+                  <li>Copy the <code className="bg-gray-700 px-1 rounded">npsso</code> value from the JSON response</li>
+                </ol>
+                <p className="text-xs text-gray-500 pt-1">
+                  The NPSSO token expires in ~24 hours but will be exchanged for a longer-lived OAuth token (~60 days) during setup.
+                </p>
+              </div>
+
+              <div className="bg-yellow-900/20 border border-yellow-700/50 rounded p-4">
+                <h3 className="text-sm font-semibold text-yellow-400 mb-2">⚠️ Privacy Settings</h3>
+                <p className="text-xs text-gray-300">
+                  Your PSN trophies must be set to <strong>Public</strong> or <strong>Friends</strong> visibility.
+                  Go to <strong>PlayStation App → Profile → Privacy Settings → Trophies</strong> to check.
+                </p>
+              </div>
+
+              {error && (
+                <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-2 rounded">
+                  {error}
+                </div>
+              )}
+
+              <button
+                onClick={handlePlayStationSetup}
+                disabled={loading || !npssoToken.trim()}
+                className="w-full bg-[var(--playstation-accent)] hover:opacity-90 text-white font-semibold px-6 py-3 rounded disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {loading ? 'Connecting...' : 'Connect PlayStation Account'}
+              </button>
             </div>
           </div>
         )}
