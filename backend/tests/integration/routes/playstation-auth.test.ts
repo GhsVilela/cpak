@@ -12,6 +12,7 @@ vi.mock('psn-api', () => ({
   exchangeAccessCodeForAuthTokens: vi.fn(),
   exchangeRefreshTokenForAuthTokens: vi.fn(),
   getProfileFromAccountId: vi.fn(),
+  getUserTrophyProfileSummary: vi.fn(),
   getUserTitles: vi.fn(),
   getTitleTrophies: vi.fn(),
   getUserTrophiesEarnedForTitle: vi.fn(),
@@ -21,6 +22,7 @@ import {
   exchangeNpssoForAccessCode,
   exchangeAccessCodeForAuthTokens,
   getProfileFromAccountId,
+  getUserTrophyProfileSummary,
 } from 'psn-api';
 
 let app: FastifyInstance;
@@ -44,6 +46,13 @@ describe('POST /api/auth/playstation/validate', () => {
       idToken: 'mock-id-token',
       scope: 'psn:clientapp',
       tokenType: 'bearer',
+    } as any);
+    vi.mocked(getUserTrophyProfileSummary).mockResolvedValue({
+      accountId: '123456789',
+      trophyLevel: '999',
+      progress: 100,
+      tier: 10,
+      earnedTrophies: { bronze: 0, silver: 0, gold: 0, platinum: 0 },
     } as any);
     vi.mocked(getProfileFromAccountId).mockResolvedValue({
       onlineId: 'TestPSNUser',

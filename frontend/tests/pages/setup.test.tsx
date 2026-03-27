@@ -126,15 +126,16 @@ describe('Setup page — platform card selector (T008 / T017 / US1 / US4)', () =
     });
   });
 
-  it('selecting PlayStation platform shows "coming soon" message', async () => {
+  it('selecting PlayStation platform shows the NPSSO sign-in form', async () => {
     render(<SetupPage />);
     const psnCard = screen.queryByRole('button', { name: /playstation/i });
     if (!psnCard) { expect(document.body.firstChild).toBeTruthy(); return; }
     fireEvent.click(psnCard);
     await waitFor(() => {
       expect(
-        screen.queryByText(/coming soon/i) ||
-          screen.queryByText(/not.*available|not.*implemented/i),
+        screen.queryByText(/npsso/i) ||
+          screen.queryByText(/playstation sign in/i) ||
+          screen.queryByText(/connect your playstation/i),
       ).toBeTruthy();
     });
   });
