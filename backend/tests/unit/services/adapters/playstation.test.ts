@@ -11,6 +11,7 @@ vi.mock('psn-api', () => ({
   exchangeAccessCodeForAuthTokens: vi.fn(),
   exchangeRefreshTokenForAuthTokens: vi.fn(),
   getProfileFromAccountId: vi.fn(),
+  getUserTrophyProfileSummary: vi.fn(),
   getUserTitles: vi.fn(),
   getTitleTrophies: vi.fn(),
   getUserTrophiesEarnedForTitle: vi.fn(),
@@ -44,6 +45,7 @@ import {
   exchangeAccessCodeForAuthTokens,
   exchangeRefreshTokenForAuthTokens,
   getProfileFromAccountId,
+  getUserTrophyProfileSummary,
   getUserTitles,
   getTitleTrophies,
   getUserTrophiesEarnedForTitle,
@@ -234,16 +236,20 @@ describe('PlayStationAdapter', () => {
 
   describe('getProfile', () => {
     it('fetches PSN profile with accountId and onlineId', async () => {
+      vi.mocked(getUserTrophyProfileSummary).mockResolvedValue({ accountId: '123456789' } as any);
       vi.mocked(getProfileFromAccountId).mockResolvedValue(mockProfileResponse as any);
 
       const result = await adapter.getProfile('mock-access-token');
 
-      expect(getProfileFromAccountId).toHaveBeenCalledWith({ accessToken: 'mock-access-token' }, 'me');
+      expect(getUserTrophyProfileSummary).toHaveBeenCalledWith({ accessToken: 'mock-access-token' }, 'me');
+      expect(getProfileFromAccountId).toHaveBeenCalledWith({ accessToken: 'mock-access-token' }, '123456789');
+      expect(result.accountId).toBe('123456789');
       expect(result.onlineId).toBe('TestPSNUser');
       expect(result.avatarUrl).toBe('https://example.com/avatar_xl.jpg');
     });
 
     it('uses first avatar when xl size is unavailable', async () => {
+      vi.mocked(getUserTrophyProfileSummary).mockResolvedValue({ accountId: '123456789' } as any);
       vi.mocked(getProfileFromAccountId).mockResolvedValue({
         ...mockProfileResponse,
         avatars: [{ size: 's', url: 'https://example.com/avatar_s.jpg' }],

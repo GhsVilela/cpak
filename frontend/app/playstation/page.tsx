@@ -120,7 +120,9 @@ function PlayStationPageContent() {
 
   useEffect(() => {
     if (selectedProfileId) {
-      loadGames();
+      const savedOnlyCompleted = localStorage.getItem(`playstation_onlyCompleted_${selectedProfileId}`) === 'true';
+      setOnlyCompleted(savedOnlyCompleted);
+      loadGames({ onlyCompleted: savedOnlyCompleted });
       loadSyncStatus();
       loadBaseTrophySummary();
     }
@@ -361,6 +363,10 @@ function PlayStationPageContent() {
             {baseTrophySummary && (baseTrophySummary.totalBronze + baseTrophySummary.totalSilver + baseTrophySummary.totalGold + baseTrophySummary.totalPlatinum) > 0 && (
               <>
                 <span className="font-semibold text-white">Trophies:</span>
+                <span title="Total trophies">
+                  <span className="font-bold text-[var(--playstation-accent)]">{baseTrophySummary.totalBronze + baseTrophySummary.totalSilver + baseTrophySummary.totalGold + baseTrophySummary.totalPlatinum}</span>
+                </span>
+                <span className="text-gray-600">|</span>
                 {baseTrophySummary.totalPlatinum > 0 && (
                   <span title="Platinum trophies">
                     <span style={{ color: '#a0b4c8' }}>● </span>
@@ -411,7 +417,7 @@ function PlayStationPageContent() {
             <button
               role="switch"
               aria-checked={onlyCompleted}
-              onClick={() => setOnlyCompleted((v) => !v)}
+              onClick={() => { const next = !onlyCompleted; setOnlyCompleted(next); if (selectedProfileId) localStorage.setItem(`playstation_onlyCompleted_${selectedProfileId}`, String(next)); }}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 onlyCompleted ? 'bg-[var(--playstation-accent)]' : 'bg-gray-600'
               }`}

@@ -13,6 +13,7 @@ import {
   exchangeAccessCodeForAuthTokens,
   exchangeRefreshTokenForAuthTokens,
   getProfileFromAccountId,
+  getUserTrophyProfileSummary,
   getUserTitles,
   getTitleTrophies,
   getUserTrophiesEarnedForTitle,
@@ -145,11 +146,19 @@ export class PlayStationAdapter {
    */
   async getProfile(accessToken: string, accountId = 'me'): Promise<PSNProfile> {
     const auth = { accessToken };
-    const profile = await getProfileFromAccountId(auth, accountId);
+    // The PSN User Profile API does not accept 'me' as an accountId.
+    // Use getUserTrophyProfileSummary (which supports 'me') to resolve the
+    // real numeric accountId first, then fetch the full profile.
+    let resolvedAccountId = accountId;
+    if (accountId === 'me') {
+      const summary = await getUserTrophyProfileSummary(auth, 'me');
+      resolvedAccountId = summary.accountId;
+    }
+    const profile = await getProfileFromAccountId(auth, resolvedAccountId);
     const avatarUrl = profile.avatars?.find((a) => a.size === 'xl')?.url
       ?? profile.avatars?.[0]?.url;
     return {
-      accountId,
+      accountId: resolvedAccountId,
       onlineId: profile.onlineId,
       avatarUrl,
     };
