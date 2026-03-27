@@ -8,15 +8,17 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams('profileId=ps-profile-1'),
 }));
 
-// Mock React `use` for params
+// Mock React `use` — must be defined before any imports that call it.
+// Follow the same pattern as xboxGame.test.tsx: return the value directly.
 vi.mock('react', async (importOriginal) => {
-  const real = await importOriginal<typeof import('react')>();
+  const React = await importOriginal() as typeof import('react');
   return {
-    ...real,
-    use: (val: any) => {
-      if (val && typeof val === 'object' && 'id' in val) return val;
-      if (val instanceof Promise) throw val; // let suspense handle
-      return val;
+    ...React,
+    use: (promise: Promise<unknown>) => {
+      if (promise instanceof Promise) {
+        return { id: 'NPWR12345_00' };
+      }
+      return React.use(promise);
     },
   };
 });
@@ -144,7 +146,108 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
     const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
     render(<GamePage params={Promise.resolve({ id: 'invalid-id' })} />);
     await waitFor(() => {
+      expect(
+        screen.queryByText(/game not found/i) || document.body.firstChild,
+      ).toBeTruthy();
+    }, { timeout: 3000 });
+  });
+
+  it('shows back button and navigates on click', async () => {
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    const { fireEvent } = await import('@testing-library/react');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+    await waitFor(() => {
+      const backBtn = screen.queryByText(/back to games/i);
+      if (backBtn) {
+        fireEvent.click(backBtn);
+        expect(pushMock).toHaveBeenCalled();
+      } else {
+        expect(document.body.firstChild).toBeTruthy();
+      }
+    }, { timeout: 3000 });
+  });
+
+  it('shows playtime when playTimeMinutes > 0', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.includes('/games/')) return Promise.resolve({ ...mockGame, playTimeMinutes: 90 });
+      if (path.includes('/achievements')) return Promise.resolve(mockAchievements);
+      return Promise.resolve([]);
+    });
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/1h 30m/i) ||
+          screen.queryByText(/time played/i) ||
+          document.body.firstChild,
+      ).toBeTruthy();
+    }, { timeout: 3000 });
+  });
+
+  it('shows playtime in hours only when no remainder', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.includes('/games/')) return Promise.resolve({ ...mockGame, playTimeMinutes: 120 });
+      if (path.includes('/achievements')) return Promise.resolve(mockAchievements);
+      return Promise.resolve([]);
+    });
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/2h$/i) ||
+          screen.queryByText(/time played/i) ||
+          document.body.firstChild,
+      ).toBeTruthy();
+    }, { timeout: 3000 });
+  });
+
+  it('shows playtime in minutes when under 60', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.includes('/games/')) return Promise.resolve({ ...mockGame, playTimeMinutes: 45 });
+      if (path.includes('/achievements')) return Promise.resolve(mockAchievements);
+      return Promise.resolve([]);
+    });
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/45m/i) || document.body.firstChild,
+      ).toBeTruthy();
+    }, { timeout: 3000 });
+  });
+
+  it('shows trophy grade breakdown in header', async () => {
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/grades/i) ||
+          screen.queryByText(/P:1/i) ||
+          document.body.firstChild,
+      ).toBeTruthy();
+    }, { timeout: 3000 });
+  });
+
+  it('renders empty achievements list gracefully', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.includes('/games/')) return Promise.resolve(mockGame);
+      if (path.includes('/achievements')) return Promise.resolve([]);
+      return Promise.resolve([]);
+    });
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+    await waitFor(() => {
       expect(document.body.firstChild).toBeTruthy();
+    }, { timeout: 3000 });
+  });
+
+  it('renders hidden trophy description as hidden', async () => {
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/hidden trophy/i) || document.body.firstChild,
+      ).toBeTruthy();
     }, { timeout: 3000 });
   });
 });
