@@ -133,7 +133,7 @@ describe('Setup page — platform card selector (T008 / T017 / US1 / US4)', () =
     fireEvent.click(psnCard);
     await waitFor(() => {
       expect(
-        screen.queryByText(/npsso/i) ||
+        screen.queryAllByText(/npsso/i).length > 0 ||
           screen.queryByText(/playstation sign in/i) ||
           screen.queryByText(/connect your playstation/i),
       ).toBeTruthy();
