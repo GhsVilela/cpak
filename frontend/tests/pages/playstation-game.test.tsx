@@ -76,7 +76,7 @@ const mockAchievements = [
 
 const mockApiGet = vi.fn();
 
-vi.mock('../../../../services/apiClient', () => ({
+vi.mock('../../services/apiClient', () => ({
   apiClient: {
     get: mockApiGet,
     post: vi.fn().mockResolvedValue({}),
@@ -98,7 +98,7 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
   });
 
   it('renders without crashing', async () => {
-    const { default: GamePage } = await import('../../../../app/playstation/game/[id]/page');
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
     render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
     await waitFor(() => {
       expect(document.body.firstChild).toBeTruthy();
@@ -106,7 +106,7 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
   });
 
   it('displays game title', async () => {
-    const { default: GamePage } = await import('../../../../app/playstation/game/[id]/page');
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
     render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
     await waitFor(() => {
       expect(
@@ -116,7 +116,7 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
   });
 
   it('shows trophy list with grades', async () => {
-    const { default: GamePage } = await import('../../../../app/playstation/game/[id]/page');
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
     render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
     await waitFor(() => {
       expect(
@@ -128,7 +128,7 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
   });
 
   it('shows locked trophies section', async () => {
-    const { default: GamePage } = await import('../../../../app/playstation/game/[id]/page');
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
     render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
     await waitFor(() => {
       expect(
@@ -141,7 +141,7 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
 
   it('shows error state when game not found', async () => {
     mockApiGet.mockRejectedValue(new Error('Game not found'));
-    const { default: GamePage } = await import('../../../../app/playstation/game/[id]/page');
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
     render(<GamePage params={Promise.resolve({ id: 'invalid-id' })} />);
     await waitFor(() => {
       expect(document.body.firstChild).toBeTruthy();
