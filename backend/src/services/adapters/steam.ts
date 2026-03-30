@@ -645,7 +645,7 @@ export class SteamAdapter {
     games: Array<{ appId: number; name: string }>,
     syncOperation: any,
     steamGridDBAdapter: SteamGridDBAdapter | null,
-  ): Promise<Map<number, string | undefined>> {
+  ): Promise<Map<number, { capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string }>> {
     const concurrencyController = new AdaptiveConcurrencyController(
       syncOperation.adaptiveParams.concurrency,
     );
@@ -660,19 +660,11 @@ export class SteamAdapter {
 
           // Priority 1: Check for any existing local files first (grid, header, or capsule)
           imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'grid');
-          if (imagePath) {
-            logger.info({ appId: game.appId, imagePath }, 'Using existing local grid file');
-            return { appId: game.appId, imagePath };
+          if (!imagePath) {
+            imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'header');
           }
-          imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'header');
-          if (imagePath) {
-            logger.debug({ appId: game.appId }, 'Using existing local file (header)');
-            return { appId: game.appId, imagePath };
-          }
-          imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'capsule');
-          if (imagePath) {
-            logger.debug({ appId: game.appId }, 'Using existing local file (capsule)');
-            return { appId: game.appId, imagePath };
+          if (!imagePath) {
+            imagePath = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'capsule');
           }
 
           // Priority 2: Try direct Steam CDN library grid URL
@@ -777,19 +769,55 @@ export class SteamAdapter {
             }
           }
 
-          return { appId: game.appId, imagePath };
+          // Download hero and icon images in parallel (non-blocking — failures are OK)
+          const [heroImagePath, iconImagePath] = await Promise.all([
+            // Hero: Steam CDN library_hero.jpg
+            (async (): Promise<string | undefined> => {
+              try {
+                const cached = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'hero');
+                if (cached) return cached;
+                return await imageStorage.downloadAndStore(
+                  `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/library_hero.jpg`,
+                  'steam', game.appId.toString(), 'game', 'hero',
+                );
+              } catch {
+                logger.debug({ appId: game.appId }, 'Steam CDN hero image not available');
+                return undefined;
+              }
+            })(),
+            // Icon: Steam CDN header.jpg (resized to 64×64 by imageStorage)
+            (async (): Promise<string | undefined> => {
+              try {
+                const cached = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'icon');
+                if (cached) return cached;
+                return await imageStorage.downloadAndStore(
+                  `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/header.jpg`,
+                  'steam', game.appId.toString(), 'game', 'icon',
+                );
+              } catch {
+                logger.debug({ appId: game.appId }, 'Steam CDN icon image not available');
+                return undefined;
+              }
+            })(),
+          ]);
+
+          return { appId: game.appId, capsuleImagePath: imagePath, heroImagePath, iconImagePath };
         }),
       ),
     );
 
     // Update imagesCompleted count on the sync operation
-    const imagesDownloaded = gameImageResults.filter((r) => r.imagePath).length;
+    const imagesDownloaded = gameImageResults.filter((r) => r.capsuleImagePath).length;
     await SyncOperation.updateOne(
       { _id: syncOperation._id },
       { $set: { imagesCompleted: imagesDownloaded } },
     );
 
-    const gameImageMap = new Map(gameImageResults.map((r) => [r.appId, r.imagePath]));
+    const gameImageMap = new Map(gameImageResults.map((r) => [r.appId, {
+      capsuleImagePath: r.capsuleImagePath,
+      iconImagePath: r.iconImagePath,
+      heroImagePath: r.heroImagePath,
+    }]));
     logger.info({ total: games.length, syncOperationId: syncOperation._id }, 'All Steam game images downloaded');
     return gameImageMap;
   }

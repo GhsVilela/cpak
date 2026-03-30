@@ -311,7 +311,9 @@ export class PlayStationAdapter {
     npCommunicationId: string,
     trophyTitleIconUrl?: string,
     steamGridDB?: SteamGridDBAdapter,
-  ): Promise<string | undefined> {
+  ): Promise<{ capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string }> {
+    let capsuleImagePath: string | undefined;
+
     // 1. Try PlayStation CDN first
     if (trophyTitleIconUrl) {
       try {
@@ -322,45 +324,140 @@ export class PlayStationAdapter {
           'game',
           'grid',
         );
-        if (path) return path;
+        if (path) capsuleImagePath = path;
       } catch (err) {
         logger.debug({ err, trophyTitleIconUrl, npCommunicationId }, 'PlayStation CDN image unavailable, trying fallbacks');
       }
     }
 
     // 2. SteamGridDB fallback
-    if (steamGridDB) {
+    if (!capsuleImagePath && steamGridDB) {
       try {
         const path = await steamGridDB.downloadGameImageByName(gameTitle, 'playstation', npCommunicationId);
-        if (path) return path;
+        if (path) capsuleImagePath = path;
       } catch (err) {
         logger.debug({ err, gameTitle }, 'SteamGridDB fallback failed for PlayStation game');
       }
     }
 
     // 3. PCGamingWiki fallback
-    try {
-      const wikiUrl = await fetchPCGamingWikiImageUrl(gameTitle);
-      if (wikiUrl) {
-        const path = await imageStorage.downloadAndStoreViaWget(wikiUrl, 'playstation', npCommunicationId, 'game', 'grid');
-        if (path) return path;
+    if (!capsuleImagePath) {
+      try {
+        const wikiUrl = await fetchPCGamingWikiImageUrl(gameTitle);
+        if (wikiUrl) {
+          const path = await imageStorage.downloadAndStoreViaWget(wikiUrl, 'playstation', npCommunicationId, 'game', 'grid');
+          if (path) capsuleImagePath = path;
+        }
+      } catch (err) {
+        logger.debug({ err, gameTitle }, 'PCGamingWiki fallback failed for PlayStation game');
       }
-    } catch (err) {
-      logger.debug({ err, gameTitle }, 'PCGamingWiki fallback failed for PlayStation game');
     }
 
     // 4. Wikipedia fallback
-    try {
-      const wikiUrl = await fetchWikipediaImageUrl(gameTitle);
-      if (wikiUrl) {
-        const path = await imageStorage.downloadAndStoreViaWget(wikiUrl, 'playstation', npCommunicationId, 'game', 'grid');
-        if (path) return path;
+    if (!capsuleImagePath) {
+      try {
+        const wikiUrl = await fetchWikipediaImageUrl(gameTitle);
+        if (wikiUrl) {
+          const path = await imageStorage.downloadAndStoreViaWget(wikiUrl, 'playstation', npCommunicationId, 'game', 'grid');
+          if (path) capsuleImagePath = path;
+        }
+      } catch (err) {
+        logger.debug({ err, gameTitle }, 'Wikipedia fallback failed for PlayStation game');
       }
-    } catch (err) {
-      logger.debug({ err, gameTitle }, 'Wikipedia fallback failed for PlayStation game');
     }
 
-    return undefined;
+    // Download icon and hero in parallel (non-blocking — failures are OK)
+    const [iconImagePath, heroImagePath] = await Promise.all([
+      // Icon: PlayStation CDN trophyTitleIconUrl resized to 64×64 by imageStorage
+      (async (): Promise<string | undefined> => {
+        if (!trophyTitleIconUrl) return undefined;
+        try {
+          const cached = imageStorage.checkLocalFile('playstation', npCommunicationId, 'game', 'icon');
+          if (cached) return cached;
+          return await imageStorage.downloadAndStore(
+            trophyTitleIconUrl, 'playstation', npCommunicationId, 'game', 'icon',
+          );
+        } catch {
+          logger.debug({ npCommunicationId }, 'PlayStation icon image not available');
+          return undefined;
+        }
+      })(),
+      // Hero: SteamGridDB hero → PCGamingWiki → Wikipedia → trophyTitleIconUrl fallback
+      (async (): Promise<string | undefined> => {
+        try {
+          const cached = imageStorage.checkLocalFile('playstation', npCommunicationId, 'game', 'hero');
+          if (cached) return cached;
+
+          // 1. SteamGridDB hero images (when configured)
+          if (steamGridDB) {
+            const game = await steamGridDB.searchGameByName(gameTitle);
+            if (game) {
+              const heroes = await steamGridDB.getHeroImages(game.id);
+              if (heroes.length > 0) {
+                const best = heroes.sort((a, b) => b.score - a.score)[0];
+                const path = await imageStorage.downloadAndStore(
+                  best.url, 'playstation', npCommunicationId, 'game', 'hero',
+                );
+                if (path) {
+                  logger.info({ npCommunicationId, gameTitle }, '[HERO] Downloaded from SteamGridDB');
+                  return path;
+                }
+              }
+            }
+          }
+
+          // 2. PCGamingWiki cover image as hero fallback
+          try {
+            const pcgwUrl = await fetchPCGamingWikiImageUrl(gameTitle);
+            if (pcgwUrl) {
+              const path = await imageStorage.downloadAndStoreViaWget(
+                pcgwUrl, 'playstation', npCommunicationId, 'game', 'hero',
+              );
+              if (path) {
+                logger.info({ npCommunicationId, gameTitle }, '[HERO] Downloaded from PCGamingWiki');
+                return path;
+              }
+            }
+          } catch {
+            logger.debug({ npCommunicationId, gameTitle }, 'PCGamingWiki hero fallback failed');
+          }
+
+          // 3. Wikipedia image as hero fallback
+          try {
+            const wikiUrl = await fetchWikipediaImageUrl(gameTitle);
+            if (wikiUrl) {
+              const path = await imageStorage.downloadAndStoreViaWget(
+                wikiUrl, 'playstation', npCommunicationId, 'game', 'hero',
+              );
+              if (path) {
+                logger.info({ npCommunicationId, gameTitle }, '[HERO] Downloaded from Wikipedia');
+                return path;
+              }
+            }
+          } catch {
+            logger.debug({ npCommunicationId, gameTitle }, 'Wikipedia hero fallback failed');
+          }
+
+          // 4. Last resort: use trophyTitleIconUrl (square, will be stretched but provides visual)
+          if (trophyTitleIconUrl) {
+            const path = await imageStorage.downloadAndStore(
+              trophyTitleIconUrl, 'playstation', npCommunicationId, 'game', 'hero',
+            );
+            if (path) {
+              logger.info({ npCommunicationId, gameTitle }, '[HERO] Using trophy icon as hero fallback');
+              return path;
+            }
+          }
+
+          return undefined;
+        } catch {
+          logger.debug({ npCommunicationId, gameTitle }, 'PlayStation hero image not available');
+          return undefined;
+        }
+      })(),
+    ]);
+
+    return { capsuleImagePath, iconImagePath, heroImagePath };
   }
 
   /**

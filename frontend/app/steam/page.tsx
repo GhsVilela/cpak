@@ -5,17 +5,22 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
+import ViewModeSelector, { ViewMode } from '../../components/ViewModeSelector';
+import GameSearchInput from '../../components/GameSearchInput';
 import Toast from '../../components/Toast';
 
 interface Game {
   _id: string;
   gameId: string;
   title: string;
+  customTitle?: string;
   platform: 'steam' | 'xbox' | 'playstation';
   achievementsTotal: number;
   achievementsUnlocked: number;
   completionPercent: number;
-  imagePath?: string;
+  capsuleImagePath?: string;
+  iconImagePath?: string;
+  heroImagePath?: string;
   profileId: string;
   ownershipSource?: 'owned' | 'played_history';
   achievementsFetchFailed?: boolean;
@@ -74,8 +79,23 @@ function SteamPageContent() {
     searchParams.get('profileId') || undefined
   );
   
+  const [searchQuery, setSearchQuery] = useState('');
+
   // Persistent tracked achievement count — unfiltered, only refreshed on profile/sync change
   const [baseTrackedAchievements, setBaseTrackedAchievements] = useState<number | undefined>(undefined);
+
+  // View mode — persisted per-platform in localStorage
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('cpak-view-mode-steam') as ViewMode) || 'capsule';
+    }
+    return 'capsule';
+  });
+
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem('cpak-view-mode-steam', mode);
+  };
 
   // Steam profile showcase achievements (scraped during sync)
   const [showcaseAchievements, setShowcaseAchievements] = useState<number | null>(null);
@@ -109,7 +129,7 @@ function SteamPageContent() {
       loadShowcaseData();
       loadBaseTrackedAchievements();
     }
-  }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger]);
+  }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, searchQuery]);
 
   // Reload games when toggle state changes (user clicks a toggle)
   const toggleReloadRef = useRef(false);
@@ -216,6 +236,9 @@ function SteamPageContent() {
       }
       if (!effectiveShowHidden) {
         params.append('excludeHidden', 'true');
+      }
+      if (searchQuery) {
+        params.append('search', searchQuery);
       }
 
       const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
@@ -399,7 +422,7 @@ function SteamPageContent() {
               <button
                 onClick={triggerSync}
                 disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
-                className="px-4 py-2 bg-[var(--steam-accent)] hover:bg-[#1a7fc1] disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap"
+                className="px-4 py-2 bg-[var(--steam-accent)] hover:bg-[#1a7fc1] disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-white"
                 title={backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'Sync disabled during backup/restore operations' : ''}
               >
                 Sync Now
@@ -486,6 +509,8 @@ function SteamPageContent() {
 
         {selectedProfileId && (
         <div className="flex items-center gap-4 flex-wrap">
+          <GameSearchInput onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }} />
+          <ViewModeSelector viewMode={viewMode} onViewModeChange={handleViewModeChange} />
           <button
             role="switch"
             aria-checked={onlyCompleted}
@@ -626,7 +651,9 @@ function SteamPageContent() {
         <GameGrid 
           games={games} 
           loading={loading}
+          viewMode={viewMode}
           emptyMessage={onlyCompleted ? 'No 100% completed Steam games yet.' : 'No Steam games found. Try syncing your profile.'}
+          onGamesUpdated={() => setReloadTrigger((r) => r + 1)}
         />
       )}
 

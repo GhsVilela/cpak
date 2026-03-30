@@ -227,4 +227,49 @@ describe('SyncService', () => {
     expect(json.credentials?.tokenType).toBe('xbox');
     expect(json.credentials?.steamApiKeyConfigured).toBe(false);
   });
+
+  it('syncProfile covers adaptiveStats, lastPlayed and image paths for steam sync', async () => {
+    const { syncService } = await import('../../../src/services/syncService.js');
+    const { Profile } = await import('../../../src/models/profile.js');
+    const { createSteamAdapter } = await import('../../../src/services/adapters/steam.js');
+
+    vi.mocked(createSteamAdapter).mockReturnValueOnce({
+      getPlayerSummary: vi.fn().mockResolvedValue({ personaname: 'Rich User' }),
+      getProfileShowcaseAchievements: vi.fn().mockResolvedValue(42),
+      syncGamesAndAchievements: vi.fn().mockResolvedValue({
+        games: [{
+          appId: 730,
+          name: 'Counter-Strike 2',
+          playtimeMinutes: 500,
+          totalAchievements: 5,
+          earnedAchievements: 3,
+          ownershipSource: 'library',
+          achievementsFetchFailed: false,
+          lastPlayed: new Date('2024-01-01'),
+        }],
+        achievements: [],
+        adaptiveStats: { finalBatchSize: 100, finalConcurrency: 10, finalDelay: 100 },
+      }),
+      downloadGameImages: vi.fn().mockResolvedValue(new Map([[730, {
+        capsuleImagePath: 'steam/730/game_grid.jpg',
+        iconImagePath: 'steam/730/game_icon.jpg',
+        heroImagePath: 'steam/730/game_hero.jpg',
+      }]])),
+      downloadAchievementIcons: vi.fn().mockResolvedValue({ iconMap: new Map(), completed: 0, failed: 0 }),
+    } as any);
+
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-rich-user',
+      displayName: 'Rich Steam User',
+      credentials: { steamApiKey: 'rich-api-key' },
+    });
+
+    await syncService.syncProfile(profile as any);
+
+    const { Game } = await import('../../../src/models/game.js');
+    const game = await Game.findOne({ profileId: profile._id, gameId: '730' });
+    expect(game).toBeTruthy();
+    expect(game?.capsuleImagePath).toBe('steam/730/game_grid.jpg');
+  });
 });

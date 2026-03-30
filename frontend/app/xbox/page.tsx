@@ -5,17 +5,22 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
+import ViewModeSelector, { ViewMode } from '../../components/ViewModeSelector';
+import GameSearchInput from '../../components/GameSearchInput';
 import Toast from '../../components/Toast';
 
 interface Game {
   _id: string;
   gameId: string;
   title: string;
+  customTitle?: string;
   platform: 'steam' | 'xbox' | 'playstation';
   achievementsTotal: number;
   achievementsUnlocked: number;
   completionPercent: number;
-  imagePath?: string;
+  capsuleImagePath?: string;
+  iconImagePath?: string;
+  heroImagePath?: string;
   profileId: string;
   devices?: string[];
 }
@@ -101,6 +106,20 @@ function XboxPageContent() {
   );
   const [selectedProfile, setSelectedProfile] = useState<XboxProfile | null>(null);
   const [reAuthUrl, setReAuthUrl] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // View mode — persisted per-platform in localStorage
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('cpak-view-mode-xbox') as ViewMode) || 'capsule';
+    }
+    return 'capsule';
+  });
+
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem('cpak-view-mode-xbox', mode);
+  };
 
   // Sync status and polling
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -150,7 +169,7 @@ function XboxPageContent() {
       loadBaseGamerscore();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, generationFilter]);
+  }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, generationFilter, searchQuery]);
 
   // Reload games when toggle state changes (user clicks a toggle)
   const toggleReloadRef = useRef(false);
@@ -384,6 +403,9 @@ function XboxPageContent() {
       if (generationFilter) {
         params.append('device', generationFilter);
       }
+      if (searchQuery) {
+        params.append('search', searchQuery);
+      }
 
       const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
       setGames(response.data);
@@ -415,7 +437,7 @@ function XboxPageContent() {
               <button
                 onClick={triggerSync}
                 disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
-                className="px-4 py-2 bg-[var(--xbox-accent)] hover:opacity-90 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-black"
+                className="px-4 py-2 bg-[var(--xbox-accent)] hover:opacity-90 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-white"
                 title={backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'Sync disabled during backup/restore operations' : ''}
               >
                 Sync Now
@@ -505,6 +527,8 @@ function XboxPageContent() {
         {/* Filters */}
         {selectedProfileId && (
           <div className="flex items-center gap-4 flex-wrap">
+            <GameSearchInput onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }} />
+            <ViewModeSelector viewMode={viewMode} onViewModeChange={handleViewModeChange} />
             <button
               role="switch"
               aria-checked={onlyCompleted}
@@ -635,11 +659,13 @@ function XboxPageContent() {
         <GameGrid
           games={games}
           loading={loading}
+          viewMode={viewMode}
           emptyMessage={
             onlyCompleted
               ? 'No 100% completed Xbox games yet.'
               : 'No Xbox games found. Try syncing your profile.'
           }
+          onGamesUpdated={() => setReloadTrigger((r) => r + 1)}
         />
       )}
 

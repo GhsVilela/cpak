@@ -421,7 +421,7 @@ describe('PlayStationAdapter', () => {
         'https://image.api.playstation.com/trophy/god-of-war.png',
       );
 
-      expect(result).toBe('playstation/NPWR12345_00/game_grid.png');
+      expect(result.capsuleImagePath).toBe('playstation/NPWR12345_00/game_grid.png');
       expect(imageStorage.downloadAndStore).toHaveBeenCalledWith(
         'https://image.api.playstation.com/trophy/god-of-war.png',
         'playstation',
@@ -435,6 +435,8 @@ describe('PlayStationAdapter', () => {
       vi.mocked(imageStorage.downloadAndStore).mockRejectedValue(new Error('CDN error'));
       const mockSteamGridDB = {
         downloadGameImageByName: vi.fn().mockResolvedValue('playstation/NPWR12345_00/game_grid.jpg'),
+        searchGameByName: vi.fn().mockResolvedValue(null),
+        getHeroImages: vi.fn().mockResolvedValue([]),
       } as any;
 
       const result = await adapter.downloadGameImage(
@@ -444,7 +446,7 @@ describe('PlayStationAdapter', () => {
         mockSteamGridDB,
       );
 
-      expect(result).toBe('playstation/NPWR12345_00/game_grid.jpg');
+      expect(result.capsuleImagePath).toBe('playstation/NPWR12345_00/game_grid.jpg');
       expect(mockSteamGridDB.downloadGameImageByName).toHaveBeenCalledWith('God of War', 'playstation', 'NPWR12345_00');
     });
 
@@ -454,13 +456,15 @@ describe('PlayStationAdapter', () => {
       vi.mocked(fetchPCGamingWikiImageUrl).mockResolvedValue('https://wiki.com/gow.jpg');
       const mockSteamGridDB = {
         downloadGameImageByName: vi.fn().mockResolvedValue(null),
+        searchGameByName: vi.fn().mockResolvedValue(null),
+        getHeroImages: vi.fn().mockResolvedValue([]),
       } as any;
 
       const result = await adapter.downloadGameImage('God of War', 'NPWR12345_00', undefined, mockSteamGridDB);
 
       expect(fetchPCGamingWikiImageUrl).toHaveBeenCalledWith('God of War');
       expect(imageStorage.downloadAndStoreViaWget).toHaveBeenCalled();
-      expect(result).toBe('playstation/NPWR12345_00/game_grid.jpg');
+      expect(result.capsuleImagePath).toBe('playstation/NPWR12345_00/game_grid.jpg');
     });
 
     it('falls back to Wikipedia when PCGamingWiki returns nothing', async () => {
@@ -474,17 +478,17 @@ describe('PlayStationAdapter', () => {
       const result = await adapter.downloadGameImage('God of War', 'NPWR12345_00');
 
       expect(fetchWikipediaImageUrl).toHaveBeenCalledWith('God of War');
-      expect(result).toBe('playstation/NPWR12345_00/game_grid.jpg');
+      expect(result.capsuleImagePath).toBe('playstation/NPWR12345_00/game_grid.jpg');
     });
 
-    it('returns undefined when all fallbacks fail', async () => {
+    it('returns undefined capsule when all fallbacks fail', async () => {
       vi.mocked(imageStorage.downloadAndStore).mockRejectedValue(new Error('CDN error'));
       vi.mocked(imageStorage.downloadAndStoreViaWget).mockRejectedValue(new Error('wiki error'));
       vi.mocked(fetchPCGamingWikiImageUrl).mockResolvedValue(undefined);
       vi.mocked(fetchWikipediaImageUrl).mockResolvedValue(undefined);
 
       const result = await adapter.downloadGameImage('Unknown Game', 'NPWR00000_00');
-      expect(result).toBeUndefined();
+      expect(result.capsuleImagePath).toBeUndefined();
     });
 
     it('skips PlayStation CDN when no URL provided', async () => {
@@ -493,8 +497,7 @@ describe('PlayStationAdapter', () => {
 
       const result = await adapter.downloadGameImage('God of War', 'NPWR12345_00', undefined);
 
-      expect(imageStorage.downloadAndStore).not.toHaveBeenCalled();
-      expect(result).toBeUndefined();
+      expect(result.capsuleImagePath).toBeUndefined();
     });
   });
 

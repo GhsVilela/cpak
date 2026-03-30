@@ -217,10 +217,16 @@ class SyncService {
               updateData.lastPlayed = game.lastPlayed;
             }
 
-            // Only update imagePath if we successfully downloaded an image
-            const imagePath = gameImageMap.get(game.appId);
-            if (imagePath) {
-              updateData.imagePath = imagePath;
+            // Only update image paths if we successfully downloaded images
+            const imagePaths = gameImageMap.get(game.appId);
+            if (imagePaths?.capsuleImagePath) {
+              updateData.capsuleImagePath = imagePaths.capsuleImagePath;
+            }
+            if (imagePaths?.iconImagePath) {
+              updateData.iconImagePath = imagePaths.iconImagePath;
+            }
+            if (imagePaths?.heroImagePath) {
+              updateData.heroImagePath = imagePaths.heroImagePath;
             }
 
             return Game.findOneAndUpdate(
@@ -563,8 +569,10 @@ class SyncService {
           lastSyncedAt: new Date(),
         };
 
-        const imagePath = gameImageMap.get(title.titleId);
-        if (imagePath) updateData.imagePath = imagePath;
+        const imagePaths = gameImageMap.get(title.titleId);
+        if (imagePaths?.capsuleImagePath) updateData.capsuleImagePath = imagePaths.capsuleImagePath;
+        if (imagePaths?.iconImagePath) updateData.iconImagePath = imagePaths.iconImagePath;
+        if (imagePaths?.heroImagePath) updateData.heroImagePath = imagePaths.heroImagePath;
 
         return Game.findOneAndUpdate(
           { profileId: profile._id, platform: 'xbox', gameId: title.titleId },
@@ -660,7 +668,7 @@ class SyncService {
     for (const title of titles) {
       try {
         // Download game cover art (PlayStation CDN → SteamGridDB → PCGamingWiki → Wikipedia)
-        const imagePath = await adapter.downloadGameImage(
+        const imagePaths = await adapter.downloadGameImage(
           title.title,
           title.npCommunicationId,
           title.imageUrl,
@@ -685,7 +693,9 @@ class SyncService {
               trophyGold: title.earnedTrophies.gold,
               trophyPlatinum: title.earnedTrophies.platinum,
               lastPlayed: title.lastUpdatedDateTime ? new Date(title.lastUpdatedDateTime) : undefined,
-              ...(imagePath && { imagePath }),
+              ...(imagePaths.capsuleImagePath && { capsuleImagePath: imagePaths.capsuleImagePath }),
+              ...(imagePaths.iconImagePath && { iconImagePath: imagePaths.iconImagePath }),
+              ...(imagePaths.heroImagePath && { heroImagePath: imagePaths.heroImagePath }),
               lastSyncedAt: new Date(),
             },
           },

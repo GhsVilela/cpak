@@ -1,4 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import * as fs from 'fs';
+import * as path from 'path';
+import sharp from 'sharp';
 import { Game } from '../../models/game.js';
 import { Profile } from '../../models/profile.js';
 import { logger } from '../../utils/logger.js';
@@ -14,6 +17,8 @@ interface GamesQuery {
   sortOrder?: string;
   /** Console generation / platform filter for Xbox games: Xbox360 | XboxOne | XboxSeries | PC | PlayAnywhere | ConsoleOnly */
   device?: string;
+  /** Search games by title (case-insensitive substring match) */
+  search?: string;
 }
 
 export async function getGames(
@@ -31,6 +36,7 @@ export async function getGames(
       sortBy = 'title',
       sortOrder = 'asc',
       device,
+      search,
     } = req.query;
 
     // Parse and validate pagination params
@@ -85,6 +91,30 @@ export async function getGames(
     } else if (device) {
       // Inclusive match: games that include this platform (e.g. XboxSeries includes Play Anywhere)
       filter.devices = device;
+    }
+
+    // Search by title (case-insensitive substring match)
+    if (search && search.trim()) {
+      // Escape regex special characters to prevent ReDoS
+      const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchCondition = {
+        $or: [
+          { title: { $regex: escaped, $options: 'i' } },
+          { customTitle: { $regex: escaped, $options: 'i' } },
+        ],
+      };
+
+      // If excludeHidden also set $or, we need $and to combine both
+      if (filter.$or) {
+        const existingOr = filter.$or;
+        delete filter.$or;
+        if (!filter.$and) filter.$and = [];
+        filter.$and.push({ $or: existingOr });
+        filter.$and.push(searchCondition);
+      } else {
+        if (!filter.$and) filter.$and = [];
+        filter.$and.push(searchCondition);
+      }
     }
 
     // Validate and build sort object
@@ -221,6 +251,135 @@ export async function getGameById(
     reply.send(game);
   } catch (error) {
     logger.error({ error }, 'Failed to fetch game');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
+const IMAGES_BASE_DIR = process.env.IMAGES_DIR || '/app/data/images';
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+
+const IMAGE_DIMENSIONS: Record<string, { width: number; height: number }> = {
+  icon: { width: 64, height: 64 },
+  hero: { width: 1920, height: 620 },
+  capsule: { width: 600, height: 900 },
+};
+
+export async function updateGameTitle(
+  req: FastifyRequest<{ Params: { id: string }; Body: { customTitle?: string | null } }>,
+  reply: FastifyReply
+) {
+  try {
+    const { id } = req.params;
+    const body = req.body as { customTitle?: string | null };
+
+    if (body.customTitle !== undefined && body.customTitle !== null && typeof body.customTitle !== 'string') {
+      return reply.status(400).send({ error: 'customTitle must be a string or null' });
+    }
+
+    const game = await Game.findById(id);
+    if (!game) {
+      return reply.status(404).send({ error: 'Game not found' });
+    }
+
+    if (body.customTitle === null) {
+      game.customTitle = undefined;
+    } else if (typeof body.customTitle === 'string') {
+      const trimmed = body.customTitle.trim();
+      if (trimmed.length === 0) {
+        return reply.status(400).send({ error: 'customTitle cannot be empty' });
+      }
+      game.customTitle = trimmed;
+    }
+
+    await game.save();
+
+    reply.send({
+      _id: game._id,
+      title: game.title,
+      customTitle: game.customTitle ?? null,
+      capsuleImagePath: game.capsuleImagePath,
+      iconImagePath: game.iconImagePath,
+      heroImagePath: game.heroImagePath,
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to update game title');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
+export async function uploadGameImage(
+  req: FastifyRequest<{ Params: { id: string; imageType: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const { id, imageType } = req.params;
+
+    if (!IMAGE_DIMENSIONS[imageType]) {
+      return reply.status(400).send({ error: 'Invalid imageType. Must be icon, hero, or capsule' });
+    }
+
+    const game = await Game.findById(id);
+    if (!game) {
+      return reply.status(404).send({ error: 'Game not found' });
+    }
+
+    // @ts-ignore - multipart plugin adds file method to request
+    const data = await req.file();
+    if (!data) {
+      return reply.status(400).send({ error: 'No file provided' });
+    }
+
+    const fileBuffer = await data.toBuffer();
+
+    if (fileBuffer.length > MAX_IMAGE_SIZE) {
+      return reply.status(400).send({ error: 'File exceeds 10MB limit' });
+    }
+
+    // Validate it's an actual image using Sharp metadata
+    let metadata;
+    try {
+      metadata = await sharp(fileBuffer).metadata();
+    } catch {
+      return reply.status(400).send({ error: 'File is not a valid image' });
+    }
+
+    if (!metadata.width || !metadata.height) {
+      return reply.status(400).send({ error: 'File is not a valid image' });
+    }
+
+    // Resize to target dimensions
+    const dims = IMAGE_DIMENSIONS[imageType];
+    const resizedBuffer = await sharp(fileBuffer)
+      .resize(dims.width, dims.height, { fit: 'cover', position: 'centre' })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    // Store the image
+    const storageType = imageType === 'capsule' ? 'grid' : imageType;
+    const gameDir = path.join(IMAGES_BASE_DIR, game.platform, game.gameId);
+    fs.mkdirSync(gameDir, { recursive: true });
+    const filename = `game_${storageType}.jpg`;
+    const filePath = path.join(gameDir, filename);
+    fs.writeFileSync(filePath, resizedBuffer);
+
+    // Update game document with the relative path
+    const relativePath = `${game.platform}/${game.gameId}/${filename}`;
+    const fieldMap: Record<string, string> = {
+      icon: 'iconImagePath',
+      hero: 'heroImagePath',
+      capsule: 'capsuleImagePath',
+    };
+    (game as any)[fieldMap[imageType]] = relativePath;
+    await game.save();
+
+    reply.send({
+      _id: game._id,
+      iconImagePath: game.iconImagePath,
+      heroImagePath: game.heroImagePath,
+      capsuleImagePath: game.capsuleImagePath,
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to upload game image');
     reply.status(500).send({ error: 'Internal server error' });
   }
 }

@@ -10,6 +10,8 @@ const execFileAsync = promisify(execFile);
 
 const IMAGES_BASE_DIR = process.env.IMAGES_DIR || '/app/data/images';
 
+export type ImageType = 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule' | 'hero';
+
 export class ImageStorage {
   /**
    * Timestamp of the last Wikimedia download request.
@@ -24,7 +26,7 @@ export class ImageStorage {
    * @param platform - The platform (steam, xbox, playstation)
    * @param gameId - The game identifier
    * @param achievementId - The achievement identifier (or 'game' for game images)
-   * @param imageType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule'
+   * @param imageType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule', 'hero'
    * @returns The relative path to the stored image
    */
   async downloadAndStore(
@@ -32,7 +34,7 @@ export class ImageStorage {
     platform: string,
     gameId: string,
     achievementId: string,
-    imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule',
+    imageType: ImageType,
     /** Optional HTTP headers to include in the download request (e.g. Xbox Live auth) */
     headers?: Record<string, string>,
     /** Per-request timeout in ms (default 60 000). Increase for large images. */
@@ -173,6 +175,50 @@ export class ImageStorage {
         }
       }
 
+      // Resize hero images to 1920×620 JPEG.
+      if (imageType === 'hero') {
+        try {
+          const heroMeta = await sharp(fileBuffer).metadata();
+          const alreadyCorrectSize = heroMeta.width === 1920 && heroMeta.height === 620;
+          const alreadyJpeg = heroMeta.format === 'jpeg';
+
+          if (alreadyCorrectSize && alreadyJpeg) {
+            ext = '.jpg';
+          } else {
+            let pipeline = sharp(fileBuffer);
+            if (!alreadyCorrectSize) {
+              pipeline = pipeline.resize(1920, 620, { fit: 'cover', position: 'centre' });
+            }
+            fileBuffer = await pipeline.jpeg({ quality: 90 }).toBuffer();
+            ext = '.jpg';
+          }
+        } catch (resizeErr) {
+          logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, 'Failed to resize hero image, storing original');
+        }
+      }
+
+      // Resize game icon images to 64×64 JPEG.
+      if (imageType === 'icon' && achievementId === 'game') {
+        try {
+          const iconMeta = await sharp(fileBuffer).metadata();
+          const alreadyCorrectSize = iconMeta.width === 64 && iconMeta.height === 64;
+          const alreadyJpeg = iconMeta.format === 'jpeg';
+
+          if (alreadyCorrectSize && alreadyJpeg) {
+            ext = '.jpg';
+          } else {
+            let pipeline = sharp(fileBuffer);
+            if (!alreadyCorrectSize) {
+              pipeline = pipeline.resize(64, 64, { fit: 'cover', position: 'centre' });
+            }
+            fileBuffer = await pipeline.jpeg({ quality: 90 }).toBuffer();
+            ext = '.jpg';
+          }
+        } catch (resizeErr) {
+          logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, 'Failed to resize game icon, storing original');
+        }
+      }
+
       // Generate filename: {achievementId}_{imageType}.{ext}
       const filename = `${this.sanitizeFilename(achievementId)}_${imageType}${ext}`;
       const filePath = path.join(gameDir, filename);
@@ -237,7 +283,7 @@ export class ImageStorage {
     platform: string,
     gameId: string,
     achievementId: string,
-    imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule',
+    imageType: ImageType,
     /** Optional extra HTTP headers (e.g. XBL auth) passed as wget --header args */
     headers?: Record<string, string>,
     /** Per-request timeout in seconds for wget -T flag (default 60) */
@@ -344,6 +390,38 @@ export class ImageStorage {
         }
       }
 
+      // Resize hero images to 1920×620 JPEG.
+      if (imageType === 'hero') {
+        try {
+          const raw = await fs.promises.readFile(destPath);
+          const resized = await sharp(raw)
+            .resize(1920, 620, { fit: 'cover', position: 'centre' })
+            .jpeg({ quality: 90 })
+            .toBuffer();
+          fs.rmSync(destPath, { force: true });
+          destPath = path.join(gameDir, `${this.sanitizeFilename(achievementId)}_hero.jpg`);
+          await fs.promises.writeFile(destPath, resized);
+        } catch (resizeErr) {
+          logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, '[wget] Failed to resize hero image, keeping original');
+        }
+      }
+
+      // Resize game icon images to 64×64 JPEG.
+      if (imageType === 'icon' && achievementId === 'game') {
+        try {
+          const raw = await fs.promises.readFile(destPath);
+          const resized = await sharp(raw)
+            .resize(64, 64, { fit: 'cover', position: 'centre' })
+            .jpeg({ quality: 90 })
+            .toBuffer();
+          fs.rmSync(destPath, { force: true });
+          destPath = path.join(gameDir, `${this.sanitizeFilename(achievementId)}_icon.jpg`);
+          await fs.promises.writeFile(destPath, resized);
+        } catch (resizeErr) {
+          logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, '[wget] Failed to resize game icon, keeping original');
+        }
+      }
+
       // Xbox achievement icons: center-crop to square then resize to 512×512 WebP.
       // Modern Xbox icons are 1920×1080+ wide-canvas images (5-10 MB) with the
       // icon centered; this extracts the useful part and encodes it as WebP
@@ -445,14 +523,14 @@ export class ImageStorage {
    * @param platform - The platform (steam, xbox, playstation)
    * @param gameId - The game identifier
    * @param achievementId - The achievement identifier (or 'game' for game images)
-   * @param imageType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule'
+   * @param imageType - Image type: 'icon', 'iconGray', 'grid', 'header', 'capsule', 'hero'
    * @returns The relative path if file exists, undefined otherwise
    */
   checkLocalFile(
     platform: string,
     gameId: string,
     achievementId: string,
-    imageType: 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule'
+    imageType: ImageType
   ): string | undefined {
     const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
     // Directory may not exist yet (first sync)
