@@ -649,6 +649,7 @@ class SyncService {
             refreshToken: newTokens.refreshToken,
             expiresAt: newTokens.expiresAt,
           } as any;
+          freshProfile.markModified('credentials');
           await freshProfile.save();
         }
         logger.info({ profileId: profile.profileId }, 'PSN access token refreshed');

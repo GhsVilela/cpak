@@ -137,6 +137,7 @@ export async function createProfile(req: FastifyRequest, reply: FastifyReply) {
           ...profile.credentials,
           ...body.credentials,
         };
+        profile.markModified('credentials');
       }
     } else {
       // Create new profile
@@ -211,6 +212,9 @@ export async function updateProfile(req: FastifyRequest<{ Params: { id: string }
         ...body.credentials,
       };
     }
+
+    // Ensure Mongoose detects Mixed type changes for encryption hook
+    profile.markModified('credentials');
 
     // Save triggers pre-save hook for encryption
     await profile.save();

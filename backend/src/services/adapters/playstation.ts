@@ -137,6 +137,12 @@ export class PlayStationAdapter {
    */
   async refreshAccessToken(refreshToken: string): Promise<PSNAuthTokens> {
     const tokens = await exchangeRefreshTokenForAuthTokens(refreshToken);
+    // psn-api does not check HTTP error responses — if the refresh token is
+    // invalid, Sony returns an error body and the library silently returns
+    // undefined fields.  Detect this and throw explicitly.
+    if (!tokens.accessToken || !tokens.refreshToken) {
+      throw new Error('PSN refresh token is invalid or expired — re-authentication required');
+    }
     return this._mapTokenResponse(tokens);
   }
 

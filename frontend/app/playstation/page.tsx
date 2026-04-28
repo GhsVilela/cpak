@@ -355,11 +355,11 @@ function PlayStationPageContent() {
 
         {/* Sync Progress Banner */}
         {selectedProfileId && syncStatus?.current && (
-          <div className="mb-4 p-3 bg-green-900/20 border border-green-500/30 rounded">
+          <div className="mb-4 p-3 bg-blue-900/20 border border-blue-500/30 rounded">
             <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-green-400 font-medium">{syncStatus.current.message}</span>
+              <span className="text-blue-400 font-medium">{syncStatus.current.message}</span>
               <div className="flex items-center gap-3">
-                <span className="text-green-400 font-bold">{syncStatus.current.progress}%</span>
+                <span className="text-blue-400 font-bold">{syncStatus.current.progress}%</span>
                 <button
                   onClick={cancelSync}
                   className="text-sm px-3 py-1.5 bg-red-600/20 hover:bg-red-600/40 border border-red-500/50 rounded text-red-400 transition font-medium"
@@ -374,6 +374,9 @@ function PlayStationPageContent() {
                 style={{ width: `${syncStatus.current.progress}%` }}
               />
             </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Sync in progress. This page will automatically update when complete.
+            </p>
           </div>
         )}
 

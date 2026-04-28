@@ -164,6 +164,7 @@ export async function xboxAuthRoutes(fastify: FastifyInstance) {
         // Update existing profile
         profile.displayName = xboxProfile.gamertag;
         profile.credentials = { ...profile.credentials, ...credentials };
+        profile.markModified('credentials');
         await profile.save();
         logger.info({ profileId: xboxProfile.xuid, gamertag: xboxProfile.gamertag }, 'Updated existing Xbox profile');
       } else {
@@ -260,6 +261,7 @@ export async function xboxAuthRoutes(fastify: FastifyInstance) {
         tokenType: 'xbox',
         expiresAt: tokenBundle.expiresAt,
       };
+      profile.markModified('credentials');
       await profile.save();
 
       logger.info({ profileId: profile.profileId }, 'Xbox tokens refreshed successfully');

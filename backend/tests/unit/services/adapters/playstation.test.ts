@@ -222,6 +222,23 @@ describe('PlayStationAdapter', () => {
       expect(result.accessToken).toBe('new-access-token');
       expect(result.refreshToken).toBe('new-refresh-token');
     });
+
+    it('throws when psn-api returns undefined tokens (silent auth error)', async () => {
+      // psn-api does not check HTTP status — on auth failure Sony returns
+      // an error body and the library maps undefined fields silently.
+      vi.mocked(exchangeRefreshTokenForAuthTokens).mockResolvedValue({
+        accessToken: undefined,
+        refreshToken: undefined,
+        expiresIn: undefined,
+        idToken: undefined,
+        refreshTokenExpiresIn: undefined,
+        scope: undefined,
+        tokenType: undefined,
+      } as any);
+
+      await expect(adapter.refreshAccessToken('expired-token'))
+        .rejects.toThrow('PSN refresh token is invalid or expired');
+    });
   });
 
   // -------------------------------------------------------------------------

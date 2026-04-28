@@ -117,6 +117,11 @@ export async function getSyncStatus(
             progress = 66 + iconProgress;
             message = `Fetching achievement icons... (${activeSyncOp.iconDownloadsCompleted}/${activeSyncOp.iconDownloadsPending})`;
           }
+          // Transitional: games done but icons not yet queued — hold at 66%
+          else if (activeSyncOp.iconDownloadsPending === 0 && activeSyncOp.status === 'running') {
+            progress = 66;
+            message = 'Processing achievements...';
+          }
           // Phase 4: Finalizing
           else {
             progress = 100;
