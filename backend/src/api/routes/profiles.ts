@@ -27,6 +27,7 @@ const profileSchema = z.object({
 
 const updateProfileSchema = z.object({
   displayName: z.string().optional(),
+  npssoToken: z.string().optional(),
   credentials: z.object({
     steamApiKey: z.string().optional(),
     xboxRefreshToken: z.string().optional(),
@@ -175,6 +176,32 @@ export async function updateProfile(req: FastifyRequest<{ Params: { id: string }
     // Update fields
     if (body.displayName !== undefined) {
       profile.displayName = body.displayName;
+    }
+
+    // PlayStation: if npssoToken is provided, exchange it for fresh OAuth tokens
+    if (body.npssoToken && profile.platform === 'playstation') {
+      const adapter = createPlayStationAdapter();
+      try {
+        const psnTokens = await adapter.exchangeNpssoForTokens(body.npssoToken);
+        const psnProfile = await adapter.getProfile(psnTokens.accessToken, 'me');
+        profile.credentials = {
+          ...profile.credentials,
+          accessToken: psnTokens.accessToken,
+          refreshToken: psnTokens.refreshToken,
+          expiresAt: psnTokens.expiresAt,
+          tokenType: psnTokens.tokenType,
+        } as any;
+        // Update profileId and displayName in case they changed
+        profile.profileId = psnProfile.accountId;
+        profile.displayName = body.displayName ?? psnProfile.onlineId;
+        logger.info({ accountId: psnProfile.accountId }, 'PlayStation profile re-authenticated via NPSSO');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn({ error: message }, 'NPSSO token exchange failed during profile update');
+        return reply.status(400).send({
+          error: `NPSSO token is invalid or expired. Obtain a new one from https://ca.account.sony.com/api/v1/ssocookie`,
+        });
+      }
     }
 
     // Update credentials - merge with existing to preserve other fields

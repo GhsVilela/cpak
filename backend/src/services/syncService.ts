@@ -631,14 +631,26 @@ class SyncService {
       try {
         const newTokens = await adapter.refreshAccessToken(creds.refreshToken);
         accessToken = newTokens.accessToken;
-        // Update stored credentials
-        await Profile.findByIdAndUpdate(profile._id, {
-          $set: {
-            'credentials.accessToken': newTokens.accessToken,
-            'credentials.refreshToken': newTokens.refreshToken,
-            'credentials.expiresAt': newTokens.expiresAt,
-          },
-        });
+
+        // Validate the refreshed token by fetching the profile
+        try {
+          await adapter.getProfile(accessToken, 'me');
+        } catch (validationErr) {
+          logger.error({ err: validationErr, profileId: profile.profileId }, 'PSN refreshed token failed validation');
+          throw new Error('Refreshed PSN token is invalid');
+        }
+
+        // Use profile.save() to trigger the pre-save encryption hook
+        const freshProfile = await Profile.findById(profile._id);
+        if (freshProfile) {
+          freshProfile.credentials = {
+            ...freshProfile.credentials,
+            accessToken: newTokens.accessToken,
+            refreshToken: newTokens.refreshToken,
+            expiresAt: newTokens.expiresAt,
+          } as any;
+          await freshProfile.save();
+        }
         logger.info({ profileId: profile.profileId }, 'PSN access token refreshed');
       } catch (err) {
         logger.error({ err, profileId: profile.profileId }, 'PSN token refresh failed — re-auth required');
@@ -651,6 +663,25 @@ class SyncService {
     // -----------------------------------------------------------------------
     logger.info({ profileId: accountId }, 'Fetching PlayStation trophy titles');
     const titles = await adapter.getTrophyTitles(accessToken, 'me');
+
+    // Guard: if 0 games returned but the profile previously had games, the
+    // token is likely invalid despite the refresh appearing to succeed.
+    if (titles.length === 0) {
+      const previousGameCount = await Game.countDocuments({
+        profileId: profile._id,
+        platform: 'playstation',
+      });
+      if (previousGameCount > 0) {
+        logger.error(
+          { profileId: accountId, previousGameCount },
+          'PSN returned 0 trophy titles but profile previously had games — token likely invalid',
+        );
+        throw new Error(
+          `PlayStation sync returned 0 games but ${previousGameCount} were previously synced. ` +
+          'The authentication token is likely invalid. Please re-authenticate by providing a new NPSSO token.',
+        );
+      }
+    }
 
     syncOperation.totalGames = titles.length;
     syncOperation.iconDownloadsPending = 0;
@@ -667,7 +698,7 @@ class SyncService {
 
     for (const title of titles) {
       try {
-        // Download game cover art (PlayStation CDN → SteamGridDB → PCGamingWiki → Wikipedia)
+        // Download game cover art (PlayStation CDN → SteamGridDB → IGDB)
         const imagePaths = await adapter.downloadGameImage(
           title.title,
           title.npCommunicationId,

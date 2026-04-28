@@ -26,11 +26,6 @@ vi.mock('../../../../src/utils/imageStorage.js', () => ({
   },
 }));
 
-vi.mock('../../../../src/services/adapters/gameImageSearch.js', () => ({
-  fetchPCGamingWikiImageUrl: vi.fn(),
-  fetchWikipediaImageUrl: vi.fn(),
-}));
-
 vi.mock('../../../../src/utils/logger.js', () => ({
   logger: {
     debug: vi.fn(),
@@ -51,7 +46,6 @@ import {
   getUserTrophiesEarnedForTitle,
 } from 'psn-api';
 import { imageStorage } from '../../../../src/utils/imageStorage.js';
-import { fetchPCGamingWikiImageUrl, fetchWikipediaImageUrl } from '../../../../src/services/adapters/gameImageSearch.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -450,51 +444,14 @@ describe('PlayStationAdapter', () => {
       expect(mockSteamGridDB.downloadGameImageByName).toHaveBeenCalledWith('God of War', 'playstation', 'NPWR12345_00');
     });
 
-    it('falls back to PCGamingWiki when SteamGridDB returns nothing', async () => {
-      vi.mocked(imageStorage.downloadAndStore).mockRejectedValue(new Error('CDN error'));
-      vi.mocked(imageStorage.downloadAndStoreViaWget).mockResolvedValue('playstation/NPWR12345_00/game_grid.jpg');
-      vi.mocked(fetchPCGamingWikiImageUrl).mockResolvedValue('https://wiki.com/gow.jpg');
-      const mockSteamGridDB = {
-        downloadGameImageByName: vi.fn().mockResolvedValue(null),
-        searchGameByName: vi.fn().mockResolvedValue(null),
-        getHeroImages: vi.fn().mockResolvedValue([]),
-      } as any;
-
-      const result = await adapter.downloadGameImage('God of War', 'NPWR12345_00', undefined, mockSteamGridDB);
-
-      expect(fetchPCGamingWikiImageUrl).toHaveBeenCalledWith('God of War');
-      expect(imageStorage.downloadAndStoreViaWget).toHaveBeenCalled();
-      expect(result.capsuleImagePath).toBe('playstation/NPWR12345_00/game_grid.jpg');
-    });
-
-    it('falls back to Wikipedia when PCGamingWiki returns nothing', async () => {
-      vi.mocked(imageStorage.downloadAndStore).mockRejectedValue(new Error('CDN error'));
-      vi.mocked(imageStorage.downloadAndStoreViaWget)
-        .mockResolvedValueOnce(undefined as any) // PCGamingWiki
-        .mockResolvedValue('playstation/NPWR12345_00/game_grid.jpg'); // Wikipedia
-      vi.mocked(fetchPCGamingWikiImageUrl).mockResolvedValue('https://wiki.com/gow.jpg');
-      vi.mocked(fetchWikipediaImageUrl).mockResolvedValue('https://wikipedia.org/gow.jpg');
-
-      const result = await adapter.downloadGameImage('God of War', 'NPWR12345_00');
-
-      expect(fetchWikipediaImageUrl).toHaveBeenCalledWith('God of War');
-      expect(result.capsuleImagePath).toBe('playstation/NPWR12345_00/game_grid.jpg');
-    });
-
     it('returns undefined capsule when all fallbacks fail', async () => {
       vi.mocked(imageStorage.downloadAndStore).mockRejectedValue(new Error('CDN error'));
-      vi.mocked(imageStorage.downloadAndStoreViaWget).mockRejectedValue(new Error('wiki error'));
-      vi.mocked(fetchPCGamingWikiImageUrl).mockResolvedValue(undefined);
-      vi.mocked(fetchWikipediaImageUrl).mockResolvedValue(undefined);
 
       const result = await adapter.downloadGameImage('Unknown Game', 'NPWR00000_00');
       expect(result.capsuleImagePath).toBeUndefined();
     });
 
     it('skips PlayStation CDN when no URL provided', async () => {
-      vi.mocked(fetchPCGamingWikiImageUrl).mockResolvedValue(undefined);
-      vi.mocked(fetchWikipediaImageUrl).mockResolvedValue(undefined);
-
       const result = await adapter.downloadGameImage('God of War', 'NPWR12345_00', undefined);
 
       expect(result.capsuleImagePath).toBeUndefined();
@@ -558,6 +515,14 @@ describe('PlayStationAdapter', () => {
       vi.mocked(getUserTitles).mockRejectedValue(error403);
 
       await expect(adapter.getTrophyTitles('mock-token')).rejects.toThrow('PSN API access denied (403)');
+      expect(getUserTitles).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws immediately on 401 unauthorized without retrying', async () => {
+      const error401 = Object.assign(new Error('Unauthorized'), { statusCode: 401 });
+      vi.mocked(getUserTitles).mockRejectedValue(error401);
+
+      await expect(adapter.getTrophyTitles('mock-token')).rejects.toThrow('PSN API returned 401 Unauthorized');
       expect(getUserTitles).toHaveBeenCalledTimes(1);
     });
   });

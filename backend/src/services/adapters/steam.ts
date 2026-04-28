@@ -7,8 +7,8 @@ import { SYNC_DEFAULTS } from '../syncDefaults.js';
 import { performanceMonitor } from '../performanceMonitor.js';
 import { SyncOperation } from '../../models/syncOperation.js';
 import { imageStorage } from '../../utils/imageStorage.js';
-import { fetchPCGamingWikiImageUrl, fetchWikipediaImageUrl } from './gameImageSearch.js';
 import type { SteamGridDBAdapter } from './steamgriddb.js';
+import { createIGDBAdapter } from './igdb.js';
 
 interface SteamGame {
   appid: number;
@@ -639,7 +639,7 @@ export class SteamAdapter {
 
   /**
    * Download game cover images with adaptive concurrency control.
-   * Handles the full fallback chain: local cache → Steam CDN → SteamGridDB → PCGamingWiki → Wikipedia → Steam Store API.
+   * Handles the full fallback chain: local cache → Steam CDN → SteamGridDB → IGDB → Steam Store API.
    */
   async downloadGameImages(
     games: Array<{ appId: number; name: string }>,
@@ -692,53 +692,22 @@ export class SteamAdapter {
             }
           }
 
-          // Fallback 2: PCGamingWiki (public MediaWiki API, no API key)
+          // Fallback 2: IGDB (if credentials configured)
           if (!imagePath) {
-            logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P2] Trying PCGamingWiki');
             try {
-              const pcgwUrl = await fetchPCGamingWikiImageUrl(game.name);
-              if (pcgwUrl) {
-                logger.info({ appId: game.appId, name: game.name, pcgwUrl }, '[IMG Steam P2] PCGamingWiki URL found — downloading');
-                imagePath = await imageStorage.downloadAndStoreViaWget(
-                  pcgwUrl, 'steam', game.appId.toString(), 'game', 'grid',
-                );
+              const igdb = await createIGDBAdapter();
+              if (igdb) {
+                imagePath = await igdb.downloadGameImage(game.name, 'steam', game.appId.toString()) || undefined;
                 if (imagePath) {
-                  logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P2] PCGamingWiki image downloaded');
-                } else {
-                  logger.warn({ appId: game.appId, name: game.name, pcgwUrl }, '[IMG Steam P2] PCGamingWiki download returned no path');
+                  logger.info({ appId: game.appId }, 'Downloaded image from IGDB');
                 }
-              } else {
-                logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P2] PCGamingWiki returned no image');
               }
             } catch (error) {
-              logger.warn({ error: String(error), appId: game.appId, name: game.name }, '[IMG Steam P2] PCGamingWiki lookup threw');
+              logger.warn({ error, appId: game.appId }, 'IGDB download failed');
             }
           }
 
-          // Fallback 3: Wikipedia (public REST API, no API key)
-          if (!imagePath) {
-            logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P3] Trying Wikipedia');
-            try {
-              const wikiUrl = await fetchWikipediaImageUrl(game.name);
-              if (wikiUrl) {
-                logger.info({ appId: game.appId, name: game.name, wikiUrl }, '[IMG Steam P3] Wikipedia URL found — downloading');
-                imagePath = await imageStorage.downloadAndStoreViaWget(
-                  wikiUrl, 'steam', game.appId.toString(), 'game', 'grid',
-                );
-                if (imagePath) {
-                  logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P3] Wikipedia image downloaded');
-                } else {
-                  logger.warn({ appId: game.appId, name: game.name, wikiUrl }, '[IMG Steam P3] Wikipedia download returned no path');
-                }
-              } else {
-                logger.info({ appId: game.appId, name: game.name }, '[IMG Steam P3] Wikipedia returned no image');
-              }
-            } catch (error) {
-              logger.warn({ error, appId: game.appId, name: game.name }, '[IMG Steam P3] Wikipedia lookup threw');
-            }
-          }
-
-          // Fallback 4: Steam Store API for header or capsule image (last resort)
+          // Fallback 3: Steam Store API for header or capsule image (last resort)
           if (!imagePath) {
             try {
               const gameDetails = await this.getGameDetails(game.appId);

@@ -24,7 +24,7 @@ import {
 import { logger } from '../../utils/logger.js';
 import { imageStorage } from '../../utils/imageStorage.js';
 import type { SteamGridDBAdapter } from './steamgriddb.js';
-import { fetchPCGamingWikiImageUrl, fetchWikipediaImageUrl } from './gameImageSearch.js';
+import { createIGDBAdapter } from './igdb.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -340,29 +340,16 @@ export class PlayStationAdapter {
       }
     }
 
-    // 3. PCGamingWiki fallback
+    // 3. IGDB fallback
     if (!capsuleImagePath) {
       try {
-        const wikiUrl = await fetchPCGamingWikiImageUrl(gameTitle);
-        if (wikiUrl) {
-          const path = await imageStorage.downloadAndStoreViaWget(wikiUrl, 'playstation', npCommunicationId, 'game', 'grid');
+        const igdb = await createIGDBAdapter();
+        if (igdb) {
+          const path = await igdb.downloadGameImage(gameTitle, 'playstation', npCommunicationId);
           if (path) capsuleImagePath = path;
         }
       } catch (err) {
-        logger.debug({ err, gameTitle }, 'PCGamingWiki fallback failed for PlayStation game');
-      }
-    }
-
-    // 4. Wikipedia fallback
-    if (!capsuleImagePath) {
-      try {
-        const wikiUrl = await fetchWikipediaImageUrl(gameTitle);
-        if (wikiUrl) {
-          const path = await imageStorage.downloadAndStoreViaWget(wikiUrl, 'playstation', npCommunicationId, 'game', 'grid');
-          if (path) capsuleImagePath = path;
-        }
-      } catch (err) {
-        logger.debug({ err, gameTitle }, 'Wikipedia fallback failed for PlayStation game');
+        logger.debug({ err, gameTitle }, 'IGDB fallback failed for PlayStation game');
       }
     }
 
@@ -382,7 +369,7 @@ export class PlayStationAdapter {
           return undefined;
         }
       })(),
-      // Hero: SteamGridDB hero → PCGamingWiki → Wikipedia → trophyTitleIconUrl fallback
+      // Hero: SteamGridDB hero → IGDB artwork → trophyTitleIconUrl fallback
       (async (): Promise<string | undefined> => {
         try {
           const cached = imageStorage.checkLocalFile('playstation', npCommunicationId, 'game', 'hero');
@@ -406,39 +393,23 @@ export class PlayStationAdapter {
             }
           }
 
-          // 2. PCGamingWiki cover image as hero fallback
-          try {
-            const pcgwUrl = await fetchPCGamingWikiImageUrl(gameTitle);
-            if (pcgwUrl) {
-              const path = await imageStorage.downloadAndStoreViaWget(
-                pcgwUrl, 'playstation', npCommunicationId, 'game', 'hero',
-              );
-              if (path) {
-                logger.info({ npCommunicationId, gameTitle }, '[HERO] Downloaded from PCGamingWiki');
-                return path;
+          // 2. IGDB artwork as hero fallback
+          {
+            try {
+              const igdb = await createIGDBAdapter();
+              if (igdb) {
+                const heroPath = await igdb.downloadHeroImage(gameTitle, 'playstation', npCommunicationId);
+                if (heroPath) {
+                  logger.info({ npCommunicationId, gameTitle }, '[HERO] Downloaded from IGDB');
+                  return heroPath;
+                }
               }
+            } catch {
+              logger.debug({ npCommunicationId, gameTitle }, 'IGDB hero fallback failed');
             }
-          } catch {
-            logger.debug({ npCommunicationId, gameTitle }, 'PCGamingWiki hero fallback failed');
           }
 
-          // 3. Wikipedia image as hero fallback
-          try {
-            const wikiUrl = await fetchWikipediaImageUrl(gameTitle);
-            if (wikiUrl) {
-              const path = await imageStorage.downloadAndStoreViaWget(
-                wikiUrl, 'playstation', npCommunicationId, 'game', 'hero',
-              );
-              if (path) {
-                logger.info({ npCommunicationId, gameTitle }, '[HERO] Downloaded from Wikipedia');
-                return path;
-              }
-            }
-          } catch {
-            logger.debug({ npCommunicationId, gameTitle }, 'Wikipedia hero fallback failed');
-          }
-
-          // 4. Last resort: use trophyTitleIconUrl (square, will be stretched but provides visual)
+          // 3. Last resort: use trophyTitleIconUrl (square, will be stretched but provides visual)
           if (trophyTitleIconUrl) {
             const path = await imageStorage.downloadAndStore(
               trophyTitleIconUrl, 'playstation', npCommunicationId, 'game', 'hero',
@@ -501,6 +472,11 @@ export class PlayStationAdapter {
     } catch (error: any) {
       const statusCode = error?.statusCode ?? error?.response?.status ?? error?.status;
       const message = error?.message ?? String(error);
+
+      // Unauthorized — token is invalid, re-auth required
+      if (statusCode === 401) {
+        throw new Error(`PSN API returned 401 Unauthorized. Authentication token is invalid or expired — re-authentication required. Original: ${message}`);
+      }
 
       // Privacy / forbidden — terminal error
       if (statusCode === 403) {

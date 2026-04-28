@@ -2,11 +2,11 @@
 import pLimit from 'p-limit';
 import { logger } from '../../utils/logger.js';
 import { rateLimiter } from '../rateLimiter.js';
-import { fetchPCGamingWikiImageUrl, fetchWikipediaImageUrl } from './gameImageSearch.js';
 import { Game } from '../../models/game.js';
 import { Achievement } from '../../models/achievement.js';
 import { SyncOperation } from '../../models/syncOperation.js';
 import { imageStorage } from '../../utils/imageStorage.js';
+import { createIGDBAdapter } from './igdb.js';
 import { AdaptiveBatchController } from '../adaptiveBatchController.js';
 import { AdaptiveThrottler } from '../adaptiveThrottler.js';
 import { AdaptiveConcurrencyController } from '../adaptiveConcurrencyController.js';
@@ -1253,7 +1253,7 @@ export class XboxAdapter {
 
   /**
    * Expand known Xbox library abbreviations to their canonical full titles.
-   * Used before both MS Store and Wikipedia lookups so abbreviated titles
+   * Used before both MS Store and IGDB lookups so abbreviated titles
    * ("GTA IV", "MOH Airborne", "TC's Ghost Recon FS") are matched correctly.
    *
    * Returns the expanded string, or undefined if no expansion was made.
@@ -1330,7 +1330,7 @@ export class XboxAdapter {
   /**
    * Normalise a raw Xbox API title name for external image searches.
    * Pipeline: sanitize → abbreviation expansion → platform suffix strip → edition suffix strip.
-   * Used wherever a game title is passed to SteamGridDB / Wikipedia / PCGW.
+   * Used wherever a game title is passed to SteamGridDB / IGDB.
    */
   normalizeForSearch(name: string): string {
     const clean = this.sanitizeTitle(name);
@@ -1371,8 +1371,8 @@ export class XboxAdapter {
    * - `imageUrl`       – best portrait image URL (empty string if match found but no image)
    * - `productId`      – Store product ID for Emerald fallback (Priority 4)
    * - `canonicalTitle`  – the Store's canonical full title for the game, useful as
-   *                       an improved search query for SteamGridDB / PCGamingWiki /
-   *                       Wikipedia when the Xbox API name is abbreviated.
+   *                       an improved search query for SteamGridDB / IGDB
+   *                       when the Xbox API name is abbreviated.
    */
   async fetchMicrosoftStoreGridUrl(
     titleName: string,
@@ -1384,7 +1384,7 @@ export class XboxAdapter {
     titleName = this.stripEditionSuffix(titleName);
 
     // Expand known abbreviations so the Store can match them. This mirrors
-    // the same expansion used for Wikipedia lookups. e.g.:
+    // the same expansion used for IGDB lookups. e.g.:
     //   "GTA IV"              → "Grand Theft Auto IV"
     //   "MOH Airborne"        → "Medal of Honor: Airborne"
     //   "TC's Ghost Recon FS" → "Tom Clancy's Ghost Recon: Future Soldier"
@@ -2006,37 +2006,8 @@ export class XboxAdapter {
   }
 
   /**
-   * Fetch a cover-art URL from PCGamingWiki's MediaWiki API.
-   * Completely public — no API key required.
-   *
-   * Strategy:
-   *  1. Search PCGW for the game name; token-match results with 80% recall guard.
-   *  2. Fetch infobox wikitext for the matched page; extract `|cover = <filename>`.
-   *  3. Resolve the file URL via MediaWiki imageinfo API.
-   *
-   * NOTE: Do NOT pass a Referer header when downloading the returned URL —
-   * the images.pcgamingwiki.com CDN allows requests with no Referer but
-   * blocks requests whose Referer header is present and not on an allowlist.
-   */
-  async fetchPCGamingWikiImageUrl(gameName: string): Promise<string | undefined> {
-    gameName = this.sanitizeTitle(gameName);
-    gameName = this.stripPlatformSuffix(gameName);
-    gameName = this.stripEditionSuffix(gameName);
-    const needle = this.expandAbbreviations(gameName) ?? gameName;
-    return fetchPCGamingWikiImageUrl(needle);
-  }
-
-  async fetchWikipediaImageUrl(gameName: string): Promise<string | undefined> {
-    gameName = this.sanitizeTitle(gameName);
-    gameName = this.stripPlatformSuffix(gameName);
-    gameName = this.stripEditionSuffix(gameName);
-    const name = this.expandAbbreviations(gameName) ?? gameName;
-    return fetchWikipediaImageUrl(name);
-  }
-
-  /**
    * Download game cover images with adaptive concurrency control.
-   * Handles the full fallback chain: local cache → Xbox CDN → MS Store → Emerald → SteamGridDB → PCGamingWiki → Wikipedia.
+   * Handles the full fallback chain: local cache → Xbox CDN → MS Store → Emerald → SteamGridDB → IGDB.
    */
   async downloadGameImages(
     titles: XboxTitleHistory[],
@@ -2187,53 +2158,20 @@ export class XboxAdapter {
             logger.info({ titleId: title.titleId, name: title.name }, '[IMG P5] Skipped SteamGridDB — not configured');
           }
 
-          // Priority 6: PCGamingWiki (public MediaWiki API, no API key)
+          // Priority 6: IGDB (if credentials configured)
           if (!imagePath) {
-            const p6SearchName = storeCanonicalTitle || title.name;
-            logger.info({ titleId: title.titleId, name: title.name, searchName: p6SearchName }, '[IMG P6] Trying PCGamingWiki');
             try {
-              const pcgwUrl = await this.fetchPCGamingWikiImageUrl(p6SearchName);
-              if (pcgwUrl) {
-                logger.info({ titleId: title.titleId, name: title.name, pcgwUrl }, '[IMG P6] PCGamingWiki image URL found — downloading');
-                imagePath = await imageStorage.downloadAndStoreViaWget(
-                  pcgwUrl, 'xbox', title.titleId, 'game', 'grid',
-                );
+              const igdb = await createIGDBAdapter();
+              if (igdb) {
+                const igdbSearchName = storeCanonicalTitle || title.name;
+                imagePath = await igdb.downloadGameImage(igdbSearchName, 'xbox', title.titleId) || undefined;
                 if (imagePath) {
-                  imageSource = 'pcgamingwiki';
-                  logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P6] PCGamingWiki image downloaded successfully');
-                } else {
-                  logger.warn({ titleId: title.titleId, name: title.name, pcgwUrl }, '[IMG P6] PCGamingWiki image download returned no path');
+                  imageSource = 'igdb';
+                  logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P6] IGDB image downloaded successfully');
                 }
-              } else {
-                logger.info({ titleId: title.titleId, name: title.name }, '[IMG P6] PCGamingWiki returned no image');
               }
             } catch (error) {
-              logger.warn({ err: String(error), titleId: title.titleId, name: title.name }, '[IMG P6] PCGamingWiki lookup threw');
-            }
-          }
-
-          // Priority 7: Wikipedia (public, no API key)
-          if (!imagePath) {
-            const p7SearchName = storeCanonicalTitle || title.name;
-            logger.info({ titleId: title.titleId, name: title.name, searchName: p7SearchName }, '[IMG P7] Trying Wikipedia');
-            try {
-              const wikiUrl = await this.fetchWikipediaImageUrl(p7SearchName);
-              if (wikiUrl) {
-                logger.info({ titleId: title.titleId, name: title.name, wikiUrl }, '[IMG P7] Wikipedia image URL found — downloading');
-                imagePath = await imageStorage.downloadAndStoreViaWget(
-                  wikiUrl, 'xbox', title.titleId, 'game', 'grid',
-                );
-                if (imagePath) {
-                  imageSource = 'wikipedia';
-                  logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P7] Wikipedia image downloaded successfully');
-                } else {
-                  logger.warn({ titleId: title.titleId, name: title.name, wikiUrl }, '[IMG P7] Wikipedia image download returned no path');
-                }
-              } else {
-                logger.info({ titleId: title.titleId, name: title.name }, '[IMG P7] Wikipedia returned no image');
-              }
-            } catch (error) {
-              logger.warn({ error, titleId: title.titleId, name: title.name }, '[IMG P7] Wikipedia lookup threw');
+              logger.warn({ error, titleId: title.titleId, name: title.name }, '[IMG P6] IGDB lookup threw');
             }
           }
 
@@ -2296,45 +2234,24 @@ export class XboxAdapter {
                   }
                 }
 
-                // 3. PCGamingWiki cover image as hero fallback
+                // 3. IGDB artwork as hero fallback
                 {
-                  const heroSearchName = storeCanonicalTitle || title.name;
                   try {
-                    const pcgwUrl = await this.fetchPCGamingWikiImageUrl(heroSearchName);
-                    if (pcgwUrl) {
-                      const path = await imageStorage.downloadAndStoreViaWget(
-                        pcgwUrl, 'xbox', title.titleId, 'game', 'hero',
-                      );
-                      if (path) {
-                        logger.info({ titleId: title.titleId, name: title.name }, '[HERO] Downloaded from PCGamingWiki');
-                        return path;
+                    const igdb = await createIGDBAdapter();
+                    if (igdb) {
+                      const heroSearchName = storeCanonicalTitle || title.name;
+                      const heroPath = await igdb.downloadHeroImage(heroSearchName, 'xbox', title.titleId);
+                      if (heroPath) {
+                        logger.info({ titleId: title.titleId, name: title.name }, '[HERO] Downloaded from IGDB');
+                        return heroPath;
                       }
                     }
                   } catch {
-                    logger.debug({ titleId: title.titleId }, '[HERO] PCGamingWiki fallback failed');
+                    logger.debug({ titleId: title.titleId }, '[HERO] IGDB fallback failed');
                   }
                 }
 
-                // 4. Wikipedia image as hero fallback
-                {
-                  const heroSearchName = storeCanonicalTitle || title.name;
-                  try {
-                    const wikiUrl = await this.fetchWikipediaImageUrl(heroSearchName);
-                    if (wikiUrl) {
-                      const path = await imageStorage.downloadAndStoreViaWget(
-                        wikiUrl, 'xbox', title.titleId, 'game', 'hero',
-                      );
-                      if (path) {
-                        logger.info({ titleId: title.titleId, name: title.name }, '[HERO] Downloaded from Wikipedia');
-                        return path;
-                      }
-                    }
-                  } catch {
-                    logger.debug({ titleId: title.titleId }, '[HERO] Wikipedia fallback failed');
-                  }
-                }
-
-                // 5. Last resort: titleImageUrl (box art — not ideal but better than nothing)
+                // 4. Last resort: titleImageUrl (box art — not ideal but better than nothing)
                 if (title.titleImageUrl) {
                   return await imageStorage.downloadAndStore(
                     title.titleImageUrl, 'xbox', title.titleId, 'game', 'hero',

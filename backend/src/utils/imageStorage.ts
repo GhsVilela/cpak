@@ -14,13 +14,6 @@ export type ImageType = 'icon' | 'iconGray' | 'grid' | 'header' | 'capsule' | 'h
 
 export class ImageStorage {
   /**
-   * Timestamp of the last Wikimedia download request.
-   * Used to enforce a minimum 1.5 s gap between requests to avoid 429s.
-   */
-  private _lastWikimediaDownload = 0;
-  private static readonly WIKIMEDIA_MIN_GAP_MS = 3_000;
-
-  /**
    * Download an image from a URL and store it locally
    * @param url - The URL of the image to download
    * @param platform - The platform (steam, xbox, playstation)
@@ -148,7 +141,7 @@ export class ImageStorage {
       let fileBuffer: Buffer = Buffer.from(buffer) as Buffer;
 
       // Resize grid images to the standard 600×900 cover art size and normalise
-      // to JPEG. Sources like PCGamingWiki can return originals up to 3000×4000+
+      // to JPEG. Some sources can return originals up to 3000×4000+
       // (6+ MB); resizing here keeps storage and load times consistent.
       // Skip the resize step (but still normalise to JPEG) when the source is
       // already 600×900 — re-encoding an identically-sized image wastes CPU and
@@ -275,8 +268,8 @@ export class ImageStorage {
    * Download an image using the system `wget` binary and store it locally.
    *
    * Use this instead of `downloadAndStore` when the target CDN blocks Node.js's
-   * TLS fingerprint (JA3) but allows wget — e.g. images.pcgamingwiki.com behind
-   * Cloudflare bot-protection.
+   * TLS fingerprint (JA3) but allows wget, or for large images that benefit from
+   * streaming directly to disk.
    */
   async downloadAndStoreViaWget(
     url: string,
@@ -293,16 +286,6 @@ export class ImageStorage {
     const cached = this.checkLocalFile(platform, gameId, achievementId, imageType);
     if (cached) return cached;
 
-    // Rate-limit Wikimedia downloads to avoid 429s.
-    const isWikimedia = url.includes('wikimedia.org') || url.includes('wikipedia.org');
-    if (isWikimedia) {
-      const elapsed = Date.now() - this._lastWikimediaDownload;
-      if (elapsed < ImageStorage.WIKIMEDIA_MIN_GAP_MS) {
-        await new Promise((r) => setTimeout(r, ImageStorage.WIKIMEDIA_MIN_GAP_MS - elapsed));
-      }
-      this._lastWikimediaDownload = Date.now();
-    }
-
     const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
     await fs.promises.mkdir(gameDir, { recursive: true });
 
@@ -315,12 +298,6 @@ export class ImageStorage {
     let destPath = path.join(gameDir, initFilename);
 
     try {
-      // -q: quiet, -O: write to file, -T: timeout (supported by both GNU and BusyBox wget).
-      // User-Agent handling:
-      // - Wikimedia (upload.wikimedia.org) REQUIRES a proper UA; bare "Wget/x.y" gets 429.
-      // - PCGW CDN REJECTS browser UAs via Cloudflare; must use default "Wget/x.y".
-      // Only override UA for Wikimedia domains.
-      //
       // Retry up to 3 times on transient server errors (5xx) or 429 (rate limit).
       // Other 4xx errors (403, 404) are terminal and thrown immediately.
       const MAX_WGET_ATTEMPTS = 3;
@@ -332,7 +309,6 @@ export class ImageStorage {
       const wgetBaseArgs = [
         '-q', '-T', String(timeoutSecs ?? 60),
         ...(skipCertCheck ? ['--no-check-certificate'] : []),
-        ...(isWikimedia ? ['--user-agent', 'cpak/1.0 (game-image-lookup; contact via GitHub)'] : []),
         // Inject any extra HTTP headers (e.g. Authorization for Xbox Live CDN)
         ...Object.entries(headers ?? {}).flatMap(([k, v]) => ['--header', `${k}: ${v}`]),
       ];

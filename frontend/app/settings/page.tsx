@@ -34,6 +34,9 @@ interface SyncRun {
 interface SettingsState {
   // SteamGridDB API key (for image downloads)
   steamgrid_api_key?: string;
+  // IGDB credentials (for image downloads)
+  igdb_client_id?: string;
+  igdb_client_secret?: string;
   // Scheduler
   scheduler_enabled?: string;
   scheduler_cron?: string;
@@ -45,6 +48,8 @@ interface SettingsState {
 
 interface ConfiguredState {
   steamgrid_api_key?: boolean;
+  igdb_client_id?: boolean;
+  igdb_client_secret?: boolean;
   xbox_client_secret?: boolean;
 }
 
@@ -70,6 +75,8 @@ export default function SettingsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [showSteamGridApiKey, setShowSteamGridApiKey] = useState(false);
   const [showXboxClientSecret, setShowXboxClientSecret] = useState(false);
+  const [showIgdbClientId, setShowIgdbClientId] = useState(false);
+  const [showIgdbClientSecret, setShowIgdbClientSecret] = useState(false);
   
   // Toast state
   const [toast, setToast] = useState<{
@@ -218,16 +225,28 @@ export default function SettingsPage() {
 
   const handleImageProvidersSettingsSave = async () => {
     try {
-      // Only save if value is non-empty (user entered something)
+      const updates: Promise<{ message: string }>[] = [];
+
       if (settings.steamgrid_api_key && settings.steamgrid_api_key.trim() !== '') {
-        await apiClient.updateSetting('steamgrid_api_key', settings.steamgrid_api_key, 'image_provider');
-        showToast('SteamGridDB API key saved successfully!', 'success');
-        await loadSettings(); // Reload to get fresh configured state
-      } else {
-        showToast('Please enter a SteamGridDB API key', 'error');
+        updates.push(apiClient.updateSetting('steamgrid_api_key', settings.steamgrid_api_key, 'image_provider'));
       }
+      if (settings.igdb_client_id && settings.igdb_client_id.trim() !== '') {
+        updates.push(apiClient.updateSetting('igdb_client_id', settings.igdb_client_id, 'image_provider'));
+      }
+      if (settings.igdb_client_secret && settings.igdb_client_secret.trim() !== '') {
+        updates.push(apiClient.updateSetting('igdb_client_secret', settings.igdb_client_secret, 'image_provider'));
+      }
+
+      if (updates.length === 0) {
+        showToast('Please enter at least one image provider setting', 'error');
+        return;
+      }
+
+      await Promise.all(updates);
+      showToast('Image provider settings saved successfully!', 'success');
+      await loadSettings();
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to save SteamGridDB API key', 'error');
+      showToast(err instanceof Error ? err.message : 'Failed to save image provider settings', 'error');
     }
   };
 
@@ -844,6 +863,106 @@ export default function SettingsPage() {
                 steamgriddb.com
               </a>
               . Your API key is encrypted and never displayed. Leave empty to keep your existing key unchanged. After saving your API key, manually trigger a sync for each profile to download missing game images.
+            </p>
+          </div>
+
+          <div className="border-t border-gray-700 pt-4 mt-4">
+            <label className="block text-sm font-medium mb-2">
+              IGDB API Credentials
+              <span className="text-gray-400 font-normal ml-2">(Optional)</span>
+            </label>
+            <p className="text-sm text-gray-400 mb-2">
+              IGDB provides game cover art and artwork as an additional fallback. Requires a free Twitch application (Client ID + Client Secret).
+            </p>
+            <div className="space-y-3">
+              <div className="relative">
+                <input
+                  type={showIgdbClientId ? "text" : "password"}
+                  value={settings.igdb_client_id || ''}
+                  onChange={(e) => handleSettingChange('igdb_client_id', e.target.value)}
+                  placeholder={configured.igdb_client_id ? "Enter new Client ID" : "IGDB Client ID"}
+                  className="w-full px-4 py-2 pr-24 bg-gray-900 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                  {configured.igdb_client_id && !settings.igdb_client_id && (
+                    <div className="flex items-center gap-1 text-green-400" title="Client ID is configured">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="text-xs font-medium">Configured</span>
+                    </div>
+                  )}
+                  {settings.igdb_client_id && (
+                    <button
+                      type="button"
+                      onClick={() => setShowIgdbClientId(!showIgdbClientId)}
+                      className="text-gray-400 hover:text-gray-200"
+                      aria-label={showIgdbClientId ? "Hide Client ID" : "Show Client ID"}
+                    >
+                      {showIgdbClientId ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="relative">
+                <input
+                  type={showIgdbClientSecret ? "text" : "password"}
+                  value={settings.igdb_client_secret || ''}
+                  onChange={(e) => handleSettingChange('igdb_client_secret', e.target.value)}
+                  placeholder={configured.igdb_client_secret ? "Enter new Client Secret" : "IGDB Client Secret"}
+                  className="w-full px-4 py-2 pr-24 bg-gray-900 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                  {configured.igdb_client_secret && !settings.igdb_client_secret && (
+                    <div className="flex items-center gap-1 text-green-400" title="Client Secret is configured">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="text-xs font-medium">Configured</span>
+                    </div>
+                  )}
+                  {settings.igdb_client_secret && (
+                    <button
+                      type="button"
+                      onClick={() => setShowIgdbClientSecret(!showIgdbClientSecret)}
+                      className="text-gray-400 hover:text-gray-200"
+                      aria-label={showIgdbClientSecret ? "Hide Client Secret" : "Show Client Secret"}
+                    >
+                      {showIgdbClientSecret ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Register a free Twitch application at{' '}
+              <a 
+                href="https://dev.twitch.tv/console/apps" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:underline"
+              >
+                dev.twitch.tv
+              </a>
+              {' '}to get IGDB API access. Both Client ID and Client Secret are required. Credentials are encrypted and never displayed.
             </p>
           </div>
 
