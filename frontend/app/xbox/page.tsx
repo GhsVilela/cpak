@@ -433,15 +433,26 @@ function XboxPageContent() {
               onError={handleProfileError}
               onProfilesLoaded={(count) => setNoProfiles(count === 0)}
             />
-            {selectedProfileId && !syncStatus?.current && (
-              <button
-                onClick={triggerSync}
-                disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
-                className="px-4 py-2 bg-[var(--xbox-accent)] hover:opacity-90 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-white"
-                title={backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'Sync disabled during backup/restore operations' : ''}
-              >
-                Sync Now
-              </button>
+            {selectedProfileId && (
+              <div className="flex items-center gap-2">
+                <a
+                  href={syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? undefined : `/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/xbox?profileId=${selectedProfileId}`)}`}
+                  className={`px-4 py-2 rounded font-medium text-sm transition whitespace-nowrap ${syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'bg-gray-600 text-gray-300 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
+                  aria-disabled={!!syncStatus?.current || !!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                >
+                  Edit
+                </a>
+                {!syncStatus?.current && (
+                  <button
+                    onClick={triggerSync}
+                    disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                    className="px-4 py-2 bg-[var(--xbox-accent)] hover:opacity-90 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-white"
+                    title={backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'Sync disabled during backup/restore operations' : ''}
+                  >
+                    Sync Now
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

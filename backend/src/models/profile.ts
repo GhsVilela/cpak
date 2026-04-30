@@ -13,6 +13,10 @@ export interface IProfile extends Document {
     expiresAt?: Date;
     scopes?: string[];
   };
+  /** Whether this is the default profile for its platform. */
+  isDefault?: boolean;
+  /** Whether the user has manually edited the display name. */
+  displayNameEdited?: boolean;
   /** Total achievements from Steam profile achievement showcase (null if not available). */
   steamShowcaseAchievements?: number | null;
   createdAt: Date;
@@ -30,6 +34,8 @@ const ProfileSchema = new Schema<IProfile>(
     profileId: { type: String, required: true },
     displayName: { type: String, required: true },
     credentials: { type: Schema.Types.Mixed, default: {} },
+    isDefault: { type: Boolean, default: false },
+    displayNameEdited: { type: Boolean, default: false },
     steamShowcaseAchievements: { type: Number, default: null },
   },
   { timestamps: true }

@@ -8,6 +8,7 @@ interface Profile {
   platform: 'steam' | 'xbox' | 'playstation';
   profileId: string;
   displayName: string;
+  isDefault?: boolean;
 }
 
 interface ProfileSelectorProps {
@@ -45,9 +46,10 @@ export default function ProfileSelector({
         onProfilesLoaded(platformProfiles.length);
       }
 
-      // Auto-select first profile if none selected
+      // Auto-select: prefer the default profile, then fall back to first
       if (!selectedProfileId && platformProfiles.length > 0) {
-        onSelectProfile(platformProfiles[0]._id);
+        const defaultProfile = platformProfiles.find((p) => p.isDefault);
+        onSelectProfile(defaultProfile ? defaultProfile._id : platformProfiles[0]._id);
       }
     } catch (error) {
       console.error('Failed to load profiles:', error);
@@ -58,6 +60,18 @@ export default function ProfileSelector({
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const setAsDefault = async (profileId: string) => {
+    try {
+      await apiClient.patch(`/profiles/${profileId}/default`, {});
+      // Update local state
+      setProfiles((prev) =>
+        prev.map((p) => ({ ...p, isDefault: p._id === profileId }))
+      );
+    } catch (err) {
+      console.error('Failed to set default profile:', err);
     }
   };
 
@@ -74,12 +88,20 @@ export default function ProfileSelector({
   }
 
   if (profiles.length === 1) {
-    // Don't show selector if only one profile
-    return null;
+    // Show profile name but no dropdown when only one profile
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-gray-400">Profile:</span>
+        <span className="text-sm text-gray-200 font-medium">{profiles[0].displayName}</span>
+      </div>
+    );
   }
 
+  const selectedProfile = profiles.find((p) => p._id === selectedProfileId);
+  const isSelectedDefault = selectedProfile?.isDefault;
+
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       <label htmlFor="profile-select" className="text-sm text-gray-400">
         Profile:
       </label>
@@ -95,6 +117,18 @@ export default function ProfileSelector({
           </option>
         ))}
       </select>
+      {selectedProfileId && !isSelectedDefault && (
+        <button
+          onClick={() => setAsDefault(selectedProfileId)}
+          className="w-5 text-center text-gray-500 hover:text-yellow-400 transition"
+          title="Set as default profile"
+        >
+          ☆
+        </button>
+      )}
+      {selectedProfileId && isSelectedDefault && (
+        <span className="w-5 text-center text-yellow-400" title="Default profile">★</span>
+      )}
     </div>
   );
 }

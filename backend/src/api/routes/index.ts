@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { systemRoutes } from './system.js';
-import { getProfiles, getProfileById, createProfile, updateProfile, deleteProfile } from './profiles.js';
+import { getProfiles, getProfileById, createProfile, updateProfile, deleteProfile, setDefaultProfile } from './profiles.js';
 import { triggerSync, getSyncStatus, cancelSync } from './sync.js';
 import { getGames, getGameById, updateGameTitle, uploadGameImage } from './games.js';
 import { getAchievements } from './achievements.js';
@@ -20,6 +20,7 @@ export async function registerRoutes(fastify: FastifyInstance) {
   fastify.get('/profiles/:id', getProfileById);
   fastify.post('/profiles', createProfile);
   fastify.patch('/profiles/:id', updateProfile);
+  fastify.patch('/profiles/:id/default', setDefaultProfile);
   fastify.delete('/profiles/:id', deleteProfile);
 
   // Sync API

@@ -137,7 +137,7 @@ class SyncService {
         'steam.getPlayerSummary',
         async () => steamAdapter.getPlayerSummary(profile.profileId)
       );
-      if (playerSummary?.personaname && playerSummary.personaname !== profile.displayName) {
+      if (playerSummary?.personaname && playerSummary.personaname !== profile.displayName && !profile.displayNameEdited) {
         profile.displayName = playerSummary.personaname;
         await Profile.findByIdAndUpdate(profile._id, { displayName: playerSummary.personaname });
         logger.info({ profileId: profile.profileId, displayName: playerSummary.personaname }, 'Updated profile display name from Steam');
@@ -494,7 +494,7 @@ class SyncService {
 
     try {
       const xboxProfile = await adapter.getXboxProfile(xuid, xstsToken, userHash);
-      if (xboxProfile.gamertag && xboxProfile.gamertag !== profile.displayName) {
+      if (xboxProfile.gamertag && xboxProfile.gamertag !== profile.displayName && !profile.displayNameEdited) {
         await Profile.findByIdAndUpdate(profile._id, { displayName: xboxProfile.gamertag });
         logger.info({ xuid, gamertag: xboxProfile.gamertag }, 'Updated Xbox profile display name');
       }

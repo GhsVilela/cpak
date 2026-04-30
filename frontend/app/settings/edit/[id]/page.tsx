@@ -1,7 +1,7 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
 
 interface Profile {
@@ -28,6 +28,8 @@ const platformNames = {
 export default function EditProfilePage({ params }: PageProps) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get('returnTo') || '/settings';
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -87,7 +89,7 @@ export default function EditProfilePage({ params }: PageProps) {
       setSuccessMessage('Profile updated successfully!');
       setSaving(false);
       setTimeout(() => {
-        router.push('/settings');
+        router.push(returnTo);
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update profile');
@@ -104,10 +106,10 @@ export default function EditProfilePage({ params }: PageProps) {
       <div className="text-center py-12">
         <p className="text-red-400 mb-4">Profile not found</p>
         <button
-          onClick={() => router.push('/settings')}
+          onClick={() => router.push(returnTo)}
           className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
         >
-          Back to Settings
+          Back
         </button>
       </div>
     );
@@ -117,10 +119,10 @@ export default function EditProfilePage({ params }: PageProps) {
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">
         <button
-          onClick={() => router.push('/settings')}
+          onClick={() => router.push(returnTo)}
           className="text-gray-400 hover:text-white mb-4 flex items-center gap-2"
         >
-          ← Back to Settings
+          ← Back
         </button>
         <h1 className="text-3xl font-bold">Edit Profile</h1>
         <p className="text-gray-400 mt-2">
@@ -267,7 +269,7 @@ export default function EditProfilePage({ params }: PageProps) {
           </button>
           <button
             type="button"
-            onClick={() => router.push('/settings')}
+            onClick={() => router.push(returnTo)}
             className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition"
           >
             Cancel

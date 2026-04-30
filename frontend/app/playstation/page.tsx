@@ -57,6 +57,15 @@ interface SyncStatus {
   };
 }
 
+interface BackupRestoreStatus {
+  backup: {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+  };
+  restore: {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+  };
+}
+
 interface PSNProfile {
   _id: string;
   profileId: string;
@@ -116,6 +125,10 @@ function PlayStationPageContent() {
   const [syncPollInterval, setSyncPollInterval] = useState<NodeJS.Timeout | null>(null);
   const lastSyncNotified = useRef<string | null>(null);
 
+  // Backup/Restore status (to block edit/sync during backup/restore)
+  const [backupRestoreStatus, setBackupRestoreStatus] = useState<BackupRestoreStatus | null>(null);
+  const [backupRestorePollInterval, setBackupRestorePollInterval] = useState<NodeJS.Timeout | null>(null);
+
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -143,6 +156,7 @@ function PlayStationPageContent() {
       setOnlyCompleted(savedOnlyCompleted);
       loadGames({ onlyCompleted: savedOnlyCompleted });
       loadSyncStatus();
+      loadBackupRestoreStatus();
       loadBaseTrophySummary();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,8 +180,51 @@ function PlayStationPageContent() {
       if (syncPollInterval) {
         clearInterval(syncPollInterval);
       }
+      if (backupRestorePollInterval) {
+        clearInterval(backupRestorePollInterval);
+      }
     };
-  }, [syncPollInterval]);
+  }, [syncPollInterval, backupRestorePollInterval]);
+
+  // Load backup/restore status to check if operations are in progress
+  const loadBackupRestoreStatus = async () => {
+    try {
+      const response = await fetch('/api/backup/status');
+      if (response.ok) {
+        const data = await response.json();
+        setBackupRestoreStatus(data);
+
+        // Start polling if there's an active operation
+        if ((data.backup?.current || data.restore?.current) && !backupRestorePollInterval) {
+          startBackupRestorePolling();
+        }
+
+        return data;
+      }
+    } catch (err) {
+      console.error('Failed to load backup/restore status:', err);
+    }
+    return null;
+  };
+
+  // Start polling for backup/restore status
+  const startBackupRestorePolling = () => {
+    if (backupRestorePollInterval) {
+      clearInterval(backupRestorePollInterval);
+    }
+
+    const interval = setInterval(async () => {
+      const status = await loadBackupRestoreStatus();
+
+      // Stop polling when both backup and restore are idle
+      if (!status?.backup?.current && !status?.restore?.current) {
+        clearInterval(interval);
+        setBackupRestorePollInterval(null);
+      }
+    }, 2000);
+
+    setBackupRestorePollInterval(interval);
+  };
 
   const handleProfileChange = (profileId: string) => {
     if (syncPollInterval) {
@@ -329,13 +386,26 @@ function PlayStationPageContent() {
               onError={handleProfileError}
               onProfilesLoaded={(count) => setNoProfiles(count === 0)}
             />
-            {selectedProfileId && !syncStatus?.current && (
-              <button
-                onClick={triggerSync}
-                className="px-4 py-2 bg-[var(--playstation-accent)] hover:opacity-90 rounded font-medium text-sm transition whitespace-nowrap text-white"
-              >
-                Sync Now
-              </button>
+            {selectedProfileId && (
+              <div className="flex items-center gap-2">
+                <a
+                  href={syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? undefined : `/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/playstation?profileId=${selectedProfileId}`)}`}
+                  className={`px-4 py-2 rounded font-medium text-sm transition whitespace-nowrap ${syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'bg-gray-600 text-gray-300 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
+                  aria-disabled={!!syncStatus?.current || !!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                >
+                  Edit
+                </a>
+                {!syncStatus?.current && (
+                  <button
+                    onClick={triggerSync}
+                    disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                    className="px-4 py-2 bg-[var(--playstation-accent)] hover:opacity-90 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-white"
+                    title={backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'Sync disabled during backup/restore operations' : ''}
+                  >
+                    Sync Now
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

@@ -177,6 +177,7 @@ export async function updateProfile(req: FastifyRequest<{ Params: { id: string }
     // Update fields
     if (body.displayName !== undefined) {
       profile.displayName = body.displayName;
+      profile.displayNameEdited = true;
     }
 
     // PlayStation: if npssoToken is provided, exchange it for fresh OAuth tokens
@@ -194,7 +195,12 @@ export async function updateProfile(req: FastifyRequest<{ Params: { id: string }
         } as any;
         // Update profileId and displayName in case they changed
         profile.profileId = psnProfile.accountId;
-        profile.displayName = body.displayName ?? psnProfile.onlineId;
+        if (body.displayName) {
+          profile.displayName = body.displayName;
+          profile.displayNameEdited = true;
+        } else if (!profile.displayNameEdited) {
+          profile.displayName = psnProfile.onlineId;
+        }
         logger.info({ accountId: psnProfile.accountId }, 'PlayStation profile re-authenticated via NPSSO');
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -262,6 +268,32 @@ export async function deleteProfile(req: FastifyRequest<{ Params: { id: string }
     reply.status(204).send();
   } catch (error) {
     logger.error({ error }, 'Failed to delete profile');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
+export async function setDefaultProfile(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+  try {
+    const { id } = req.params;
+    const profile = await Profile.findById(id);
+    if (!profile) {
+      return reply.status(404).send({ error: 'Profile not found' });
+    }
+
+    // Unset default for all other profiles on the same platform
+    await Profile.updateMany(
+      { platform: profile.platform, _id: { $ne: profile._id } },
+      { $set: { isDefault: false } },
+    );
+
+    // Set this profile as default
+    profile.isDefault = true;
+    await profile.save();
+
+    logger.info({ profileId: id, platform: profile.platform }, 'Profile set as default');
+    reply.send(profile);
+  } catch (error) {
+    logger.error({ error }, 'Failed to set default profile');
     reply.status(500).send({ error: 'Internal server error' });
   }
 }

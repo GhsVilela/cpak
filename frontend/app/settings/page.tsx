@@ -1338,7 +1338,9 @@ export default function SettingsPage() {
                 <div className="flex gap-2 flex-shrink-0 sm:self-start">
                   <button
                     onClick={() => router.push(`/settings/edit/${profile._id}`)}
-                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition whitespace-nowrap"
+                    disabled={!!backupStatus?.current || !!restoreStatus?.current || !!profileSyncStatus[profile._id]}
+                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium transition whitespace-nowrap"
+                    title={backupStatus?.current || restoreStatus?.current ? 'Cannot edit profile during backup/restore operations' : profileSyncStatus[profile._id] ? 'Cannot edit profile during sync' : ''}
                   >
                     Edit
                   </button>
