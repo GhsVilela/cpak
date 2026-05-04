@@ -103,3 +103,117 @@ describe('Profile model: getDecryptedCredentials', () => {
     expect(decryptMock).not.toHaveBeenCalled();
   });
 });
+
+describe('Profile model: pre-save encryption hook', () => {
+  const preSave = (mongoose.model as any).__preSave;
+
+  it('encrypts steamApiKey on new documents', () => {
+    encryptMock.mockClear();
+    const context = {
+      isNew: true,
+      isModified: vi.fn(() => false),
+      credentials: { steamApiKey: 'my-api-key' },
+    };
+    const next = vi.fn();
+    preSave[0].call(context, next);
+    expect(encryptMock).toHaveBeenCalledWith('my-api-key');
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('encrypts accessToken and refreshToken when credentials are modified', () => {
+    encryptMock.mockClear();
+    const context = {
+      isNew: false,
+      isModified: vi.fn((field: string) => field === 'credentials'),
+      credentials: { accessToken: 'tok', refreshToken: 'ref' },
+    };
+    const next = vi.fn();
+    preSave[0].call(context, next);
+    expect(encryptMock).toHaveBeenCalledWith('tok');
+    expect(encryptMock).toHaveBeenCalledWith('ref');
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('skips encryption when values are already encrypted', () => {
+    encryptMock.mockClear();
+    const context = {
+      isNew: true,
+      isModified: vi.fn(() => false),
+      credentials: { steamApiKey: 'enc_already', accessToken: 'enc_done' },
+    };
+    const next = vi.fn();
+    preSave[0].call(context, next);
+    expect(encryptMock).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('skips encryption when credentials are not modified', () => {
+    encryptMock.mockClear();
+    const context = {
+      isNew: false,
+      isModified: vi.fn(() => false),
+      credentials: { steamApiKey: 'key' },
+    };
+    const next = vi.fn();
+    preSave[0].call(context, next);
+    expect(encryptMock).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('calls next even when no credentials exist', () => {
+    const context = {
+      isNew: true,
+      isModified: vi.fn(() => false),
+      credentials: null,
+    };
+    const next = vi.fn();
+    preSave[0].call(context, next);
+    expect(next).toHaveBeenCalled();
+  });
+});
+
+describe('Profile model: toJSON', () => {
+  const schema = (mongoose.model as any).__schema;
+  const methods = schema.methods;
+
+  it('masks credentials in JSON output', () => {
+    const context = {
+      toObject: () => ({
+        _id: '123',
+        platform: 'steam',
+        displayName: 'Test',
+        credentials: {
+          steamApiKey: 'enc_secret',
+          tokenType: 'Bearer',
+          expiresAt: new Date('2025-01-01'),
+          scopes: ['read'],
+        },
+      }),
+    };
+    const result = methods.toJSON.call(context);
+    expect(result.credentials.configured).toBe(true);
+    expect(result.credentials.steamApiKeyConfigured).toBe(true);
+    expect(result.credentials.tokenType).toBe('Bearer');
+    expect(result.credentials.scopes).toEqual(['read']);
+    // Should NOT expose the raw key
+    expect(result.credentials.steamApiKey).toBeUndefined();
+    expect(result.credentials.accessToken).toBeUndefined();
+    expect(result.credentials.refreshToken).toBeUndefined();
+  });
+
+  it('reports steamApiKeyConfigured as false when no key', () => {
+    const context = {
+      toObject: () => ({
+        _id: '456',
+        platform: 'xbox',
+        displayName: 'XboxUser',
+        credentials: {
+          accessToken: 'enc_token',
+        },
+      }),
+    };
+    const result = methods.toJSON.call(context);
+    expect(result.credentials.configured).toBe(true);
+    expect(result.credentials.steamApiKeyConfigured).toBe(false);
+  });
+});

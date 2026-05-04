@@ -6,6 +6,7 @@ const pushMock = vi.fn();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
   usePathname: () => '/settings/edit/profile-1',
+  useSearchParams: () => ({ get: () => null }),
 }));
 
 vi.mock('../../services/apiClient', () => ({

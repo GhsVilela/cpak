@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
   profileFindMock, profileFindByIdMock, profileFindOneMock, profileFindByIdAndDeleteMock,
-  profileConstructor, profileSaveMock,
+  profileConstructor, profileSaveMock, profileUpdateManyMock,
   gameDeleteManyMock, achievementDeleteManyMock, syncRunDeleteManyMock,
 } = vi.hoisted(() => ({
   profileFindMock: vi.fn(),
@@ -11,6 +11,7 @@ const {
   profileFindByIdAndDeleteMock: vi.fn(),
   profileConstructor: vi.fn(),
   profileSaveMock: vi.fn(),
+  profileUpdateManyMock: vi.fn(),
   gameDeleteManyMock: vi.fn(),
   achievementDeleteManyMock: vi.fn(),
   syncRunDeleteManyMock: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('../../../src/models/profile.js', () => {
   ProfileClass.findById = profileFindByIdMock;
   ProfileClass.findOne = profileFindOneMock;
   ProfileClass.findByIdAndDelete = profileFindByIdAndDeleteMock;
+  ProfileClass.updateMany = profileUpdateManyMock;
   return { Profile: ProfileClass };
 });
 
@@ -41,7 +43,7 @@ vi.mock('../../../src/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { getProfiles, getProfileById, createProfile, updateProfile, deleteProfile } from '../../../src/api/routes/profiles.js';
+import { getProfiles, getProfileById, createProfile, updateProfile, deleteProfile, setDefaultProfile } from '../../../src/api/routes/profiles.js';
 
 function createMockReply() {
   const reply: any = {
@@ -169,6 +171,7 @@ describe('Profiles Route Handlers', () => {
         credentials: { steamApiKey: 'key' },
         save: profileSaveMock.mockResolvedValue(undefined),
         toJSON: vi.fn().mockReturnValue({ displayName: 'New' }),
+        markModified: vi.fn(),
       };
       profileFindByIdMock.mockResolvedValue(profile);
 
@@ -197,12 +200,28 @@ describe('Profiles Route Handlers', () => {
         credentials: { steamApiKey: 'oldkey' },
         save: profileSaveMock.mockResolvedValue(undefined),
         toJSON: vi.fn().mockReturnValue({ credentials: {} }),
+        markModified: vi.fn(),
       };
       profileFindByIdMock.mockResolvedValue(profile);
 
       const reply = createMockReply();
       await updateProfile({ params: { id: '1' }, body: { credentials: { xboxRefreshToken: 'new' } } } as any, reply);
       expect(profile.credentials).toEqual({ steamApiKey: 'oldkey', xboxRefreshToken: 'new' });
+    });
+
+    it('sets displayNameEdited flag when displayName is updated', async () => {
+      const profile: any = {
+        displayName: 'Old',
+        credentials: {},
+        save: profileSaveMock.mockResolvedValue(undefined),
+        toJSON: vi.fn().mockReturnValue({ displayName: 'New', displayNameEdited: true }),
+        markModified: vi.fn(),
+      };
+      profileFindByIdMock.mockResolvedValue(profile);
+
+      const reply = createMockReply();
+      await updateProfile({ params: { id: '1' }, body: { displayName: 'New' } } as any, reply);
+      expect(profile.displayNameEdited).toBe(true);
     });
 
     it('returns 500 on database error', async () => {
@@ -241,6 +260,44 @@ describe('Profiles Route Handlers', () => {
       profileFindByIdMock.mockRejectedValue(new Error('db'));
       const reply = createMockReply();
       await deleteProfile({ params: { id: '1' } } as any, reply);
+      expect(reply.statusCode).toBe(500);
+    });
+  });
+
+  // --- setDefaultProfile ---
+  describe('setDefaultProfile', () => {
+    it('sets profile as default and unsets others', async () => {
+      const profile: any = {
+        _id: 'p1',
+        platform: 'steam',
+        isDefault: false,
+        save: profileSaveMock.mockResolvedValue(undefined),
+      };
+      profileFindByIdMock.mockResolvedValue(profile);
+      profileUpdateManyMock.mockResolvedValue({ modifiedCount: 1 });
+
+      const reply = createMockReply();
+      await setDefaultProfile({ params: { id: 'p1' } } as any, reply);
+
+      expect(profileUpdateManyMock).toHaveBeenCalledWith(
+        { platform: 'steam', _id: { $ne: 'p1' } },
+        { $set: { isDefault: false } },
+      );
+      expect(profile.isDefault).toBe(true);
+      expect(profileSaveMock).toHaveBeenCalled();
+    });
+
+    it('returns 404 when profile not found', async () => {
+      profileFindByIdMock.mockResolvedValue(null);
+      const reply = createMockReply();
+      await setDefaultProfile({ params: { id: 'missing' } } as any, reply);
+      expect(reply.statusCode).toBe(404);
+    });
+
+    it('returns 500 on error', async () => {
+      profileFindByIdMock.mockRejectedValue(new Error('db'));
+      const reply = createMockReply();
+      await setDefaultProfile({ params: { id: 'p1' } } as any, reply);
       expect(reply.statusCode).toBe(500);
     });
   });

@@ -49,6 +49,54 @@ vi.mock('../../../src/services/adapters/xbox.js', () => ({
   })),
 }));
 
+vi.mock('../../../src/services/adapters/playstation.js', () => ({
+  createPlayStationAdapter: vi.fn(() => ({
+    refreshAccessToken: vi.fn().mockResolvedValue({
+      accessToken: 'new-psn-access-token',
+      refreshToken: 'new-psn-refresh-token',
+      expiresAt: new Date(Date.now() + 3600000),
+    }),
+    getProfile: vi.fn().mockResolvedValue({
+      onlineId: 'TestPSNUser',
+      accountId: 'psn-account-123',
+    }),
+    getTrophyTitles: vi.fn().mockResolvedValue([{
+      npCommunicationId: 'NPWR00001_00',
+      npServiceName: 'trophy',
+      title: 'Test PS Game',
+      imageUrl: 'https://example.com/game.png',
+      progress: 22,
+      devices: ['PS5'],
+      lastUpdatedDateTime: new Date().toISOString(),
+      definedTrophies: { bronze: 10, silver: 5, gold: 2, platinum: 1 },
+      earnedTrophies: { bronze: 3, silver: 1, gold: 0, platinum: 0 },
+    }]),
+    getEarnedTrophies: vi.fn().mockResolvedValue([{
+      trophyId: 1,
+      trophyName: 'First Trophy',
+      trophyDetail: 'Get your first trophy',
+      trophyType: 'bronze',
+      trophyHidden: false,
+      earned: true,
+      earnedDateTime: new Date().toISOString(),
+    }]),
+    getTrophyDefinitions: vi.fn().mockResolvedValue([{
+      trophyId: 1,
+      trophyName: 'First Trophy',
+      trophyDetail: 'Get your first trophy',
+      trophyType: 'bronze',
+      trophyHidden: false,
+      trophyIconUrl: 'https://example.com/trophy.png',
+    }]),
+    downloadGameImage: vi.fn().mockResolvedValue({
+      capsuleImagePath: null,
+      iconImagePath: null,
+      heroImagePath: null,
+    }),
+    downloadTrophyIcons: vi.fn().mockResolvedValue(new Map()),
+  })),
+}));
+
 describe('SyncService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -271,5 +319,57 @@ describe('SyncService', () => {
     const game = await Game.findOne({ profileId: profile._id, gameId: '730' });
     expect(game).toBeTruthy();
     expect(game?.capsuleImagePath).toBe('steam/730/game_grid.jpg');
+  });
+
+  it('syncProfile completes PlayStation sync with valid credentials', async () => {
+    const { syncService } = await import('../../../src/services/syncService.js');
+    const { Profile } = await import('../../../src/models/profile.js');
+    const { SyncOperation } = await import('../../../src/models/syncOperation.js');
+    const { Game } = await import('../../../src/models/game.js');
+
+    const profile = await Profile.create({
+      platform: 'playstation',
+      profileId: 'psn-account-123',
+      displayName: 'PSN User',
+      credentials: {
+        accessToken: 'psn-access-token',
+        refreshToken: 'psn-refresh-token',
+        tokenType: 'psn',
+        expiresAt: new Date(Date.now() + 3600000), // Not expired
+      },
+    });
+
+    await syncService.syncProfile(profile as any);
+
+    const op = await SyncOperation.findOne({ profileId: profile._id });
+    expect(op?.status).toBe('completed');
+
+    // Game should have been created
+    const game = await Game.findOne({ profileId: profile._id, platform: 'playstation' });
+    expect(game).toBeTruthy();
+    expect(game?.title).toBe('Test PS Game');
+  });
+
+  it('syncProfile refreshes expired PlayStation token', async () => {
+    const { syncService } = await import('../../../src/services/syncService.js');
+    const { Profile } = await import('../../../src/models/profile.js');
+    const { SyncOperation } = await import('../../../src/models/syncOperation.js');
+
+    const profile = await Profile.create({
+      platform: 'playstation',
+      profileId: 'psn-expired-user',
+      displayName: 'PSN Expired User',
+      credentials: {
+        accessToken: 'old-psn-token',
+        refreshToken: 'psn-refresh-token',
+        tokenType: 'psn',
+        expiresAt: new Date(Date.now() - 3600000), // Expired 1 hour ago
+      },
+    });
+
+    await syncService.syncProfile(profile as any);
+
+    const op = await SyncOperation.findOne({ profileId: profile._id });
+    expect(op?.status).toBe('completed');
   });
 });
