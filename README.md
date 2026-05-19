@@ -83,7 +83,7 @@ Achievements are more than just a game feature, they're memories. CPAK is a self
 - **Game Customization**: Edit game titles and upload custom images (icon, hero, capsule)
 - **Responsive Design**: Mobile-ready UI with Tailwind CSS
 - **Automatic Sync**: Scheduler to keep your achievements up to date
-- **Image Integration**: SteamGridDB support for game artwork
+- **Image Integration**: SteamGridDB and IGDB support for game artwork
 - **Backup and Restore**: Backup and restore all profiles, games, achievements, and images to a zip file
 - **Steam Profile Showcase**: Displays your total achievement count from your Steam profile showcase alongside tracked and untracked stats
 - **Xbox Gamerscore Tracking**: Shows total Gamerscore and Xbox 360 Gamerscore separately
@@ -339,21 +339,38 @@ docker compose up -d
 
 ```
 cpak/
-├── backend/              # Fastify REST API
+├── backend/                  # Fastify REST API
 │   ├── src/
-│   │   ├── api/          # Routes, middleware, server
-│   │   ├── models/       # Mongoose schemas
-│   │   ├── services/     # Business logic, sync adapters
-│   │   └── utils/        # Config, logging, DB, crypto
-│   └── package.json
-├── frontend/             # Next.js standalone frontend
-│   ├── app/              # Pages (setup, steam, xbox, playstation, settings)
-│   ├── components/       # Reusable UI components
-│   ├── services/         # API client, config loader
-│   └── package.json
+│   │   ├── api/
+│   │   │   ├── middleware/   # CORS configuration
+│   │   │   ├── routes/       # Route handlers (system, profiles, sync, games,
+│   │   │   │                 #   achievements, settings, auth, backup, export/import, icons)
+│   │   │   └── server.ts     # Fastify server setup
+│   │   ├── migrations/       # Database index migrations
+│   │   ├── models/           # Mongoose schemas (game, achievement, profile,
+│   │   │                     #   setting, syncRun, syncOperation, backup/restore jobs)
+│   │   ├── services/
+│   │   │   ├── adapters/     # Platform integrations (steam, xbox, playstation, igdb, steamgriddb)
+│   │   │   ├── syncService.ts
+│   │   │   ├── scheduler.ts
+│   │   │   └── ...           # Concurrency, throttling, rate limiting, performance monitoring
+│   │   └── utils/            # Config, logging, DB, crypto, image storage
+│   └── tests/
+├── frontend/                 # Next.js standalone frontend
+│   ├── app/
+│   │   ├── setup/            # Initial setup page
+│   │   ├── steam/            # Steam games & game detail pages
+│   │   ├── xbox/             # Xbox games & game detail pages
+│   │   ├── playstation/      # PlayStation games & game detail pages
+│   │   ├── xbox-guide/       # Xbox OAuth setup guide
+│   │   └── settings/         # Settings & game edit pages
+│   ├── components/           # UI components (game views, modals, sync controls, etc.)
+│   ├── services/             # API client, config loader
+│   └── tests/
 ├── config/
-│   ├── caddy/            # Caddyfile for reverse proxy
-│   └── supervisord/      # Process management config
+│   ├── caddy/                # Caddyfile for reverse proxy (HTTP & HTTPS)
+│   └── supervisord/          # Process management config
+├── images/                   # Showcase screenshots
 ├── scripts/
 │   └── docker-entrypoint.sh  # Container startup orchestration
 ├── Dockerfile                # Multi-stage unified container build
@@ -368,38 +385,57 @@ cpak/
 
 ### Profiles
 - `GET /api/profiles` - List all profiles
-- `POST /api/profiles` - Create new profile
+- `GET /api/profiles/:id` - Get specific profile
+- `POST /api/profiles` - Create new profile (Steam, Xbox, or PlayStation)
 - `PATCH /api/profiles/:id` - Update profile
+- `PATCH /api/profiles/:id/default` - Set as default profile
 - `DELETE /api/profiles/:id` - Delete profile
 
 ### Sync
-- `POST /api/sync/:platform` - Trigger sync for platform (requires `?profileId=`)
-- `GET /api/sync/runs` - List sync history
+- `GET /api/sync/status` - Get current sync status (supports `?profileId=`)
+- `POST /api/sync/:platform` - Trigger sync for platform (supports `?profileId=`)
+- `DELETE /api/sync/cancel/:operationId` - Cancel running sync operation
+- `GET /api/sync/runs` - List sync history (supports `?profileId=&limit=`)
+- `GET /api/sync/runs/:id` - Get specific sync run details
 
-### Games & Achievements
-- `GET /api/games` - List games (supports `?platform=steam&profileId=&onlyCompleted=true&limit=50&offset=0`)
+### Games
+- `GET /api/games` - List games (supports `?platform=&profileId=&onlyCompleted=&excludeHidden=&limit=&offset=&sortBy=&sortOrder=&device=&search=`)
+- `GET /api/games/:id` - Get specific game
+- `PATCH /api/games/:id` - Update game (custom title)
+- `PATCH /api/games/:id/images/:imageType` - Upload custom game image (icon, hero, capsule)
+
+### Achievements
 - `GET /api/achievements` - List achievements (supports `?gameId=&profileId=`)
 
-### Settings (UI Configuration)
+### Settings
 - `GET /api/settings` - Get all settings (secrets masked)
 - `GET /api/settings/:key` - Get specific setting
 - `PUT /api/settings/:key` - Update setting (auto-encrypts secrets)
 - `DELETE /api/settings/:key` - Delete setting
 
-**Setting Categories**:
-- `image_provider` - Image providers like SteamGridDB
-- `scheduler` - Automatic sync configuration
-- `sync` - Performance and concurrency settings
+### Authentication
+- `GET /api/auth/xbox/url` - Get Microsoft OAuth authorization URL
+- `GET /api/auth/xbox/callback` - OAuth callback from Microsoft
+- `POST /api/auth/xbox/refresh` - Refresh Xbox tokens
+- `POST /api/auth/playstation/validate` - Validate PlayStation NPSSO token
 
-### Data Management
-- `POST /api/backup` - Start async backup (returns jobId)
+### Backup & Restore
+- `POST /api/backup/start` - Start async backup
 - `GET /api/backup/status` - Get backup/restore status
-- `GET /api/backup/download/:filename` - Download backup file
-- `POST /api/backup/restore` - Start async restore from uploaded file
+- `GET /api/backup/progress/:jobId` - Get backup progress
+- `GET /api/backup/download/:jobId` - Download completed backup
 - `DELETE /api/backup/cancel/:jobId` - Cancel active backup
+- `POST /api/backup/restore/start` - Start async restore from uploaded file
+- `GET /api/backup/restore/progress/:jobId` - Get restore progress
+- `GET /api/backup/restore/status` - Get all restore jobs
 - `DELETE /api/backup/restore/cancel/:jobId` - Cancel active restore
+
+### Export/Import
 - `GET /api/export` - Export all data as JSON
 - `POST /api/import` - Import data from JSON
+
+### Images
+- `GET /api/icons/:platform/:gameId/:filename` - Stream game image files
 
 ## Contributing
 
