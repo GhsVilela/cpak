@@ -8,6 +8,7 @@ interface Game {
   _id: string;
   gameId: string;
   title: string;
+  customTitle?: string;
   achievementsTotal: number;
   achievementsUnlocked: number;
   completionPercent: number;
@@ -131,7 +132,7 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
 
       {/* Game header */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold mb-4">{game.title}</h1>
+        <h1 className="text-3xl font-bold mb-4">{game.customTitle || game.title}</h1>
         <div className="flex items-center gap-0 text-sm divide-x divide-gray-600 overflow-x-auto flex-nowrap">
           <div className="pr-5 shrink-0 whitespace-nowrap">
             <div className="text-gray-400 text-xs uppercase tracking-wide">Achievements</div>

@@ -11,18 +11,83 @@ Achievements are more than just a game feature, they're memories. CPAK is a self
 
 > **Note on Development Approach**: This project started as a self-learning journey to improve my skills in AI-assisted development, exploring how AI tools can be used effectively in real-world software projects, with the goal of bringing that knowledge and experience to my daily professional work. It leverages AI-assisted "vibe coding" with [Speckit](https://github.com/github/spec-kit) for spec-driven development. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
 
+## Showcase
+
+### Steam
+
+<table>
+  <tr>
+    <td align="center"><strong>Grid View</strong></td>
+    <td align="center"><strong>List View</strong></td>
+    <td align="center"><strong>Hero View</strong></td>
+  </tr>
+  <tr>
+    <td><img src="images/steam/1.png" alt="Steam Grid View" width="100%"></td>
+    <td><img src="images/steam/2.png" alt="Steam List View" width="100%"></td>
+    <td><img src="images/steam/3.png" alt="Steam Hero View" width="100%"></td>
+  </tr>
+</table>
+
+### Xbox
+
+<table>
+  <tr>
+    <td align="center"><strong>Grid View</strong></td>
+    <td align="center"><strong>List View</strong></td>
+    <td align="center"><strong>Hero View</strong></td>
+  </tr>
+  <tr>
+    <td><img src="images/xbox/1.png" alt="Xbox Grid View" width="100%"></td>
+    <td><img src="images/xbox/2.png" alt="Xbox List View" width="100%"></td>
+    <td><img src="images/xbox/3.png" alt="Xbox Hero View" width="100%"></td>
+  </tr>
+</table>
+
+### PlayStation
+
+<table>
+  <tr>
+    <td align="center"><strong>Grid View</strong></td>
+    <td align="center"><strong>List View</strong></td>
+    <td align="center"><strong>Hero View</strong></td>
+  </tr>
+  <tr>
+    <td><img src="images/playstation/1.png" alt="PlayStation Grid View" width="100%"></td>
+    <td><img src="images/playstation/2.png" alt="PlayStation List View" width="100%"></td>
+    <td><img src="images/playstation/3.png" alt="PlayStation Hero View" width="100%"></td>
+  </tr>
+</table>
+
+### Configuration
+
+<table>
+  <tr>
+    <td align="center"><strong>Edit Game</strong></td>
+    <td align="center"><strong>Settings</strong></td>
+    <td align="center"><strong>Add Profile</strong></td>
+  </tr>
+  <tr>
+    <td><img src="images/configs/1.png" alt="Edit Game" width="100%"></td>
+    <td><img src="images/configs/2.png" alt="Settings" width="100%"></td>
+    <td><img src="images/configs/3.png" alt="Add Profile" width="100%"></td>
+  </tr>
+</table>
+
 ## Features
 
-- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation (Steam and Xbox fully supported; PlayStation in progress)
+- **Multi-Platform Support**: Save achievements from Steam, Xbox, and PlayStation
 - **Self-Hosted**: Run on your own infrastructure with Docker
 - **Unified Container**: All-in-one image with web server, backend, frontend, and MongoDB
 - **UI-Based Configuration**: Configure API keys and all other settings through the web interface (no environment variables needed)
+- **Visualization Modes**: Grid, List, and Hero views for browsing your game library
+- **Game Customization**: Edit game titles and upload custom images (icon, hero, capsule)
 - **Responsive Design**: Mobile-ready UI with Tailwind CSS
 - **Automatic Sync**: Scheduler to keep your achievements up to date
 - **Image Integration**: SteamGridDB support for game artwork
 - **Backup and Restore**: Backup and restore all profiles, games, achievements, and images to a zip file
 - **Steam Profile Showcase**: Displays your total achievement count from your Steam profile showcase alongside tracked and untracked stats
 - **Xbox Gamerscore Tracking**: Shows total Gamerscore and Xbox 360 Gamerscore separately
+- **PlayStation Trophy Tracking**: Shows platinum, gold, silver, and bronze trophy counts with generation filters (PS5, PS4, PS3, PS Vita)
 
 ## Quick Start
 
