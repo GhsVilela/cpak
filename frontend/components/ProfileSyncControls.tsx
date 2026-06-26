@@ -70,7 +70,7 @@ export default function ProfileSyncControls({
         <div className="flex-1 min-w-0">
           {lastSync ? (
             <div className="text-sm text-gray-400 flex items-center gap-2">
-              <span>Last sync: {formatLastSync(lastSync.completedAt)}</span>
+              <span>Synced: {formatLastSync(lastSync.completedAt)}</span>
               {lastSync.status === 'success' ? (
                 <span className="text-green-400">✓</span>
               ) : (

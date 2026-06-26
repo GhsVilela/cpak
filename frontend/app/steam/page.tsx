@@ -517,7 +517,7 @@ function SteamPageContent() {
               </>
             ) : null}
             <span>
-              Last sync: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
+              Synced: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
               {syncStatus.lastCompleted.status === 'success' ? (
                 <span className="text-green-400 ml-2">✓</span>
               ) : (
@@ -528,67 +528,73 @@ function SteamPageContent() {
         )}
 
         {selectedProfileId && (
-        <div className="flex items-center gap-4 flex-wrap">
-          <GameSearchInput onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }} />
-          <ViewModeSelector viewMode={viewMode} onViewModeChange={handleViewModeChange} />
-          <button
-            role="switch"
-            aria-checked={onlyCompleted}
-            onClick={() => {
-              const next = !onlyCompleted;
-              setOnlyCompleted(next);
-              if (selectedProfileId) localStorage.setItem(`steam_onlyCompleted_${selectedProfileId}`, String(next));
-            }}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              onlyCompleted ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
-            }`}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              onlyCompleted ? 'translate-x-6' : 'translate-x-1'
-            }`} />
-          </button>
-          <span className="text-sm">100% Only</span>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-4 flex-wrap">
+            <GameSearchInput onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }} />
+            <ViewModeSelector viewMode={viewMode} onViewModeChange={handleViewModeChange} />
+          </div>
+          <div className="flex items-center gap-4 flex-wrap">
+            <button
+              role="switch"
+              aria-checked={onlyCompleted}
+              onClick={() => {
+                const next = !onlyCompleted;
+                setOnlyCompleted(next);
+                if (selectedProfileId) localStorage.setItem(`steam_onlyCompleted_${selectedProfileId}`, String(next));
+              }}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                onlyCompleted ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
+              }`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                onlyCompleted ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+            <span className="text-sm">100% Only</span>
 
-          <button
-            role="switch"
-            aria-checked={showHidden}
-            onClick={() => {
-              const next = !showHidden;
-              setShowHidden(next);
-              if (selectedProfileId) localStorage.setItem(`steam_showHidden_${selectedProfileId}`, String(next));
-            }}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              showHidden ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
-            }`}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              showHidden ? 'translate-x-6' : 'translate-x-1'
-            }`} />
-          </button>
-          <span
-            className="text-sm cursor-default"
-            title="Show games with revoked licenses and games you have manually hidden."
-          >Show Hidden</span>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-400">Sort:</label>
-            <select
-              value={sortBy}
-              onChange={(e) => { setSortBy(e.target.value); if (selectedProfileId) localStorage.setItem(`steam_sortBy_${selectedProfileId}`, e.target.value); }}
-              className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--steam-accent)]"
+            <button
+              role="switch"
+              aria-checked={showHidden}
+              onClick={() => {
+                const next = !showHidden;
+                setShowHidden(next);
+                if (selectedProfileId) localStorage.setItem(`steam_showHidden_${selectedProfileId}`, String(next));
+              }}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                showHidden ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
+              }`}
             >
-              <option value="title">Title</option>
-              <option value="completionPercent">Completion %</option>
-              <option value="achievementsTotal">Total Achievements</option>
-              <option value="lastSyncedAt">Last Synced</option>
-            </select>
-            <select
-              value={sortOrder}
-              onChange={(e) => { setSortOrder(e.target.value as 'asc' | 'desc'); if (selectedProfileId) localStorage.setItem(`steam_sortOrder_${selectedProfileId}`, e.target.value); }}
-              className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--steam-accent)]"
-            >
-              <option value="asc">Ascending</option>
-              <option value="desc">Descending</option>
-            </select>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                showHidden ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+            <span
+              className="text-sm cursor-default"
+              title="Show games with revoked licenses and games you have manually hidden."
+            >Show Hidden</span>
+          </div>
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-400">Sort:</label>
+              <select
+                value={sortBy}
+                onChange={(e) => { setSortBy(e.target.value); if (selectedProfileId) localStorage.setItem(`steam_sortBy_${selectedProfileId}`, e.target.value); }}
+                className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--steam-accent)]"
+              >
+                <option value="title">Title</option>
+                <option value="completionPercent">Completion %</option>
+                <option value="achievementsTotal">Total Achievements</option>
+                <option value="lastSyncedAt">Last Synced</option>
+              </select>
+              <select
+                value={sortOrder}
+                onChange={(e) => { setSortOrder(e.target.value as 'asc' | 'desc'); if (selectedProfileId) localStorage.setItem(`steam_sortOrder_${selectedProfileId}`, e.target.value); }}
+                className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--steam-accent)]"
+              >
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+            </div>
           </div>
         </div>
         )}
