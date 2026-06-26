@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { systemRoutes } from './system.js';
 import { getProfiles, getProfileById, createProfile, updateProfile, deleteProfile, setDefaultProfile } from './profiles.js';
 import { triggerSync, getSyncStatus, cancelSync } from './sync.js';
-import { getGames, getGameById, updateGameTitle, uploadGameImage, deleteGameImage } from './games.js';
+import { getGames, getGameById, updateGameTitle, uploadGameImage, deleteGameImage, toggleGameHidden } from './games.js';
 import { getAchievements } from './achievements.js';
 import { registerIconRoutes } from './icons.js';
 import { syncRunsRoutes } from './syncRuns.js';
@@ -37,6 +37,7 @@ export async function registerRoutes(fastify: FastifyInstance) {
   fastify.patch('/games/:id', updateGameTitle);
   fastify.patch('/games/:id/images/:imageType', uploadGameImage);
   fastify.delete('/games/:id/images/:imageType', deleteGameImage);
+  fastify.patch('/games/:id/hidden', toggleGameHidden);
 
   // Achievements API
   fastify.get('/achievements', getAchievements);
