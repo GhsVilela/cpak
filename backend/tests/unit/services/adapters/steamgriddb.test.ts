@@ -168,6 +168,35 @@ describe('SteamGridDBAdapter', () => {
     expect(images[0].url).toBe('https://example.com/hero.png');
   });
 
+  it('getHeroImages passes dimension filter in request', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ id: 1, url: 'https://example.com/hero.png' }] }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+    const adapter = new SteamGridDBAdapter('fake-key');
+    await adapter.getHeroImages(12345);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const calledUrl = mockFetch.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('dimensions=1920x620');
+    expect(calledUrl).toContain('types=static');
+  });
+
+  it('getHeroImages falls back to all dimensions when filtered results are empty', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: [] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: [{ id: 2, url: 'https://example.com/hero-large.png' }] }) });
+    vi.stubGlobal('fetch', mockFetch);
+    const adapter = new SteamGridDBAdapter('fake-key');
+    const images = await adapter.getHeroImages(12345);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // First call has dimension filter, second does not
+    expect((mockFetch.mock.calls[0][0] as string)).toContain('dimensions=');
+    expect((mockFetch.mock.calls[1][0] as string)).not.toContain('dimensions=');
+    expect(images).toHaveLength(1);
+    expect(images[0].url).toBe('https://example.com/hero-large.png');
+  });
+
   it('getHeroImages returns empty array on error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
@@ -183,6 +212,48 @@ describe('SteamGridDBAdapter', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Timeout')));
     const adapter = new SteamGridDBAdapter('fake-key');
     const images = await adapter.getHeroImages(12345);
+    expect(images).toEqual([]);
+  });
+
+  // --- getIconImages ---
+
+  it('getIconImages returns all icons sorted PNG-first', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 1, url: 'https://example.com/icon.ico', thumb: '', tags: [], author: { name: 'A', steam64: '1' }, width: 64, height: 64, score: 80, style: 'default', notes: null },
+          { id: 2, url: 'https://example.com/icon.png', thumb: '', tags: [], author: { name: 'B', steam64: '2' }, width: 64, height: 64, score: 50, style: 'default', notes: null },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+    const adapter = new SteamGridDBAdapter('fake-key');
+    const images = await adapter.getIconImages(12345);
+    expect(images).toHaveLength(2);
+    // PNG should come first despite lower score
+    expect(images[0].url).toBe('https://example.com/icon.png');
+    expect(images[1].url).toBe('https://example.com/icon.ico');
+    const calledUrl = mockFetch.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('types=static');
+    expect(calledUrl).not.toContain('mimes=');
+  });
+
+  it('getIconImages returns empty array on error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+    }));
+    const adapter = new SteamGridDBAdapter('fake-key');
+    const images = await adapter.getIconImages(12345);
+    expect(images).toEqual([]);
+  });
+
+  it('getIconImages returns empty array on network failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Timeout')));
+    const adapter = new SteamGridDBAdapter('fake-key');
+    const images = await adapter.getIconImages(12345);
     expect(images).toEqual([]);
   });
 

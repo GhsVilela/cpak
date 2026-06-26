@@ -479,12 +479,19 @@ class SyncService {
       clientSecret,
     );
 
-    // Persist refreshed token (encrypted by pre-save hook)
-    await Profile.findByIdAndUpdate(profile._id, {
-      'credentials.accessToken': tokenBundle.xstsToken,
-      'credentials.refreshToken': tokenBundle.refreshToken ?? credentials.refreshToken,
-      'credentials.expiresAt': tokenBundle.expiresAt,
-    });
+    // Persist refreshed token — use .save() to trigger the pre-save encryption hook
+    // (findByIdAndUpdate bypasses Mongoose middleware, leaving tokens unencrypted)
+    const freshProfile = await Profile.findById(profile._id);
+    if (freshProfile) {
+      freshProfile.credentials = {
+        ...freshProfile.credentials,
+        accessToken: tokenBundle.xstsToken,
+        refreshToken: tokenBundle.refreshToken ?? credentials.refreshToken,
+        expiresAt: tokenBundle.expiresAt,
+      } as any;
+      freshProfile.markModified('credentials');
+      await freshProfile.save();
+    }
 
     const { xstsToken, userHash, xuid } = tokenBundle;
 

@@ -1185,16 +1185,11 @@ async function restoreBackupInBackground(jobId: string, tempZipPath: string) {
       fs.mkdirSync(IMAGES_DIR, { recursive: true });
       
       let copiedFiles = 0;
-      await copyDirectory(imagesBackupPath, IMAGES_DIR, async (count) => {
+      await copyDirectory(imagesBackupPath, IMAGES_DIR, (count) => {
         copiedFiles = count;
-        
-        // Update every 100 files
-        if (count % 100 === 0 || count === totalImageFiles) {
-          restoreJob.imagesRestored = count;
-          await restoreJob.save();
-        }
       });
-      
+
+      // Update progress after all images are copied
       restoreJob.imagesRestored = copiedFiles;
       await restoreJob.save();
       logger.info({ jobId, copiedFiles }, '[Restore] Images directory restored');

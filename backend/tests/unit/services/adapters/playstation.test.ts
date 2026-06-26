@@ -423,7 +423,25 @@ describe('PlayStationAdapter', () => {
   // -------------------------------------------------------------------------
 
   describe('downloadGameImage', () => {
-    it('returns PlayStation CDN path when download succeeds', async () => {
+    it('returns SteamGridDB path when SteamGridDB succeeds (priority 1)', async () => {
+      const mockSteamGridDB = {
+        downloadGameImageByName: vi.fn().mockResolvedValue('playstation/NPWR12345_00/game_grid.jpg'),
+        searchGameByName: vi.fn().mockResolvedValue(null),
+        getHeroImages: vi.fn().mockResolvedValue([]),
+      } as any;
+
+      const result = await adapter.downloadGameImage(
+        'God of War',
+        'NPWR12345_00',
+        'https://image.api.playstation.com/trophy/god-of-war.png',
+        mockSteamGridDB,
+      );
+
+      expect(result.capsuleImagePath).toBe('playstation/NPWR12345_00/game_grid.jpg');
+      expect(mockSteamGridDB.downloadGameImageByName).toHaveBeenCalledWith('God of War', 'playstation', 'NPWR12345_00');
+    });
+
+    it('falls back to PlayStation CDN when SteamGridDB and IGDB fail', async () => {
       vi.mocked(imageStorage.downloadAndStore).mockResolvedValue('playstation/NPWR12345_00/game_grid.png');
 
       const result = await adapter.downloadGameImage(
@@ -442,25 +460,6 @@ describe('PlayStationAdapter', () => {
       );
     });
 
-    it('falls back to SteamGridDB when PlayStation CDN fails', async () => {
-      vi.mocked(imageStorage.downloadAndStore).mockRejectedValue(new Error('CDN error'));
-      const mockSteamGridDB = {
-        downloadGameImageByName: vi.fn().mockResolvedValue('playstation/NPWR12345_00/game_grid.jpg'),
-        searchGameByName: vi.fn().mockResolvedValue(null),
-        getHeroImages: vi.fn().mockResolvedValue([]),
-      } as any;
-
-      const result = await adapter.downloadGameImage(
-        'God of War',
-        'NPWR12345_00',
-        'https://image.api.playstation.com/trophy/god-of-war.png',
-        mockSteamGridDB,
-      );
-
-      expect(result.capsuleImagePath).toBe('playstation/NPWR12345_00/game_grid.jpg');
-      expect(mockSteamGridDB.downloadGameImageByName).toHaveBeenCalledWith('God of War', 'playstation', 'NPWR12345_00');
-    });
-
     it('returns undefined capsule when all fallbacks fail', async () => {
       vi.mocked(imageStorage.downloadAndStore).mockRejectedValue(new Error('CDN error'));
 
@@ -468,7 +467,7 @@ describe('PlayStationAdapter', () => {
       expect(result.capsuleImagePath).toBeUndefined();
     });
 
-    it('skips PlayStation CDN when no URL provided', async () => {
+    it('skips PlayStation CDN when no URL provided and no other sources available', async () => {
       const result = await adapter.downloadGameImage('God of War', 'NPWR12345_00', undefined);
 
       expect(result.capsuleImagePath).toBeUndefined();

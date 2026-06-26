@@ -208,6 +208,14 @@ export class ImageStorage {
             ext = '.jpg';
           }
         } catch (resizeErr) {
+          // ICO files (multi-resolution containers) cannot be processed by sharp.
+          // Skip resize and store as-is — browsers can render .ico in <img> tags
+          // and ICO files typically already contain appropriate icon sizes.
+          if (url.toLowerCase().endsWith('.ico') || contentType.includes('microsoft.icon')) {
+            ext = '.ico';
+          } else {
+            logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, 'Failed to resize game icon, storing original');
+          }
           logger.warn({ url, platform, gameId, imageType, err: String(resizeErr) }, 'Failed to resize game icon, storing original');
         }
       }
