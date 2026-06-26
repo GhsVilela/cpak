@@ -11,6 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-01-24
 - MongoDB 8 (bundled or external); `mongodb-memory-server` 10 for test isolation (004-regression-tests)
 - TypeScript 5.7+, Node.js 20+ + Fastify 5, Mongoose 8, Next.js 15, React 19, `@xboxreplay/xboxlive-auth` 5.x (new) (005-xbox-integration)
 - MongoDB 8+ (existing collections: profiles, games, achievements, settings, syncoperations, syncruns) (005-xbox-integration)
+- TypeScript (Node 20) + Fastify 5+ (backend), Next.js 15+ (frontend), Mongoose (ODM), `psn-api` npm package (for PSN API access), Vitest (testing) (006-playstation-integration)
+- MongoDB (bundled or external) — existing collections: profiles, games, achievements, sync_operations, settings (006-playstation-integration)
 
 - TypeScript (Node.js 20 LTS), Next.js 14 + Fastify, Mongoose, Zod, OpenAPI (Swagger UI), Next.js (001-trophy-hunter)
 
@@ -31,9 +33,9 @@ npm test; npm run lint
 TypeScript (Node.js 20 LTS), Next.js 14: Follow standard conventions
 
 ## Recent Changes
+- 006-playstation-integration: Added TypeScript (Node 20) + Fastify 5+ (backend), Next.js 15+ (frontend), Mongoose (ODM), `psn-api` npm package (for PSN API access), Vitest (testing)
 - 005-xbox-integration: Added TypeScript 5.7+, Node.js 20+ + Fastify 5, Mongoose 8, Next.js 15, React 19, `@xboxreplay/xboxlive-auth` 5.x (new)
 - 005-xbox-integration: Added TypeScript 5.7+, Node.js 20+ + Fastify 5, Mongoose 8, Next.js 15, React 19, `@xboxreplay/xboxlive-auth` 5.x (new)
-- 004-regression-tests: Added TypeScript 5.9 (backend ESM, `"type": "module"`); TypeScript 5.9 (frontend Next.js 15) + Backend — Fastify 5, Mongoose 8, node-cron 4, Zod 3; Frontend — Next.js 15, React 19, Tailwind CSS 3
 
 
 <!-- MANUAL ADDITIONS START -->

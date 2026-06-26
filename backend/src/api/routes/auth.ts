@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { Profile } from '../../models/profile.js';
 import { createXboxAdapter } from '../../services/adapters/xbox.js';
+import { createPlayStationAdapter } from '../../services/adapters/playstation.js';
 import { configService } from '../../services/configService.js';
 import { syncService } from '../../services/syncService.js';
 import { logger } from '../../utils/logger.js';
@@ -276,6 +277,60 @@ export async function xboxAuthRoutes(fastify: FastifyInstance) {
       return reply.status(401).send({
         error: 'Xbox re-authentication required',
         ...(authUrl ? { authUrl } : {}),
+      });
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// PlayStation Authentication Routes
+// Registered at /api/auth/playstation/ by routes/index.ts
+// ---------------------------------------------------------------------------
+
+const psnValidateBodySchema = z.object({
+  npssoToken: z.string().min(1, 'npssoToken is required'),
+});
+
+export async function playstationAuthRoutes(fastify: FastifyInstance) {
+  /**
+   * POST /api/auth/playstation/validate
+   * Validate an NPSSO token without creating a profile.
+   * Used by the settings UI to verify the token before submission.
+   */
+  fastify.post('/validate', async (
+    req: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    let body: z.infer<typeof psnValidateBodySchema>;
+    try {
+      body = psnValidateBodySchema.parse(req.body);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return reply.status(400).send({ valid: false, error: 'npssoToken is required' });
+      }
+      return reply.status(400).send({ valid: false, error: 'Invalid request body' });
+    }
+
+    const { npssoToken } = body;
+    const adapter = createPlayStationAdapter();
+
+    try {
+      const tokens = await adapter.exchangeNpssoForTokens(npssoToken);
+      const profile = await adapter.getProfile(tokens.accessToken, 'me');
+
+      logger.info({ onlineId: profile.onlineId }, 'PSN NPSSO token validated successfully');
+
+      return reply.send({
+        valid: true,
+        accountId: profile.accountId,
+        onlineId: profile.onlineId,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Token validation failed';
+      logger.warn({ error: message }, 'PSN NPSSO token validation failed');
+      return reply.status(400).send({
+        valid: false,
+        error: `NPSSO token is invalid or expired. Obtain a new one from https://ca.account.sony.com/api/v1/ssocookie`,
       });
     }
   });

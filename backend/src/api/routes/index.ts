@@ -9,7 +9,7 @@ import { syncRunsRoutes } from './syncRuns.js';
 import { getAllSettings, getSetting, updateSetting, deleteSetting } from './settings.js';
 import { exportData, importData } from './exportImport.js';
 import { startBackup, getBackupProgress, downloadBackup, startRestore, getRestoreProgress, getRestoreJobs, getStatus, cancelBackup, cancelRestore } from './backup.js';
-import { xboxAuthRoutes } from './auth.js';
+import { xboxAuthRoutes, playstationAuthRoutes } from './auth.js';
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Register system routes at root
@@ -63,4 +63,7 @@ export async function registerRoutes(fastify: FastifyInstance) {
 
   // Xbox Auth API (OAuth flow)
   await fastify.register(xboxAuthRoutes, { prefix: '/auth/xbox' });
+
+  // PlayStation Auth API
+  await fastify.register(playstationAuthRoutes, { prefix: '/auth/playstation' });
 }

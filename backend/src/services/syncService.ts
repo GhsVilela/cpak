@@ -6,6 +6,7 @@ import { SyncOperation } from '../models/syncOperation.js';
 import { createSteamAdapter } from './adapters/steam.js';
 import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
 import { createXboxAdapter } from './adapters/xbox.js';
+import { createPlayStationAdapter } from './adapters/playstation.js';
 import { logger } from '../utils/logger.js';
 import { configService } from './configService.js';
 import { SYNC_DEFAULTS } from './syncDefaults.js';
@@ -47,8 +48,7 @@ class SyncService {
       } else if (profile.platform === 'xbox') {
         await this.syncXbox(profile, syncOperation);
       } else if (profile.platform === 'playstation') {
-        logger.warn({ profileId: profile.profileId }, 'PlayStation sync not yet implemented');
-        throw new Error('PlayStation sync not implemented');
+        await this.syncPlayStation(profile, syncOperation);
       }
 
       // Ensure progress reaches 100% and save to database for UI to display
@@ -597,6 +597,178 @@ class SyncService {
 
     syncOperation.achievementsSynced = achievementsSynced;
     await syncOperation.save();
+  }
+
+  // -------------------------------------------------------------------------
+  // PlayStation sync
+  // -------------------------------------------------------------------------
+
+  private async syncPlayStation(profile: IProfile, syncOperation: any): Promise<void> {
+    const adapter = createPlayStationAdapter();
+    const creds = profile.getDecryptedCredentials();
+
+    // -----------------------------------------------------------------------
+    // Phase 1: Token management — refresh access token if expired
+    // -----------------------------------------------------------------------
+    let accessToken = creds.accessToken;
+    const accountId = profile.profileId;
+
+    if (!accessToken || !creds.refreshToken) {
+      throw new Error('PlayStation profile missing credentials — re-authentication required');
+    }
+
+    const expiresAt = creds.expiresAt ? new Date(creds.expiresAt) : null;
+    if (!expiresAt || expiresAt <= new Date()) {
+      logger.info({ profileId: profile.profileId }, 'PSN access token expired, refreshing');
+      try {
+        const newTokens = await adapter.refreshAccessToken(creds.refreshToken);
+        accessToken = newTokens.accessToken;
+        // Update stored credentials
+        await Profile.findByIdAndUpdate(profile._id, {
+          $set: {
+            'credentials.accessToken': newTokens.accessToken,
+            'credentials.refreshToken': newTokens.refreshToken,
+            'credentials.expiresAt': newTokens.expiresAt,
+          },
+        });
+        logger.info({ profileId: profile.profileId }, 'PSN access token refreshed');
+      } catch (err) {
+        logger.error({ err, profileId: profile.profileId }, 'PSN token refresh failed — re-auth required');
+        throw new Error('PlayStation authentication expired. Please re-authenticate by providing a new NPSSO token.');
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 2: Fetch trophy titles (games with ≥1 earned trophy)
+    // -----------------------------------------------------------------------
+    logger.info({ profileId: accountId }, 'Fetching PlayStation trophy titles');
+    const titles = await adapter.getTrophyTitles(accessToken, 'me');
+
+    syncOperation.totalGames = titles.length;
+    syncOperation.iconDownloadsPending = 0;
+    await syncOperation.save();
+
+    logger.info({ profileId: accountId, totalGames: titles.length }, 'PlayStation trophy titles fetched');
+
+    // -----------------------------------------------------------------------
+    // Phase 3: Per-game trophy definitions + earned status + image download
+    // -----------------------------------------------------------------------
+    const steamGridDB = await createSteamGridDBAdapter();
+    let totalAchievements = 0;
+    let achievementsSynced = 0;
+
+    for (const title of titles) {
+      try {
+        // Download game cover art (PlayStation CDN → SteamGridDB → PCGamingWiki → Wikipedia)
+        const imagePath = await adapter.downloadGameImage(
+          title.title,
+          title.npCommunicationId,
+          title.imageUrl,
+          steamGridDB || undefined,
+        );
+
+        // Upsert game record
+        const game = await Game.findOneAndUpdate(
+          { profileId: profile._id, gameId: title.npCommunicationId, platform: 'playstation' },
+          {
+            $set: {
+              platform: 'playstation',
+              profileId: profile._id,
+              gameId: title.npCommunicationId,
+              title: title.title,
+              achievementsTotal: title.definedTrophies.bronze + title.definedTrophies.silver + title.definedTrophies.gold + title.definedTrophies.platinum,
+              achievementsUnlocked: title.earnedTrophies.bronze + title.earnedTrophies.silver + title.earnedTrophies.gold + title.earnedTrophies.platinum,
+              completionPercent: title.progress,
+              devices: title.devices,
+              trophyBronze: title.earnedTrophies.bronze,
+              trophySilver: title.earnedTrophies.silver,
+              trophyGold: title.earnedTrophies.gold,
+              trophyPlatinum: title.earnedTrophies.platinum,
+              lastPlayed: title.lastUpdatedDateTime ? new Date(title.lastUpdatedDateTime) : undefined,
+              ...(imagePath && { imagePath }),
+              lastSyncedAt: new Date(),
+            },
+          },
+          { upsert: true, new: true }
+        );
+
+        // Fetch trophy definitions and earned status
+        const [definitions, earned] = await Promise.all([
+          adapter.getTrophyDefinitions(accessToken, title.npCommunicationId, title.npServiceName),
+          adapter.getEarnedTrophies(accessToken, 'me', title.npCommunicationId, title.npServiceName),
+        ]);
+
+        const earnedMap = new Map(earned.map((e) => [e.trophyId, e]));
+        totalAchievements += definitions.length;
+        syncOperation.iconDownloadsPending += definitions.length;
+
+        // Upsert achievements (trophies)
+        const bulkOps = await Promise.all(
+          definitions.map(async (def) => {
+            const earnStatus = earnedMap.get(def.trophyId);
+            const iconPath = await adapter.downloadTrophyIcon(title.npCommunicationId, def.trophyId, def.iconUrl);
+
+            return {
+              updateOne: {
+                filter: {
+                  platform: 'playstation',
+                  profileId: profile._id,
+                  gameId: game._id,
+                  achievementId: def.trophyId,
+                },
+                update: {
+                  $set: {
+                    platform: 'playstation' as const,
+                    profileId: profile._id,
+                    gameId: game._id,
+                    achievementId: def.trophyId,
+                    name: def.name,
+                    description: def.description,
+                    unlockedAt: earnStatus?.earned ? earnStatus.earnedDateTime : undefined,
+                    iconPath: iconPath,
+                    iconGrayPath: iconPath, // Same icon, frontend applies CSS grayscale for locked
+                    trophyGrade: def.type,
+                    isHidden: def.isHidden,
+                  },
+                },
+                upsert: true,
+              },
+            };
+          })
+        );
+
+        if (bulkOps.length > 0) {
+          await Achievement.bulkWrite(bulkOps);
+          achievementsSynced += bulkOps.length;
+        }
+
+        syncOperation.gamesProcessed++;
+        syncOperation.achievementsSynced = achievementsSynced;
+        syncOperation.iconDownloadsCompleted += definitions.length;
+        await syncOperation.save();
+
+        logger.debug({
+          game: title.title,
+          trophies: definitions.length,
+        }, 'PlayStation game synced');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn({ err: message, game: title.title }, 'Failed to sync PlayStation game, skipping');
+        syncOperation.gamesProcessed++;
+        await syncOperation.save();
+      }
+    }
+
+    syncOperation.totalAchievements = totalAchievements;
+    syncOperation.achievementsSynced = achievementsSynced;
+    await syncOperation.save();
+
+    logger.info({
+      profileId: accountId,
+      totalGames: titles.length,
+      totalAchievements,
+      achievementsSynced,
+    }, 'PlayStation sync completed');
   }
 }
 

@@ -12,6 +12,10 @@ export interface IAchievement extends Document {
   iconGrayPath?: string;
   /** Xbox-specific: gamerscore value for this achievement */
   gamerscore?: number;
+  /** PlayStation-specific: trophy grade (bronze, silver, gold, platinum). null for non-PlayStation platforms. */
+  trophyGrade?: 'bronze' | 'silver' | 'gold' | 'platinum' | null;
+  /** PlayStation-specific: whether this is a hidden/secret trophy */
+  isHidden?: boolean;
 }
 
 const AchievementSchema = new Schema<IAchievement>(
@@ -30,7 +34,12 @@ const AchievementSchema = new Schema<IAchievement>(
     iconPath: String,
     iconGrayPath: String,
     gamerscore: { type: Number },
-
+    trophyGrade: {
+      type: String,
+      enum: ['bronze', 'silver', 'gold', 'platinum', null],
+      default: null,
+    },
+    isHidden: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

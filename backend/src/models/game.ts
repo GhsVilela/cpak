@@ -23,6 +23,14 @@ export interface IGame extends Document {
   ownershipSource?: 'owned' | 'played_history';
   /** True when achievement data could not be fetched (e.g. refunded/expired license) */
   achievementsFetchFailed?: boolean;
+  /** PlayStation-specific: count of earned bronze trophies */
+  trophyBronze?: number | null;
+  /** PlayStation-specific: count of earned silver trophies */
+  trophySilver?: number | null;
+  /** PlayStation-specific: count of earned gold trophies */
+  trophyGold?: number | null;
+  /** PlayStation-specific: count of earned platinum trophies (0 or 1) */
+  trophyPlatinum?: number | null;
   lastSyncedAt: Date;
 }
 
@@ -47,6 +55,10 @@ const GameSchema = new Schema<IGame>(
     playTimeMinutes: { type: Number },
     ownershipSource: { type: String, enum: ['owned', 'played_history'] },
     achievementsFetchFailed: { type: Boolean },
+    trophyBronze: { type: Number, default: null },
+    trophySilver: { type: Number, default: null },
+    trophyGold: { type: Number, default: null },
+    trophyPlatinum: { type: Number, default: null },
     lastSyncedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
