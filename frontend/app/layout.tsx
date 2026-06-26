@@ -3,7 +3,7 @@ import "./globals.css";
 import Logo from "@/components/Logo";
 
 export const metadata: Metadata = {
-  title: "cpak — Cross Platform Achievement Keeper",
+  title: "cpak - Cross Platform Achievement Keeper",
   description: "Self-hosted trophy hunter for Steam, Xbox, PlayStation",
   icons: {
     icon: "/favicon.svg",

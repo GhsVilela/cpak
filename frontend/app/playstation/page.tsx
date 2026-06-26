@@ -23,6 +23,7 @@ interface Game {
   heroImagePath?: string;
   profileId: string;
   devices?: string[];
+  isHidden?: boolean;
 }
 
 interface TrophySummary {
@@ -92,6 +93,7 @@ function PlayStationPageContent() {
   const [error, setError] = useState('');
   const [noProfiles, setNoProfiles] = useState(false);
   const [onlyCompleted, setOnlyCompleted] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -153,8 +155,10 @@ function PlayStationPageContent() {
   useEffect(() => {
     if (selectedProfileId) {
       const savedOnlyCompleted = localStorage.getItem(`playstation_onlyCompleted_${selectedProfileId}`) === 'true';
+      const savedShowHidden = localStorage.getItem(`playstation_showHidden_${selectedProfileId}`) === 'true';
       setOnlyCompleted(savedOnlyCompleted);
-      loadGames({ onlyCompleted: savedOnlyCompleted });
+      setShowHidden(savedShowHidden);
+      loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
       loadBaseTrophySummary();
@@ -170,9 +174,9 @@ function PlayStationPageContent() {
       return;
     }
     if (selectedProfileId) {
-      loadGames({ onlyCompleted });
+      loadGames({ onlyCompleted, showHidden });
     }
-  }, [onlyCompleted]);
+  }, [onlyCompleted, showHidden]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -339,7 +343,7 @@ function PlayStationPageContent() {
     }
   };
 
-  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean }) => {
+  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; showHidden?: boolean }) => {
     if (!selectedProfileId) return;
     setLoading(true);
     setError('');
@@ -347,6 +351,7 @@ function PlayStationPageContent() {
     const page = overrides?.page ?? currentPage;
     const perPage = overrides?.perPage ?? itemsPerPage;
     const effectiveOnlyCompleted = overrides?.onlyCompleted ?? onlyCompleted;
+    const effectiveShowHidden = overrides?.showHidden ?? showHidden;
 
     try {
       const params = new URLSearchParams({
@@ -358,6 +363,7 @@ function PlayStationPageContent() {
         sortOrder,
       });
       if (effectiveOnlyCompleted) params.append('onlyCompleted', 'true');
+      if (!effectiveShowHidden) params.append('excludeHidden', 'true');
       if (generationFilter) params.append('device', generationFilter);
       if (searchQuery) params.append('search', searchQuery);
 
@@ -385,6 +391,7 @@ function PlayStationPageContent() {
               onSelectProfile={handleProfileChange}
               onError={handleProfileError}
               onProfilesLoaded={(count) => setNoProfiles(count === 0)}
+              reloadTrigger={reloadTrigger}
             />
             {selectedProfileId && (
               <div className="flex items-center gap-2">
@@ -522,6 +529,27 @@ function PlayStationPageContent() {
               }`} />
             </button>
             <span className="text-sm">100% Only</span>
+
+          <button
+            role="switch"
+            aria-checked={showHidden}
+            onClick={() => {
+              const next = !showHidden;
+              setShowHidden(next);
+              if (selectedProfileId) localStorage.setItem(`playstation_showHidden_${selectedProfileId}`, String(next));
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              showHidden ? 'bg-[var(--playstation-accent)]' : 'bg-gray-600'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              showHidden ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+          <span
+            className="text-sm cursor-default"
+            title="Show games you have manually hidden."
+          >Show Hidden</span>
 
             {/* Generation filter */}
             <div className="flex items-center gap-2">

@@ -142,11 +142,16 @@ describe('Games Route Handlers', () => {
       const reply = createMockReply();
       await getGames({ query: { excludeHidden: 'true' } } as any, reply);
       expect(reply.body.data).toHaveLength(1);
-      // Verify $or filter was applied to the countDocuments call
+      // Verify $and filter was applied to the countDocuments call
       const filterArg = gameCountDocumentsMock.mock.calls[0][0];
-      expect(filterArg.$or).toEqual([
-        { ownershipSource: { $ne: 'played_history' } },
-        { achievementsFetchFailed: { $ne: true } },
+      expect(filterArg.$and).toEqual([
+        {
+          $or: [
+            { ownershipSource: { $ne: 'played_history' } },
+            { achievementsFetchFailed: { $ne: true } },
+          ],
+        },
+        { isHidden: { $ne: true } },
       ]);
     });
 

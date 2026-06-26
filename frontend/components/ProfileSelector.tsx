@@ -17,6 +17,8 @@ interface ProfileSelectorProps {
   onSelectProfile: (profileId: string) => void;
   onError?: (error: string) => void;
   onProfilesLoaded?: (count: number) => void;
+  /** Increment to force a profile data reload (e.g. after sync completes) */
+  reloadTrigger?: number;
 }
 
 export default function ProfileSelector({
@@ -25,6 +27,7 @@ export default function ProfileSelector({
   onSelectProfile,
   onError,
   onProfilesLoaded,
+  reloadTrigger,
 }: ProfileSelectorProps) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,7 +35,7 @@ export default function ProfileSelector({
 
   useEffect(() => {
     loadProfiles();
-  }, [platform]);
+  }, [platform, reloadTrigger]);
 
   const loadProfiles = async () => {
     setLoading(true);

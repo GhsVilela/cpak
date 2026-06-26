@@ -27,6 +27,7 @@ interface Game {
   trophySilver?: number;
   trophyGold?: number;
   trophyPlatinum?: number;
+  isHidden?: boolean;
 }
 
 interface GameGridProps {
@@ -39,6 +40,11 @@ interface GameGridProps {
 
 export default function GameGrid({ games, loading = false, emptyMessage = 'No games found', viewMode = 'capsule', onGamesUpdated }: GameGridProps) {
   const [editingGame, setEditingGame] = useState<Game | null>(null);
+
+  const handleHide = async (game: Game) => {
+    await apiClient.patch(`/games/${game._id}/hidden`, {});
+    onGamesUpdated?.();
+  };
 
   const handleSave = async (updates: { customTitle?: string | null; images?: { type: string; file: File }[]; deleteImages?: string[] }) => {
     if (!editingGame) return;
@@ -115,7 +121,7 @@ export default function GameGrid({ games, loading = false, emptyMessage = 'No ga
       <>
         <div className="space-y-2">
           {games.map((game) => (
-            <GameListItem key={game._id} game={game} onEdit={() => setEditingGame(game)} />
+            <GameListItem key={game._id} game={game} onEdit={() => setEditingGame(game)} onHide={() => handleHide(game)} />
           ))}
         </div>
         {editingGame && <GameEditModal game={editingGame} onClose={() => setEditingGame(null)} onSave={handleSave} />}
@@ -128,7 +134,7 @@ export default function GameGrid({ games, loading = false, emptyMessage = 'No ga
       <>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {games.map((game) => (
-            <GameHeroCard key={game._id} game={game} onEdit={() => setEditingGame(game)} />
+            <GameHeroCard key={game._id} game={game} onEdit={() => setEditingGame(game)} onHide={() => handleHide(game)} />
           ))}
         </div>
         {editingGame && <GameEditModal game={editingGame} onClose={() => setEditingGame(null)} onSave={handleSave} />}
@@ -140,7 +146,7 @@ export default function GameGrid({ games, loading = false, emptyMessage = 'No ga
     <>
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
         {games.map((game) => (
-          <GameTile key={game._id} game={game} onEdit={() => setEditingGame(game)} />
+          <GameTile key={game._id} game={game} onEdit={() => setEditingGame(game)} onHide={() => handleHide(game)} />
         ))}
       </div>
       {editingGame && <GameEditModal game={editingGame} onClose={() => setEditingGame(null)} onSave={handleSave} />}

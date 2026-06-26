@@ -67,12 +67,18 @@ export async function getGames(
       filter.completionPercent = 100;
     }
 
-    // Exclude hidden games (revoked licenses: played_history + achievementsFetchFailed)
+    // Exclude hidden games (revoked licenses + manually hidden)
     if (excludeHidden === 'true') {
-      filter.$or = [
-        { ownershipSource: { $ne: 'played_history' } },
-        { achievementsFetchFailed: { $ne: true } },
-      ];
+      if (!filter.$and) filter.$and = [];
+      // Exclude revoked-license games (played_history + achievementsFetchFailed)
+      filter.$and.push({
+        $or: [
+          { ownershipSource: { $ne: 'played_history' } },
+          { achievementsFetchFailed: { $ne: true } },
+        ],
+      });
+      // Exclude manually hidden games
+      filter.$and.push({ isHidden: { $ne: true } });
     }
 
     // Filter by console generation / platform (Xbox only — matches devices[] array field)
@@ -97,24 +103,13 @@ export async function getGames(
     if (search && search.trim()) {
       // Escape regex special characters to prevent ReDoS
       const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const searchCondition = {
+      if (!filter.$and) filter.$and = [];
+      filter.$and.push({
         $or: [
           { title: { $regex: escaped, $options: 'i' } },
           { customTitle: { $regex: escaped, $options: 'i' } },
         ],
-      };
-
-      // If excludeHidden also set $or, we need $and to combine both
-      if (filter.$or) {
-        const existingOr = filter.$or;
-        delete filter.$or;
-        if (!filter.$and) filter.$and = [];
-        filter.$and.push({ $or: existingOr });
-        filter.$and.push(searchCondition);
-      } else {
-        if (!filter.$and) filter.$and = [];
-        filter.$and.push(searchCondition);
-      }
+      });
     }
 
     // Validate and build sort object
@@ -431,6 +426,28 @@ export async function deleteGameImage(
     });
   } catch (error) {
     logger.error({ error }, 'Failed to delete game image');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
+export async function toggleGameHidden(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const { id } = req.params;
+
+    const game = await Game.findById(id);
+    if (!game) {
+      return reply.status(404).send({ error: 'Game not found' });
+    }
+
+    game.isHidden = !game.isHidden;
+    await game.save();
+
+    reply.send({ _id: game._id, isHidden: game.isHidden });
+  } catch (error) {
+    logger.error({ error }, 'Failed to toggle game hidden status');
     reply.status(500).send({ error: 'Internal server error' });
   }
 }
