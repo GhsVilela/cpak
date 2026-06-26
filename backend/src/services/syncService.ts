@@ -137,7 +137,7 @@ class SyncService {
         'steam.getPlayerSummary',
         async () => steamAdapter.getPlayerSummary(profile.profileId)
       );
-      if (playerSummary?.personaname && playerSummary.personaname !== profile.displayName) {
+      if (playerSummary?.personaname && playerSummary.personaname !== profile.displayName && !profile.displayNameEdited) {
         profile.displayName = playerSummary.personaname;
         await Profile.findByIdAndUpdate(profile._id, { displayName: playerSummary.personaname });
         logger.info({ profileId: profile.profileId, displayName: playerSummary.personaname }, 'Updated profile display name from Steam');
@@ -217,10 +217,16 @@ class SyncService {
               updateData.lastPlayed = game.lastPlayed;
             }
 
-            // Only update imagePath if we successfully downloaded an image
-            const imagePath = gameImageMap.get(game.appId);
-            if (imagePath) {
-              updateData.imagePath = imagePath;
+            // Only update image paths if we successfully downloaded images
+            const imagePaths = gameImageMap.get(game.appId);
+            if (imagePaths?.capsuleImagePath) {
+              updateData.capsuleImagePath = imagePaths.capsuleImagePath;
+            }
+            if (imagePaths?.iconImagePath) {
+              updateData.iconImagePath = imagePaths.iconImagePath;
+            }
+            if (imagePaths?.heroImagePath) {
+              updateData.heroImagePath = imagePaths.heroImagePath;
             }
 
             return Game.findOneAndUpdate(
@@ -488,7 +494,7 @@ class SyncService {
 
     try {
       const xboxProfile = await adapter.getXboxProfile(xuid, xstsToken, userHash);
-      if (xboxProfile.gamertag && xboxProfile.gamertag !== profile.displayName) {
+      if (xboxProfile.gamertag && xboxProfile.gamertag !== profile.displayName && !profile.displayNameEdited) {
         await Profile.findByIdAndUpdate(profile._id, { displayName: xboxProfile.gamertag });
         logger.info({ xuid, gamertag: xboxProfile.gamertag }, 'Updated Xbox profile display name');
       }
@@ -563,8 +569,10 @@ class SyncService {
           lastSyncedAt: new Date(),
         };
 
-        const imagePath = gameImageMap.get(title.titleId);
-        if (imagePath) updateData.imagePath = imagePath;
+        const imagePaths = gameImageMap.get(title.titleId);
+        if (imagePaths?.capsuleImagePath) updateData.capsuleImagePath = imagePaths.capsuleImagePath;
+        if (imagePaths?.iconImagePath) updateData.iconImagePath = imagePaths.iconImagePath;
+        if (imagePaths?.heroImagePath) updateData.heroImagePath = imagePaths.heroImagePath;
 
         return Game.findOneAndUpdate(
           { profileId: profile._id, platform: 'xbox', gameId: title.titleId },
@@ -623,14 +631,27 @@ class SyncService {
       try {
         const newTokens = await adapter.refreshAccessToken(creds.refreshToken);
         accessToken = newTokens.accessToken;
-        // Update stored credentials
-        await Profile.findByIdAndUpdate(profile._id, {
-          $set: {
-            'credentials.accessToken': newTokens.accessToken,
-            'credentials.refreshToken': newTokens.refreshToken,
-            'credentials.expiresAt': newTokens.expiresAt,
-          },
-        });
+
+        // Validate the refreshed token by fetching the profile
+        try {
+          await adapter.getProfile(accessToken, 'me');
+        } catch (validationErr) {
+          logger.error({ err: validationErr, profileId: profile.profileId }, 'PSN refreshed token failed validation');
+          throw new Error('Refreshed PSN token is invalid');
+        }
+
+        // Use profile.save() to trigger the pre-save encryption hook
+        const freshProfile = await Profile.findById(profile._id);
+        if (freshProfile) {
+          freshProfile.credentials = {
+            ...freshProfile.credentials,
+            accessToken: newTokens.accessToken,
+            refreshToken: newTokens.refreshToken,
+            expiresAt: newTokens.expiresAt,
+          } as any;
+          freshProfile.markModified('credentials');
+          await freshProfile.save();
+        }
         logger.info({ profileId: profile.profileId }, 'PSN access token refreshed');
       } catch (err) {
         logger.error({ err, profileId: profile.profileId }, 'PSN token refresh failed — re-auth required');
@@ -643,6 +664,25 @@ class SyncService {
     // -----------------------------------------------------------------------
     logger.info({ profileId: accountId }, 'Fetching PlayStation trophy titles');
     const titles = await adapter.getTrophyTitles(accessToken, 'me');
+
+    // Guard: if 0 games returned but the profile previously had games, the
+    // token is likely invalid despite the refresh appearing to succeed.
+    if (titles.length === 0) {
+      const previousGameCount = await Game.countDocuments({
+        profileId: profile._id,
+        platform: 'playstation',
+      });
+      if (previousGameCount > 0) {
+        logger.error(
+          { profileId: accountId, previousGameCount },
+          'PSN returned 0 trophy titles but profile previously had games — token likely invalid',
+        );
+        throw new Error(
+          `PlayStation sync returned 0 games but ${previousGameCount} were previously synced. ` +
+          'The authentication token is likely invalid. Please re-authenticate by providing a new NPSSO token.',
+        );
+      }
+    }
 
     syncOperation.totalGames = titles.length;
     syncOperation.iconDownloadsPending = 0;
@@ -659,8 +699,8 @@ class SyncService {
 
     for (const title of titles) {
       try {
-        // Download game cover art (PlayStation CDN → SteamGridDB → PCGamingWiki → Wikipedia)
-        const imagePath = await adapter.downloadGameImage(
+        // Download game cover art (PlayStation CDN → SteamGridDB → IGDB)
+        const imagePaths = await adapter.downloadGameImage(
           title.title,
           title.npCommunicationId,
           title.imageUrl,
@@ -685,7 +725,9 @@ class SyncService {
               trophyGold: title.earnedTrophies.gold,
               trophyPlatinum: title.earnedTrophies.platinum,
               lastPlayed: title.lastUpdatedDateTime ? new Date(title.lastUpdatedDateTime) : undefined,
-              ...(imagePath && { imagePath }),
+              ...(imagePaths.capsuleImagePath && { capsuleImagePath: imagePaths.capsuleImagePath }),
+              ...(imagePaths.iconImagePath && { iconImagePath: imagePaths.iconImagePath }),
+              ...(imagePaths.heroImagePath && { heroImagePath: imagePaths.heroImagePath }),
               lastSyncedAt: new Date(),
             },
           },

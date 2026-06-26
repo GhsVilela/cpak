@@ -27,6 +27,7 @@ const profileSchema = z.object({
 
 const updateProfileSchema = z.object({
   displayName: z.string().optional(),
+  npssoToken: z.string().optional(),
   credentials: z.object({
     steamApiKey: z.string().optional(),
     xboxRefreshToken: z.string().optional(),
@@ -136,6 +137,7 @@ export async function createProfile(req: FastifyRequest, reply: FastifyReply) {
           ...profile.credentials,
           ...body.credentials,
         };
+        profile.markModified('credentials');
       }
     } else {
       // Create new profile
@@ -175,6 +177,38 @@ export async function updateProfile(req: FastifyRequest<{ Params: { id: string }
     // Update fields
     if (body.displayName !== undefined) {
       profile.displayName = body.displayName;
+      profile.displayNameEdited = true;
+    }
+
+    // PlayStation: if npssoToken is provided, exchange it for fresh OAuth tokens
+    if (body.npssoToken && profile.platform === 'playstation') {
+      const adapter = createPlayStationAdapter();
+      try {
+        const psnTokens = await adapter.exchangeNpssoForTokens(body.npssoToken);
+        const psnProfile = await adapter.getProfile(psnTokens.accessToken, 'me');
+        profile.credentials = {
+          ...profile.credentials,
+          accessToken: psnTokens.accessToken,
+          refreshToken: psnTokens.refreshToken,
+          expiresAt: psnTokens.expiresAt,
+          tokenType: psnTokens.tokenType,
+        } as any;
+        // Update profileId and displayName in case they changed
+        profile.profileId = psnProfile.accountId;
+        if (body.displayName) {
+          profile.displayName = body.displayName;
+          profile.displayNameEdited = true;
+        } else if (!profile.displayNameEdited) {
+          profile.displayName = psnProfile.onlineId;
+        }
+        logger.info({ accountId: psnProfile.accountId }, 'PlayStation profile re-authenticated via NPSSO');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn({ error: message }, 'NPSSO token exchange failed during profile update');
+        return reply.status(400).send({
+          error: `NPSSO token is invalid or expired. Obtain a new one from https://ca.account.sony.com/api/v1/ssocookie`,
+        });
+      }
     }
 
     // Update credentials - merge with existing to preserve other fields
@@ -184,6 +218,9 @@ export async function updateProfile(req: FastifyRequest<{ Params: { id: string }
         ...body.credentials,
       };
     }
+
+    // Ensure Mongoose detects Mixed type changes for encryption hook
+    profile.markModified('credentials');
 
     // Save triggers pre-save hook for encryption
     await profile.save();
@@ -231,6 +268,32 @@ export async function deleteProfile(req: FastifyRequest<{ Params: { id: string }
     reply.status(204).send();
   } catch (error) {
     logger.error({ error }, 'Failed to delete profile');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
+
+export async function setDefaultProfile(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+  try {
+    const { id } = req.params;
+    const profile = await Profile.findById(id);
+    if (!profile) {
+      return reply.status(404).send({ error: 'Profile not found' });
+    }
+
+    // Unset default for all other profiles on the same platform
+    await Profile.updateMany(
+      { platform: profile.platform, _id: { $ne: profile._id } },
+      { $set: { isDefault: false } },
+    );
+
+    // Set this profile as default
+    profile.isDefault = true;
+    await profile.save();
+
+    logger.info({ profileId: id, platform: profile.platform }, 'Profile set as default');
+    reply.send(profile);
+  } catch (error) {
+    logger.error({ error }, 'Failed to set default profile');
     reply.status(500).send({ error: 'Internal server error' });
   }
 }

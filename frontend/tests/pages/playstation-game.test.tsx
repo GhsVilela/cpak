@@ -241,6 +241,20 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
     }, { timeout: 3000 });
   });
 
+  it('displays customTitle instead of title when set', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.includes('/games/')) return Promise.resolve({ ...mockGame, customTitle: 'GoW Ragnarök' });
+      if (path.includes('/achievements')) return Promise.resolve(mockAchievements);
+      return Promise.resolve([]);
+    });
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+    await waitFor(() => {
+      expect(screen.queryByText(/GoW Ragnarök/i)).toBeTruthy();
+      expect(screen.queryByText(/^God of War$/)).toBeNull();
+    }, { timeout: 3000 });
+  });
+
   it('renders hidden trophy description as hidden', async () => {
     const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
     render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);

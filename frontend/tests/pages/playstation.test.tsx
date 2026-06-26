@@ -20,6 +20,7 @@ const mockPSGames = [
     completionPercent: 100,
     devices: ['PS4'],
     imagePath: '/images/playstation/NPWR12345_00/game_grid.jpg',
+    capsuleImagePath: '/images/playstation/NPWR12345_00/game_grid.jpg',
     profileId: 'ps-profile-1',
   },
   {
@@ -32,6 +33,7 @@ const mockPSGames = [
     completionPercent: 49,
     devices: ['PS4'],
     imagePath: undefined,
+    capsuleImagePath: undefined,
     profileId: 'ps-profile-1',
   },
 ];
@@ -171,6 +173,14 @@ describe('PlayStation page — app/playstation/page.tsx (T026)', () => {
     render(<PlayStationPage />);
     await waitFor(() => {
       expect(document.body.firstChild).toBeTruthy();
+    });
+  });
+
+  it('renders search input', async () => {
+    const { default: PlayStationPage } = await import('../../app/playstation/page');
+    render(<PlayStationPage />);
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search games...')).toBeInTheDocument();
     });
   });
 });

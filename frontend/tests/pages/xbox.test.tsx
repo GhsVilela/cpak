@@ -21,6 +21,7 @@ const mockXboxGames = [
     completionPercent: 75,
     devices: ['XboxSeries'],
     imagePath: '/images/xbox/title-abc/game_grid.jpg',
+    capsuleImagePath: '/images/xbox/title-abc/game_grid.jpg',
     profileId: 'xbox-profile-1',
   },
   {
@@ -33,6 +34,7 @@ const mockXboxGames = [
     completionPercent: 100,
     devices: ['Xbox360'],
     imagePath: undefined,
+    capsuleImagePath: undefined,
     profileId: 'xbox-profile-1',
   },
 ];
@@ -176,5 +178,13 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
       expect(screen.queryByText(/halo/i) || document.body.firstChild).toBeTruthy();
     });
     expect(screen.queryByText('Show Hidden')).not.toBeInTheDocument();
+  });
+
+  it('renders search input', async () => {
+    const { default: XboxPage } = await import('../../app/xbox/page');
+    render(<XboxPage />);
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search games...')).toBeInTheDocument();
+    });
   });
 });

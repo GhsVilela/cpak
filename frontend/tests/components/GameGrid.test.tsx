@@ -16,6 +16,7 @@ const makeGame = (id: string) => ({
   achievementsUnlocked: 5,
   completionPercent: 50,
   imagePath: undefined,
+  capsuleImagePath: undefined,
   profileId: 'profile-1',
 });
 

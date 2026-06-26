@@ -8,7 +8,10 @@ export interface IGame extends Document {
   achievementsTotal: number;
   achievementsUnlocked: number;
   completionPercent: number;
-  imagePath?: string;
+  capsuleImagePath?: string;
+  iconImagePath?: string;
+  heroImagePath?: string;
+  customTitle?: string;
   /** Xbox-specific: console generations the game supports (e.g. Xbox360, XboxOne, XboxSeries, PC) */
   devices?: string[];
   /** Xbox-specific: how much gamerscore the user has earned for this game */
@@ -47,7 +50,10 @@ const GameSchema = new Schema<IGame>(
     achievementsTotal: { type: Number, required: true, default: 0 },
     achievementsUnlocked: { type: Number, required: true, default: 0 },
     completionPercent: { type: Number, required: true, default: 0 },
-    imagePath: String,
+    capsuleImagePath: String,
+    iconImagePath: String,
+    heroImagePath: String,
+    customTitle: String,
     devices: { type: [String], default: undefined },
     currentGamerscore: { type: Number },
     maxGamerscore: { type: Number },

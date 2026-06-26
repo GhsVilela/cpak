@@ -11,15 +11,19 @@ interface GameTileProps {
     achievementsTotal: number;
     achievementsUnlocked: number;
     completionPercent: number;
-    imagePath?: string;
+    capsuleImagePath?: string;
+    customTitle?: string;
     profileId: string;
     currentGamerscore?: number;
     maxGamerscore?: number;
   };
+  onEdit?: () => void;
 }
 
-export default function GameTile({ game }: GameTileProps) {
+export default function GameTile({ game, onEdit }: GameTileProps) {
   const router = useRouter();
+
+  const displayTitle = game.customTitle || game.title;
 
   const handleClick = () => {
     router.push(`/${game.platform}/game/${game.gameId}?profileId=${game.profileId}`);
@@ -56,9 +60,9 @@ export default function GameTile({ game }: GameTileProps) {
     >
       {/* Game Image */}
       <div className="relative aspect-[2/3] bg-gray-900">
-        {game.imagePath ? (
+        {game.capsuleImagePath ? (
           <img
-            src={`/api/icons/${game.imagePath}`}
+            src={`/api/icons/${game.capsuleImagePath}`}
             alt={game.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
@@ -80,7 +84,18 @@ export default function GameTile({ game }: GameTileProps) {
             </svg>
           </div>
         )}
-
+        {/* Edit Button */}
+        {onEdit && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            className="absolute top-2 left-2 bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            aria-label="Edit game"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </button>
+        )}
         {/* Completion Badge */}
         {game.completionPercent === 100 && (
           <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1">
@@ -103,7 +118,7 @@ export default function GameTile({ game }: GameTileProps) {
       {/* Game Info */}
       <div className="p-4">
         <h3 className="font-semibold text-sm sm:text-base line-clamp-2 mb-2 group-hover:text-white transition-colors">
-          {game.title}
+          {displayTitle}
         </h3>
 
         {/* Achievement Progress */}

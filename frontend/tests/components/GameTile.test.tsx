@@ -18,6 +18,7 @@ const mockGame = {
   achievementsUnlocked: 10,
   completionPercent: 50,
   imagePath: undefined,
+  capsuleImagePath: undefined,
   profileId: 'profile-1',
 };
 
@@ -62,8 +63,8 @@ describe('GameTile', () => {
     expect(screen.getByText(/1,000/)).toBeInTheDocument();
   });
 
-  it('renders game image when imagePath is provided', () => {
-    const gameWithImage = { ...mockGame, imagePath: 'steam/730/header.jpg' };
+  it('renders game image when capsuleImagePath is provided', () => {
+    const gameWithImage = { ...mockGame, capsuleImagePath: 'steam/730/header.jpg' };
     render(<GameTile game={gameWithImage} />);
     const img = document.querySelector('img');
     expect(img).toBeTruthy();

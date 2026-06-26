@@ -2,11 +2,11 @@
 import pLimit from 'p-limit';
 import { logger } from '../../utils/logger.js';
 import { rateLimiter } from '../rateLimiter.js';
-import { fetchPCGamingWikiImageUrl, fetchWikipediaImageUrl } from './gameImageSearch.js';
 import { Game } from '../../models/game.js';
 import { Achievement } from '../../models/achievement.js';
 import { SyncOperation } from '../../models/syncOperation.js';
 import { imageStorage } from '../../utils/imageStorage.js';
+import { createIGDBAdapter } from './igdb.js';
 import { AdaptiveBatchController } from '../adaptiveBatchController.js';
 import { AdaptiveThrottler } from '../adaptiveThrottler.js';
 import { AdaptiveConcurrencyController } from '../adaptiveConcurrencyController.js';
@@ -1253,7 +1253,7 @@ export class XboxAdapter {
 
   /**
    * Expand known Xbox library abbreviations to their canonical full titles.
-   * Used before both MS Store and Wikipedia lookups so abbreviated titles
+   * Used before both MS Store and IGDB lookups so abbreviated titles
    * ("GTA IV", "MOH Airborne", "TC's Ghost Recon FS") are matched correctly.
    *
    * Returns the expanded string, or undefined if no expansion was made.
@@ -1330,7 +1330,7 @@ export class XboxAdapter {
   /**
    * Normalise a raw Xbox API title name for external image searches.
    * Pipeline: sanitize → abbreviation expansion → platform suffix strip → edition suffix strip.
-   * Used wherever a game title is passed to SteamGridDB / Wikipedia / PCGW.
+   * Used wherever a game title is passed to SteamGridDB / IGDB.
    */
   normalizeForSearch(name: string): string {
     const clean = this.sanitizeTitle(name);
@@ -1371,8 +1371,8 @@ export class XboxAdapter {
    * - `imageUrl`       – best portrait image URL (empty string if match found but no image)
    * - `productId`      – Store product ID for Emerald fallback (Priority 4)
    * - `canonicalTitle`  – the Store's canonical full title for the game, useful as
-   *                       an improved search query for SteamGridDB / PCGamingWiki /
-   *                       Wikipedia when the Xbox API name is abbreviated.
+   *                       an improved search query for SteamGridDB / IGDB
+   *                       when the Xbox API name is abbreviated.
    */
   async fetchMicrosoftStoreGridUrl(
     titleName: string,
@@ -1384,7 +1384,7 @@ export class XboxAdapter {
     titleName = this.stripEditionSuffix(titleName);
 
     // Expand known abbreviations so the Store can match them. This mirrors
-    // the same expansion used for Wikipedia lookups. e.g.:
+    // the same expansion used for IGDB lookups. e.g.:
     //   "GTA IV"              → "Grand Theft Auto IV"
     //   "MOH Airborne"        → "Medal of Honor: Airborne"
     //   "TC's Ghost Recon FS" → "Tom Clancy's Ghost Recon: Future Soldier"
@@ -1913,43 +1913,107 @@ export class XboxAdapter {
   }
 
   /**
-   * Fetch a cover-art URL from PCGamingWiki's MediaWiki API.
-   * Completely public — no API key required.
-   *
-   * Strategy:
-   *  1. Search PCGW for the game name; token-match results with 80% recall guard.
-   *  2. Fetch infobox wikitext for the matched page; extract `|cover = <filename>`.
-   *  3. Resolve the file URL via MediaWiki imageinfo API.
-   *
-   * NOTE: Do NOT pass a Referer header when downloading the returned URL —
-   * the images.pcgamingwiki.com CDN allows requests with no Referer but
-   * blocks requests whose Referer header is present and not on an allowlist.
+   * Fetch a wide hero (SuperHeroArt) image URL from the Emerald API.
+   * Returns a landscape-oriented banner suitable for the hero image slot.
+   * Falls back to undefined if no superHeroArt is available.
    */
-  async fetchPCGamingWikiImageUrl(gameName: string): Promise<string | undefined> {
-    gameName = this.sanitizeTitle(gameName);
-    gameName = this.stripPlatformSuffix(gameName);
-    gameName = this.stripEditionSuffix(gameName);
-    const needle = this.expandAbbreviations(gameName) ?? gameName;
-    return fetchPCGamingWikiImageUrl(needle);
+  async fetchEmeraldHeroUrl(productId: string): Promise<string | undefined> {
+    if (!productId) return undefined;
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (UUID_RE.test(productId)) return undefined;
+    const url = `https://emerald.xboxservices.com/xboxcomfd/productDetails/${encodeURIComponent(productId)}?locale=en-US&enableFullDetail=true&deviceType=desktop`;
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'x-ms-api-version': '2.0',
+          'ms-cv': '0.0',
+          Origin: 'https://www.xbox.com',
+          Referer: 'https://www.xbox.com/',
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) {
+        logger.debug({ productId, status: response.status }, '[Emerald Hero] Non-OK response');
+        return undefined;
+      }
+      const json = await response.json() as {
+        productSummaries?: Array<{
+          images?: { superHeroArt?: { url?: string } };
+        }>;
+      };
+      const summary = json?.productSummaries?.[0];
+      const heroUrl = summary?.images?.superHeroArt?.url;
+      if (heroUrl) {
+        logger.info({ productId, heroUrl }, '[Emerald Hero] SuperHeroArt URL found');
+        return heroUrl;
+      }
+      logger.debug({ productId, imageKeys: Object.keys(summary?.images ?? {}) }, '[Emerald Hero] No superHeroArt in response');
+      return undefined;
+    } catch (err) {
+      logger.debug({ productId, err: String(err) }, '[Emerald Hero] Lookup threw');
+      return undefined;
+    }
   }
 
-  async fetchWikipediaImageUrl(gameName: string): Promise<string | undefined> {
-    gameName = this.sanitizeTitle(gameName);
-    gameName = this.stripPlatformSuffix(gameName);
-    gameName = this.stripEditionSuffix(gameName);
-    const name = this.expandAbbreviations(gameName) ?? gameName;
-    return fetchWikipediaImageUrl(name);
+  /**
+   * Fetch a hero (SuperHeroArt) image URL from the Microsoft Display Catalog API.
+   * Falls back to BrandedKeyArt if no SuperHeroArt is found.
+   * This is a public API that doesn't require authentication.
+   */
+  async fetchDisplayCatalogHeroUrl(productId: string): Promise<string | undefined> {
+    if (!productId) return undefined;
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (UUID_RE.test(productId)) return undefined;
+    const url = `https://displaycatalog.mp.microsoft.com/v7.0/products/${encodeURIComponent(productId)}?market=US&languages=en-US`;
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'MS-CV': '0.0',
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) {
+        logger.debug({ productId, status: response.status }, '[DC Hero] Non-OK response');
+        return undefined;
+      }
+      const json = await response.json() as {
+        Product?: {
+          LocalizedProperties?: Array<{
+            Images?: Array<{ ImagePurpose?: string; Uri?: string }>;
+          }>;
+        };
+      };
+      const images = json?.Product?.LocalizedProperties?.[0]?.Images ?? [];
+      // Prefer SuperHeroArt, then BrandedKeyArt (both are wide/landscape)
+      for (const purpose of ['SuperHeroArt', 'BrandedKeyArt']) {
+        const img = images.find((i) => i.ImagePurpose === purpose && i.Uri);
+        if (img?.Uri) {
+          const heroUrl = img.Uri.startsWith('//') ? `https:${img.Uri}` : img.Uri;
+          logger.info({ productId, purpose, heroUrl }, '[DC Hero] Wide image found');
+          return heroUrl;
+        }
+      }
+      logger.debug({ productId, purposes: images.map((i) => i.ImagePurpose).filter(Boolean) }, '[DC Hero] No wide image in response');
+      return undefined;
+    } catch (err) {
+      logger.debug({ productId, err: String(err) }, '[DC Hero] Lookup threw');
+      return undefined;
+    }
   }
 
   /**
    * Download game cover images with adaptive concurrency control.
-   * Handles the full fallback chain: local cache → Xbox CDN → MS Store → Emerald → SteamGridDB → PCGamingWiki → Wikipedia.
+   * Handles the full fallback chain: local cache → Xbox CDN → MS Store → Emerald → SteamGridDB → IGDB.
    */
   async downloadGameImages(
     titles: XboxTitleHistory[],
     syncOperation: any,
     steamGridDBAdapter: SteamGridDBAdapter | null,
-  ): Promise<Map<string, string | undefined>> {
+  ): Promise<Map<string, { capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string }>> {
     const concurrencyController = new AdaptiveConcurrencyController(
       syncOperation.adaptiveParams.concurrency,
     );
@@ -1975,8 +2039,7 @@ export class XboxAdapter {
           // Priority 1: Existing local cache
           imagePath = imageStorage.checkLocalFile('xbox', title.titleId, 'game', 'grid') || undefined;
           if (imagePath) {
-            logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P1] Cache hit — skipping all downloads');
-            return { titleId: title.titleId, imagePath };
+            logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P1] Cache hit for grid');
           }
           logger.info({ titleId: title.titleId, name: title.name }, '[IMG] No cached image — starting download chain');
 
@@ -2001,11 +2064,13 @@ export class XboxAdapter {
           }
 
           // Priority 3: Microsoft Store search (free, no API key required)
+          // Always search for storeProductId (needed for Emerald hero lookup)
+          // but only download the grid image when imagePath is not yet resolved.
           let storeProductId: string | undefined;
           let storeCanonicalTitle: string | undefined;
 
-          if (!imagePath) {
-            logger.info({ titleId: title.titleId, name: title.name }, '[IMG P3] Searching Microsoft Store');
+          {
+            logger.info({ titleId: title.titleId, name: title.name, hasImage: !!imagePath }, '[IMG P3] Searching Microsoft Store');
             try {
               const storeResult = await this.fetchMicrosoftStoreGridUrl(title.name, title.titleId);
               if (storeResult) {
@@ -2014,7 +2079,7 @@ export class XboxAdapter {
                 if (storeCanonicalTitle && storeCanonicalTitle !== title.name) {
                   logger.info({ titleId: title.titleId, original: title.name, canonical: storeCanonicalTitle }, '[IMG P3] Resolved canonical title from Store');
                 }
-                if (storeResult.imageUrl) {
+                if (!imagePath && storeResult.imageUrl) {
                   logger.info({ titleId: title.titleId, name: title.name, storeProductId, imageUrl: storeResult.imageUrl }, '[IMG P3] MS Store match found — downloading image');
                   try {
                     imagePath = await imageStorage.downloadAndStore(
@@ -2029,6 +2094,8 @@ export class XboxAdapter {
                   } catch (dlErr) {
                     logger.warn({ titleId: title.titleId, name: title.name, imageUrl: storeResult.imageUrl, error: (dlErr as any)?.message ?? String(dlErr) }, '[IMG P3] MS Store image download threw — will try Emerald with productId');
                   }
+                } else if (imagePath) {
+                  logger.info({ titleId: title.titleId, name: title.name, storeProductId }, '[IMG P3] Image already resolved — keeping productId for hero lookup');
                 } else {
                   logger.info({ titleId: title.titleId, name: title.name, storeProductId }, '[IMG P3] MS Store matched product but no image — will use canonical title for fallback sources');
                 }
@@ -2038,8 +2105,6 @@ export class XboxAdapter {
             } catch (error) {
               logger.warn({ titleId: title.titleId, name: title.name, error: String(error) }, '[IMG P3] MS Store search threw unexpected error');
             }
-          } else {
-            logger.info({ titleId: title.titleId, name: title.name, imageSource }, '[IMG P3] Skipped MS Store — image already resolved');
           }
 
           // Priority 4: Emerald Xbox services (xbox.com product API)
@@ -2093,53 +2158,20 @@ export class XboxAdapter {
             logger.info({ titleId: title.titleId, name: title.name }, '[IMG P5] Skipped SteamGridDB — not configured');
           }
 
-          // Priority 6: PCGamingWiki (public MediaWiki API, no API key)
+          // Priority 6: IGDB (if credentials configured)
           if (!imagePath) {
-            const p6SearchName = storeCanonicalTitle || title.name;
-            logger.info({ titleId: title.titleId, name: title.name, searchName: p6SearchName }, '[IMG P6] Trying PCGamingWiki');
             try {
-              const pcgwUrl = await this.fetchPCGamingWikiImageUrl(p6SearchName);
-              if (pcgwUrl) {
-                logger.info({ titleId: title.titleId, name: title.name, pcgwUrl }, '[IMG P6] PCGamingWiki image URL found — downloading');
-                imagePath = await imageStorage.downloadAndStoreViaWget(
-                  pcgwUrl, 'xbox', title.titleId, 'game', 'grid',
-                );
+              const igdb = await createIGDBAdapter();
+              if (igdb) {
+                const igdbSearchName = storeCanonicalTitle || title.name;
+                imagePath = await igdb.downloadGameImage(igdbSearchName, 'xbox', title.titleId) || undefined;
                 if (imagePath) {
-                  imageSource = 'pcgamingwiki';
-                  logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P6] PCGamingWiki image downloaded successfully');
-                } else {
-                  logger.warn({ titleId: title.titleId, name: title.name, pcgwUrl }, '[IMG P6] PCGamingWiki image download returned no path');
+                  imageSource = 'igdb';
+                  logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P6] IGDB image downloaded successfully');
                 }
-              } else {
-                logger.info({ titleId: title.titleId, name: title.name }, '[IMG P6] PCGamingWiki returned no image');
               }
             } catch (error) {
-              logger.warn({ err: String(error), titleId: title.titleId, name: title.name }, '[IMG P6] PCGamingWiki lookup threw');
-            }
-          }
-
-          // Priority 7: Wikipedia (public, no API key)
-          if (!imagePath) {
-            const p7SearchName = storeCanonicalTitle || title.name;
-            logger.info({ titleId: title.titleId, name: title.name, searchName: p7SearchName }, '[IMG P7] Trying Wikipedia');
-            try {
-              const wikiUrl = await this.fetchWikipediaImageUrl(p7SearchName);
-              if (wikiUrl) {
-                logger.info({ titleId: title.titleId, name: title.name, wikiUrl }, '[IMG P7] Wikipedia image URL found — downloading');
-                imagePath = await imageStorage.downloadAndStoreViaWget(
-                  wikiUrl, 'xbox', title.titleId, 'game', 'grid',
-                );
-                if (imagePath) {
-                  imageSource = 'wikipedia';
-                  logger.info({ titleId: title.titleId, name: title.name, imagePath }, '[IMG P7] Wikipedia image downloaded successfully');
-                } else {
-                  logger.warn({ titleId: title.titleId, name: title.name, wikiUrl }, '[IMG P7] Wikipedia image download returned no path');
-                }
-              } else {
-                logger.info({ titleId: title.titleId, name: title.name }, '[IMG P7] Wikipedia returned no image');
-              }
-            } catch (error) {
-              logger.warn({ error, titleId: title.titleId, name: title.name }, '[IMG P7] Wikipedia lookup threw');
+              logger.warn({ error, titleId: title.titleId, name: title.name }, '[IMG P6] IGDB lookup threw');
             }
           }
 
@@ -2149,15 +2181,167 @@ export class XboxAdapter {
             logger.warn({ titleId: title.titleId, name: title.name }, '[IMG] All sources exhausted — no image found');
           }
 
-          return { titleId: title.titleId, imagePath };
+          // Download hero and icon images in parallel (non-blocking — failures are OK)
+          const [heroImagePath, iconImagePath] = await Promise.all([
+            // Hero: Emerald SuperHeroArt → Display Catalog → SteamGridDB hero → titleImageUrl fallback
+            (async (): Promise<string | undefined> => {
+              try {
+                const cached = imageStorage.checkLocalFile('xbox', title.titleId, 'game', 'hero');
+                if (cached) return cached;
+
+                // 1. Emerald SuperHeroArt (wide landscape banner)
+                if (storeProductId) {
+                  const heroUrl = await this.fetchEmeraldHeroUrl(storeProductId);
+                  if (heroUrl) {
+                    const path = await imageStorage.downloadAndStore(
+                      heroUrl, 'xbox', title.titleId, 'game', 'hero',
+                    );
+                    if (path) {
+                      logger.info({ titleId: title.titleId, name: title.name }, '[HERO] Downloaded from Emerald SuperHeroArt');
+                      return path;
+                    }
+                  }
+
+                  // 1b. Display Catalog SuperHeroArt / BrandedKeyArt
+                  const dcHeroUrl = await this.fetchDisplayCatalogHeroUrl(storeProductId);
+                  if (dcHeroUrl) {
+                    const path = await imageStorage.downloadAndStore(
+                      dcHeroUrl, 'xbox', title.titleId, 'game', 'hero',
+                    );
+                    if (path) {
+                      logger.info({ titleId: title.titleId, name: title.name }, '[HERO] Downloaded from Display Catalog');
+                      return path;
+                    }
+                  }
+                }
+
+                // 2. SteamGridDB hero images
+                if (hasSteamGridDB) {
+                  const searchName = storeCanonicalTitle || this.normalizeForSearch(title.name);
+                  const game = await steamGridDBAdapter!.searchGameByName(searchName);
+                  if (game) {
+                    const heroes = await steamGridDBAdapter!.getHeroImages(game.id);
+                    if (heroes.length > 0) {
+                      const best = heroes.sort((a, b) => b.score - a.score)[0];
+                      const path = await imageStorage.downloadAndStore(
+                        best.url, 'xbox', title.titleId, 'game', 'hero',
+                      );
+                      if (path) {
+                        logger.info({ titleId: title.titleId, name: title.name }, '[HERO] Downloaded from SteamGridDB');
+                        return path;
+                      }
+                    }
+                  }
+                }
+
+                // 3. IGDB artwork as hero fallback
+                {
+                  try {
+                    const igdb = await createIGDBAdapter();
+                    if (igdb) {
+                      const heroSearchName = storeCanonicalTitle || title.name;
+                      const heroPath = await igdb.downloadHeroImage(heroSearchName, 'xbox', title.titleId);
+                      if (heroPath) {
+                        logger.info({ titleId: title.titleId, name: title.name }, '[HERO] Downloaded from IGDB');
+                        return heroPath;
+                      }
+                    }
+                  } catch {
+                    logger.debug({ titleId: title.titleId }, '[HERO] IGDB fallback failed');
+                  }
+                }
+
+                // 4. Last resort: titleImageUrl (box art — not ideal but better than nothing)
+                if (title.titleImageUrl) {
+                  return await imageStorage.downloadAndStore(
+                    title.titleImageUrl, 'xbox', title.titleId, 'game', 'hero',
+                  );
+                }
+                return undefined;
+              } catch {
+                logger.debug({ titleId: title.titleId }, 'Xbox hero image not available');
+                return undefined;
+              }
+            })(),
+            // Icon: titleImageUrl → capsule image fallback → SteamGridDB icon
+            (async (): Promise<string | undefined> => {
+              try {
+                const cached = imageStorage.checkLocalFile('xbox', title.titleId, 'game', 'icon');
+                if (cached) return cached;
+
+                // 1. Xbox displayImage / largeBoxArt
+                if (title.titleImageUrl) {
+                  const path = await imageStorage.downloadAndStore(
+                    title.titleImageUrl, 'xbox', title.titleId, 'game', 'icon',
+                  );
+                  if (path) return path;
+                }
+
+                // 2. Use already-downloaded capsule image as icon source
+                if (imagePath) {
+                  const fs = await import('fs');
+                  const pathMod = await import('path');
+                  const sharp = (await import('sharp')).default;
+                  const absPath = imageStorage.getAbsolutePath(imagePath);
+                  if (fs.existsSync(absPath)) {
+                    try {
+                      const iconBuffer = await sharp(absPath)
+                        .resize(64, 64, { fit: 'cover', position: 'centre' })
+                        .jpeg({ quality: 90 })
+                        .toBuffer();
+                      const iconDir = pathMod.dirname(absPath);
+                      const iconFile = pathMod.join(iconDir, 'game_icon.jpg');
+                      await fs.promises.writeFile(iconFile, iconBuffer);
+                      // Derive relative path: same directory as capsule, just different filename
+                      const iconRelPath = imagePath.replace(/[^/]+$/, 'game_icon.jpg');
+                      logger.info({ titleId: title.titleId, name: title.name }, '[ICON] Generated from capsule image');
+                      return iconRelPath;
+                    } catch (resizeErr) {
+                      logger.debug({ titleId: title.titleId, err: String(resizeErr) }, '[ICON] Failed to generate from capsule');
+                    }
+                  }
+                }
+
+                // 3. SteamGridDB icon
+                if (hasSteamGridDB) {
+                  const searchName = storeCanonicalTitle || this.normalizeForSearch(title.name);
+                  const game = await steamGridDBAdapter!.searchGameByName(searchName);
+                  if (game) {
+                    const icons = await steamGridDBAdapter!.getIconImages(game.id);
+                    if (icons.length > 0) {
+                      const best = icons.sort((a, b) => b.score - a.score)[0];
+                      const path = await imageStorage.downloadAndStore(
+                        best.url, 'xbox', title.titleId, 'game', 'icon',
+                      );
+                      if (path) {
+                        logger.info({ titleId: title.titleId, name: title.name }, '[ICON] Downloaded from SteamGridDB');
+                        return path;
+                      }
+                    }
+                  }
+                }
+
+                return undefined;
+              } catch {
+                logger.debug({ titleId: title.titleId }, 'Xbox icon image not available');
+                return undefined;
+              }
+            })(),
+          ]);
+
+          return { titleId: title.titleId, capsuleImagePath: imagePath, heroImagePath, iconImagePath };
         }),
       ),
     );
 
-    const gameImageMap = new Map(gameImageResults.map((r) => [r.titleId, r.imagePath]));
+    const gameImageMap = new Map(gameImageResults.map((r) => [r.titleId, {
+      capsuleImagePath: r.capsuleImagePath,
+      iconImagePath: r.iconImagePath,
+      heroImagePath: r.heroImagePath,
+    }]));
 
     // Update imagesCompleted count on the sync operation
-    const imagesDownloaded = gameImageResults.filter((r) => r.imagePath).length;
+    const imagesDownloaded = gameImageResults.filter((r) => r.capsuleImagePath).length;
     await SyncOperation.updateOne(
       { _id: syncOperation._id },
       { $set: { imagesCompleted: imagesDownloaded } },
@@ -2295,8 +2479,8 @@ export class XboxAdapter {
 
           // Authenticated image fallback: use GS5 productId for Emerald lookup
           if (achievementStoreProductId) {
-            const existingGame = await Game.findById(gameMongoId).select('imagePath').lean();
-            if (!existingGame?.imagePath) {
+            const existingGame = await Game.findById(gameMongoId).select('capsuleImagePath').lean();
+            if (!existingGame?.capsuleImagePath) {
               logger.info({ titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId }, '[IMG P6-auth] No image yet — trying Emerald with GS5 productId');
               try {
                 const emeraldUrl = await this.fetchEmeraldImageUrl(achievementStoreProductId);
@@ -2305,9 +2489,9 @@ export class XboxAdapter {
                     emeraldUrl, 'xbox', title.titleId, 'game', 'grid',
                   );
                   if (emeraldPath) {
-                    await Game.findByIdAndUpdate(gameMongoId, { $set: { imagePath: emeraldPath } });
+                    await Game.findByIdAndUpdate(gameMongoId, { $set: { capsuleImagePath: emeraldPath } });
                     logger.info(
-                      { titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId, imagePath: emeraldPath },
+                      { titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId, capsuleImagePath: emeraldPath },
                       '[IMG P6-auth] Image fetched from Emerald via authenticated GS5 productId',
                     );
                   } else {

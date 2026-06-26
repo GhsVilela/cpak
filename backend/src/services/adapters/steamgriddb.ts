@@ -166,6 +166,31 @@ export class SteamGridDBAdapter {
   }
 
   /**
+   * Get icon images for a game
+   */
+  async getIconImages(gameId: number): Promise<SteamGridDBImage[]> {
+    const url = `${this.baseUrl}/icons/game/${gameId}`;
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`SteamGridDB API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json() as any;
+      return data.data || [];
+    } catch (error) {
+      logger.error({ error, gameId }, 'Failed to fetch icon images');
+      return [];
+    }
+  }
+
+  /**
    * Search for a game by name (for non-Steam platforms like Xbox, PlayStation)
    * Uses the autocomplete search endpoint.
    * Returns the best (first) verified match or first result if none verified.

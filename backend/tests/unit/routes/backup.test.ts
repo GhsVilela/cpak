@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
   backupJobFindByIdMock, backupJobCreateMock, backupJobFindOneMock,
-  restoreJobFindByIdMock, restoreJobFindOneMock, restoreJobFindMock,
+  restoreJobFindByIdMock, restoreJobFindOneMock, restoreJobFindMock, restoreJobCreateMock,
   backupMetadataFindOneMock, backupMetadataFindOneAndUpdateMock, backupMetadataCreateMock,
-  existsSyncMock, statSyncMock,
+  existsSyncMock, statSyncMock, mkdirSyncMock, createWriteStreamMock, pipelineMock,
+  profileFindOneAndUpdateMock, gameFindOneAndUpdateMock, achievementFindOneAndUpdateMock,
+  settingDeleteManyMock, settingInsertManyMock,
 } = vi.hoisted(() => ({
   backupJobFindByIdMock: vi.fn(),
   backupJobCreateMock: vi.fn(),
@@ -12,11 +14,20 @@ const {
   restoreJobFindByIdMock: vi.fn(),
   restoreJobFindOneMock: vi.fn(),
   restoreJobFindMock: vi.fn(),
+  restoreJobCreateMock: vi.fn(),
   backupMetadataFindOneMock: vi.fn(),
   backupMetadataFindOneAndUpdateMock: vi.fn(),
   backupMetadataCreateMock: vi.fn(),
   existsSyncMock: vi.fn(),
   statSyncMock: vi.fn(),
+  mkdirSyncMock: vi.fn(),
+  createWriteStreamMock: vi.fn(() => ({ on: vi.fn(), end: vi.fn() })),
+  pipelineMock: vi.fn().mockResolvedValue(undefined),
+  profileFindOneAndUpdateMock: vi.fn(),
+  gameFindOneAndUpdateMock: vi.fn(),
+  achievementFindOneAndUpdateMock: vi.fn(),
+  settingDeleteManyMock: vi.fn(),
+  settingInsertManyMock: vi.fn(),
 }));
 
 vi.mock('../../../src/models/backupJob.js', () => ({
@@ -32,6 +43,7 @@ vi.mock('../../../src/models/restoreJob.js', () => ({
     findById: restoreJobFindByIdMock,
     findOne: restoreJobFindOneMock,
     find: restoreJobFindMock,
+    create: restoreJobCreateMock,
   },
 }));
 
@@ -44,27 +56,47 @@ vi.mock('../../../src/models/backupMetadata.js', () => ({
 }));
 
 vi.mock('../../../src/models/profile.js', () => ({
-  Profile: { find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) },
+  Profile: {
+    find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }),
+    findOneAndUpdate: profileFindOneAndUpdateMock,
+  },
 }));
 vi.mock('../../../src/models/game.js', () => ({
-  Game: { find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) },
+  Game: {
+    find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }),
+    findOneAndUpdate: gameFindOneAndUpdateMock,
+  },
 }));
 vi.mock('../../../src/models/achievement.js', () => ({
-  Achievement: { find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) },
+  Achievement: {
+    find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }),
+    findOneAndUpdate: achievementFindOneAndUpdateMock,
+  },
 }));
 vi.mock('../../../src/models/setting.js', () => ({
-  Setting: { find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) },
+  Setting: {
+    find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }),
+    deleteMany: settingDeleteManyMock,
+    insertMany: settingInsertManyMock,
+  },
 }));
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
     ...actual,
-    default: { ...actual, existsSync: existsSyncMock, statSync: statSyncMock },
+    default: { ...actual, existsSync: existsSyncMock, statSync: statSyncMock, mkdirSync: mkdirSyncMock },
     existsSync: existsSyncMock,
     statSync: statSyncMock,
+    mkdirSync: mkdirSyncMock,
+    createWriteStream: createWriteStreamMock,
+    createReadStream: vi.fn(),
   };
 });
+
+vi.mock('stream/promises', () => ({
+  pipeline: pipelineMock,
+}));
 
 vi.mock('../../../src/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -73,6 +105,7 @@ vi.mock('../../../src/utils/logger.js', () => ({
 import {
   getStatus, startBackup, getBackupProgress, downloadBackup,
   cancelBackup, cancelRestore, getRestoreProgress, getRestoreJobs,
+  startRestore, downloadFullBackup, uploadFullBackup,
 } from '../../../src/api/routes/backup.js';
 
 function createMockReply() {
@@ -623,6 +656,133 @@ describe('Backup Route Handlers', () => {
       const reply = createMockReply();
       await getStatus({} as any, reply);
       expect(reply.body.backup.current.progress).toBe(0);
+    });
+  });
+
+  // --- startRestore ---
+  describe('startRestore', () => {
+    function createMockRestoreJob() {
+      return {
+        _id: { toString: () => 'rj-new' },
+        status: 'uploading',
+        save: vi.fn().mockResolvedValue(undefined),
+        uploadedFileSize: 0,
+      };
+    }
+
+    it('returns 400 when no file uploaded', async () => {
+      const restoreJob = createMockRestoreJob();
+      restoreJobCreateMock.mockResolvedValue(restoreJob);
+      backupMetadataCreateMock.mockResolvedValue({});
+
+      const req = { file: vi.fn().mockResolvedValue(null) } as any;
+      const reply = createMockReply();
+      await startRestore(req, reply);
+      expect(reply.statusCode).toBe(400);
+      expect(reply.body.error).toBe('No file uploaded');
+      expect(restoreJob.status).toBe('failed');
+      expect(restoreJob.save).toHaveBeenCalled();
+    });
+
+    it('returns 400 for invalid file type', async () => {
+      const restoreJob = createMockRestoreJob();
+      restoreJobCreateMock.mockResolvedValue(restoreJob);
+      backupMetadataCreateMock.mockResolvedValue({});
+      backupMetadataFindOneAndUpdateMock.mockResolvedValue({});
+
+      const req = {
+        file: vi.fn().mockResolvedValue({
+          filename: 'test.exe',
+          mimetype: 'application/x-msdownload',
+          file: null,
+        }),
+      } as any;
+      const reply = createMockReply();
+      await startRestore(req, reply);
+      expect(reply.statusCode).toBe(400);
+      expect(reply.body.error).toContain('Invalid file type');
+      expect(restoreJob.status).toBe('failed');
+    });
+
+    it('accepts valid zip mime type', async () => {
+      const restoreJob = createMockRestoreJob();
+      restoreJobCreateMock.mockResolvedValue(restoreJob);
+      backupMetadataCreateMock.mockResolvedValue({});
+      existsSyncMock.mockReturnValue(true);
+      statSyncMock.mockReturnValue({ size: 1024 });
+      pipelineMock.mockResolvedValue(undefined);
+
+      const req = {
+        file: vi.fn().mockResolvedValue({
+          filename: 'backup.zip',
+          mimetype: 'application/zip',
+          file: 'fake-stream',
+        }),
+      } as any;
+      const reply = createMockReply();
+      await startRestore(req, reply);
+      expect(reply.body.jobId).toBe('rj-new');
+    });
+
+    it('accepts file with .zip extension regardless of mime type', async () => {
+      const restoreJob = createMockRestoreJob();
+      restoreJobCreateMock.mockResolvedValue(restoreJob);
+      backupMetadataCreateMock.mockResolvedValue({});
+      existsSyncMock.mockReturnValue(true);
+      statSyncMock.mockReturnValue({ size: 512 });
+      pipelineMock.mockResolvedValue(undefined);
+
+      const req = {
+        file: vi.fn().mockResolvedValue({
+          filename: 'backup.zip',
+          mimetype: 'application/weird',
+          file: 'fake-stream',
+        }),
+      } as any;
+      const reply = createMockReply();
+      await startRestore(req, reply);
+      expect(reply.body.jobId).toBe('rj-new');
+    });
+
+    it('returns 500 on unexpected error', async () => {
+      restoreJobCreateMock.mockRejectedValue(new Error('db'));
+      const req = { file: vi.fn() } as any;
+      const reply = createMockReply();
+      await startRestore(req, reply);
+      expect(reply.statusCode).toBe(500);
+    });
+  });
+
+  // --- uploadFullBackup ---
+  describe('uploadFullBackup', () => {
+    it('returns 400 when no file uploaded', async () => {
+      const req = { file: vi.fn().mockResolvedValue(null) } as any;
+      const reply = createMockReply();
+      await uploadFullBackup(req, reply);
+      expect(reply.statusCode).toBe(400);
+      expect(reply.body.error).toBe('No file uploaded');
+    });
+
+    it('returns 500 on unexpected error', async () => {
+      const req = { file: vi.fn().mockRejectedValue(new Error('stream error')) } as any;
+      const reply = createMockReply();
+      await uploadFullBackup(req, reply);
+      expect(reply.statusCode).toBe(500);
+    });
+  });
+
+  // --- downloadFullBackup ---
+  describe('downloadFullBackup', () => {
+    it('returns 500 on error', async () => {
+      // Make Profile.find throw to trigger the catch block
+      const { Profile } = await import('../../../src/models/profile.js');
+      vi.spyOn(Profile, 'find').mockImplementation(() => { throw new Error('db fail'); });
+
+      const reply = createMockReply();
+      reply.sent = false;
+      await downloadFullBackup({} as any, reply);
+      expect(reply.statusCode).toBe(500);
+      expect(reply.body.error).toBe('Failed to create backup');
     });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const pushMock = vi.fn();
@@ -40,6 +40,7 @@ beforeEach(() => {
             achievementsUnlocked: 50,
             completionPercent: 29.94,
             imagePath: '/icons/steam/730/header.jpg',
+            capsuleImagePath: '/icons/steam/730/header.jpg',
             profileId: 'p1',
           },
           {
@@ -301,5 +302,30 @@ describe('Steam page — app/steam/page.tsx', () => {
     const gamesCalls = getMock.mock.calls.filter((c: any[]) => c[0].includes('/games') && !c[0].includes('limit=1&offset=0'));
     const lastGamesCall = gamesCalls[gamesCalls.length - 1][0];
     expect(lastGamesCall).toContain('excludeHidden=true');
+  });
+
+  it('renders search input and passes search param to API', async () => {
+    // Render with real timers so waitFor/React internals work normally
+    const { default: SteamPage } = await import('../../app/steam/page');
+    render(<SteamPage />);
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search games...')).toBeInTheDocument();
+    });
+
+    // Switch to fake timers only for the debounce window
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const searchInput = screen.getByPlaceholderText('Search games...');
+      fireEvent.change(searchInput, { target: { value: 'counter' } });
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await waitFor(() => {
+      const gamesCalls = getMock.mock.calls.filter((c: any[]) => c[0].includes('/games') && c[0].includes('search='));
+      expect(gamesCalls.length).toBeGreaterThan(0);
+      expect(gamesCalls[gamesCalls.length - 1][0]).toContain('search=counter');
+    });
   });
 });

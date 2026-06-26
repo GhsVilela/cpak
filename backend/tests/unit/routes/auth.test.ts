@@ -132,6 +132,7 @@ describe('xboxAuthRoutes', () => {
       displayName: 'OldGamer',
       credentials: {},
       save: vi.fn().mockResolvedValue(undefined),
+      markModified: vi.fn(),
     });
 
     const state = Buffer.from(JSON.stringify({ redirectTo: '/setup', csrf: 'x' })).toString('base64');
@@ -277,6 +278,7 @@ describe('xboxAuthRoutes', () => {
       getDecryptedCredentials: () => ({ refreshToken: 'rt' }),
       credentials: {},
       save: vi.fn().mockResolvedValue(undefined),
+      markModified: vi.fn(),
     });
     refreshTokensMock.mockResolvedValue({
       xstsToken: 'new-xsts',

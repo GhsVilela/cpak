@@ -2,15 +2,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
   gameFindMock, gameCountDocumentsMock, gameFindOneMock, gameFindByIdMock, gameAggregateMock,
-  profileFindByIdMock,
-} = vi.hoisted(() => ({
-  gameFindMock: vi.fn(),
-  gameCountDocumentsMock: vi.fn(),
-  gameFindOneMock: vi.fn(),
-  gameFindByIdMock: vi.fn(),
-  gameAggregateMock: vi.fn(),
-  profileFindByIdMock: vi.fn(),
-}));
+  profileFindByIdMock, sharpMockFn, fsMkdirSyncMock, fsWriteFileSyncMock,
+} = vi.hoisted(() => {
+  const sharpChain: any = {};
+  sharpChain.metadata = vi.fn().mockResolvedValue({ width: 100, height: 100 });
+  sharpChain.resize = vi.fn().mockReturnValue(sharpChain);
+  sharpChain.jpeg = vi.fn().mockReturnValue(sharpChain);
+  sharpChain.toBuffer = vi.fn().mockResolvedValue(Buffer.from('resized-image'));
+  return {
+    gameFindMock: vi.fn(),
+    gameCountDocumentsMock: vi.fn(),
+    gameFindOneMock: vi.fn(),
+    gameFindByIdMock: vi.fn(),
+    gameAggregateMock: vi.fn(),
+    profileFindByIdMock: vi.fn(),
+    sharpMockFn: vi.fn(() => sharpChain),
+    fsMkdirSyncMock: vi.fn(),
+    fsWriteFileSyncMock: vi.fn(),
+  };
+});
 
 vi.mock('../../../src/models/game.js', () => ({
   Game: {
@@ -30,7 +40,15 @@ vi.mock('../../../src/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { getGames, getGameById } from '../../../src/api/routes/games.js';
+vi.mock('sharp', () => ({ default: sharpMockFn }));
+
+vi.mock('fs', () => ({
+  mkdirSync: fsMkdirSyncMock,
+  writeFileSync: fsWriteFileSyncMock,
+  existsSync: vi.fn().mockReturnValue(true),
+}));
+
+import { getGames, getGameById, updateGameTitle, uploadGameImage } from '../../../src/api/routes/games.js';
 
 function createMockReply() {
   const reply: any = {
@@ -268,5 +286,251 @@ describe('Games Route Handlers', () => {
       await getGameById({ params: { id: 'g1' }, query: {} } as any, reply);
       expect(reply.statusCode).toBe(500);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateGameTitle
+// ---------------------------------------------------------------------------
+describe('updateGameTitle', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('returns 400 when customTitle is not a string and not null', async () => {
+    const reply = createMockReply();
+    await updateGameTitle({ params: { id: 'g1' }, body: { customTitle: 123 } } as any, reply);
+    expect(reply.statusCode).toBe(400);
+  });
+
+  it('returns 500 on database error', async () => {
+    gameFindByIdMock.mockRejectedValue(new Error('db error'));
+    const reply = createMockReply();
+    await updateGameTitle({ params: { id: 'g1' }, body: { customTitle: 'New Title' } } as any, reply);
+    expect(reply.statusCode).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// uploadGameImage
+// ---------------------------------------------------------------------------
+describe('uploadGameImage', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('returns 400 for invalid imageType', async () => {
+    const reply = createMockReply();
+    await uploadGameImage({ params: { id: 'g1', imageType: 'badtype' }, file: vi.fn() } as any, reply);
+    expect(reply.statusCode).toBe(400);
+  });
+
+  it('returns 404 for non-existent game', async () => {
+    gameFindByIdMock.mockResolvedValue(null);
+    const reply = createMockReply();
+    await uploadGameImage({ params: { id: 'g1', imageType: 'icon' }, file: vi.fn() } as any, reply);
+    expect(reply.statusCode).toBe(404);
+  });
+
+  it('returns 400 when no file provided', async () => {
+    const game = { _id: 'g1', platform: 'steam', gameId: '440', save: vi.fn() };
+    gameFindByIdMock.mockResolvedValue(game);
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue(undefined) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(400);
+    expect(reply.body.error).toMatch(/No file/i);
+  });
+
+  it('returns 400 when file exceeds 10MB limit', async () => {
+    const game = { _id: 'g1', platform: 'steam', gameId: '440', save: vi.fn() };
+    gameFindByIdMock.mockResolvedValue(game);
+    const bigBuffer = Buffer.alloc(11 * 1024 * 1024);
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue({ toBuffer: vi.fn().mockResolvedValue(bigBuffer) }) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(400);
+    expect(reply.body.error).toMatch(/10MB/);
+  });
+
+  it('returns 400 when sharp cannot read image metadata', async () => {
+    const game = { _id: 'g1', platform: 'steam', gameId: '440', save: vi.fn() };
+    gameFindByIdMock.mockResolvedValue(game);
+    sharpMockFn.mockReturnValueOnce({
+      metadata: vi.fn().mockRejectedValue(new Error('unsupported image format')),
+    } as any);
+    const fakeBuffer = Buffer.from('not-an-image');
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue({ toBuffer: vi.fn().mockResolvedValue(fakeBuffer) }) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(400);
+    expect(reply.body.error).toMatch(/not a valid image/i);
+  });
+
+  it('returns 400 when image has no width or height', async () => {
+    const game = { _id: 'g1', platform: 'steam', gameId: '440', save: vi.fn() };
+    gameFindByIdMock.mockResolvedValue(game);
+    sharpMockFn.mockReturnValueOnce({
+      metadata: vi.fn().mockResolvedValue({ width: undefined, height: undefined }),
+    } as any);
+    const fakeBuffer = Buffer.from('bad-image');
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue({ toBuffer: vi.fn().mockResolvedValue(fakeBuffer) }) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(400);
+    expect(reply.body.error).toMatch(/not a valid image/i);
+  });
+
+  it('successfully resizes and stores image', async () => {
+    const game: any = {
+      _id: 'g1', platform: 'steam', gameId: '440',
+      iconImagePath: null, heroImagePath: null, capsuleImagePath: null,
+      save: vi.fn().mockResolvedValue(undefined),
+    };
+    gameFindByIdMock.mockResolvedValue(game);
+    const validBuffer = Buffer.from('valid-image-bytes');
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue({ toBuffer: vi.fn().mockResolvedValue(validBuffer) }) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(200);
+    expect(fsMkdirSyncMock).toHaveBeenCalled();
+    expect(fsWriteFileSyncMock).toHaveBeenCalled();
+    expect(game.save).toHaveBeenCalled();
+  });
+
+  it('returns 500 on unexpected error', async () => {
+    gameFindByIdMock.mockRejectedValue(new Error('db crash'));
+    const reply = createMockReply();
+    await uploadGameImage({ params: { id: 'g1', imageType: 'icon' }, file: vi.fn() } as any, reply);
+    expect(reply.statusCode).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateGameTitle
+// ---------------------------------------------------------------------------
+describe('updateGameTitle', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('returns 400 when customTitle is not a string and not null', async () => {
+    const reply = createMockReply();
+    await updateGameTitle({ params: { id: 'g1' }, body: { customTitle: 123 } } as any, reply);
+    expect(reply.statusCode).toBe(400);
+  });
+
+  it('returns 500 on database error', async () => {
+    gameFindByIdMock.mockRejectedValue(new Error('db error'));
+    const reply = createMockReply();
+    await updateGameTitle({ params: { id: 'g1' }, body: { customTitle: 'New Title' } } as any, reply);
+    expect(reply.statusCode).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// uploadGameImage
+// ---------------------------------------------------------------------------
+describe('uploadGameImage', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('returns 400 for invalid imageType', async () => {
+    const reply = createMockReply();
+    await uploadGameImage({ params: { id: 'g1', imageType: 'badtype' }, file: vi.fn() } as any, reply);
+    expect(reply.statusCode).toBe(400);
+  });
+
+  it('returns 404 for non-existent game', async () => {
+    gameFindByIdMock.mockResolvedValue(null);
+    const reply = createMockReply();
+    await uploadGameImage({ params: { id: 'g1', imageType: 'icon' }, file: vi.fn() } as any, reply);
+    expect(reply.statusCode).toBe(404);
+  });
+
+  it('returns 400 when no file provided', async () => {
+    const game = { _id: 'g1', platform: 'steam', gameId: '440', save: vi.fn() };
+    gameFindByIdMock.mockResolvedValue(game);
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue(undefined) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(400);
+    expect(reply.body.error).toMatch(/No file/i);
+  });
+
+  it('returns 400 when file exceeds 10MB limit', async () => {
+    const game = { _id: 'g1', platform: 'steam', gameId: '440', save: vi.fn() };
+    gameFindByIdMock.mockResolvedValue(game);
+    const bigBuffer = Buffer.alloc(11 * 1024 * 1024);
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue({ toBuffer: vi.fn().mockResolvedValue(bigBuffer) }) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(400);
+    expect(reply.body.error).toMatch(/10MB/);
+  });
+
+  it('returns 400 when sharp cannot read image metadata', async () => {
+    const game = { _id: 'g1', platform: 'steam', gameId: '440', save: vi.fn() };
+    gameFindByIdMock.mockResolvedValue(game);
+    sharpMockFn.mockReturnValueOnce({
+      metadata: vi.fn().mockRejectedValue(new Error('unsupported image format')),
+    } as any);
+    const fakeBuffer = Buffer.from('not-an-image');
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue({ toBuffer: vi.fn().mockResolvedValue(fakeBuffer) }) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(400);
+    expect(reply.body.error).toMatch(/not a valid image/i);
+  });
+
+  it('returns 400 when image has no width or height', async () => {
+    const game = { _id: 'g1', platform: 'steam', gameId: '440', save: vi.fn() };
+    gameFindByIdMock.mockResolvedValue(game);
+    sharpMockFn.mockReturnValueOnce({
+      metadata: vi.fn().mockResolvedValue({ width: undefined, height: undefined }),
+    } as any);
+    const fakeBuffer = Buffer.from('bad-image');
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue({ toBuffer: vi.fn().mockResolvedValue(fakeBuffer) }) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(400);
+    expect(reply.body.error).toMatch(/not a valid image/i);
+  });
+
+  it('successfully resizes and stores image', async () => {
+    const game: any = {
+      _id: 'g1', platform: 'steam', gameId: '440',
+      iconImagePath: null, heroImagePath: null, capsuleImagePath: null,
+      save: vi.fn().mockResolvedValue(undefined),
+    };
+    gameFindByIdMock.mockResolvedValue(game);
+    const validBuffer = Buffer.from('valid-image-bytes');
+    const reply = createMockReply();
+    await uploadGameImage(
+      { params: { id: 'g1', imageType: 'icon' }, file: vi.fn().mockResolvedValue({ toBuffer: vi.fn().mockResolvedValue(validBuffer) }) } as any,
+      reply,
+    );
+    expect(reply.statusCode).toBe(200);
+    expect(fsMkdirSyncMock).toHaveBeenCalled();
+    expect(fsWriteFileSyncMock).toHaveBeenCalled();
+    expect(game.save).toHaveBeenCalled();
+  });
+
+  it('returns 500 on unexpected error', async () => {
+    gameFindByIdMock.mockRejectedValue(new Error('db crash'));
+    const reply = createMockReply();
+    await uploadGameImage({ params: { id: 'g1', imageType: 'icon' }, file: vi.fn() } as any, reply);
+    expect(reply.statusCode).toBe(500);
   });
 });

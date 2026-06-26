@@ -10,14 +10,16 @@ interface ToastProps {
   errorCode?: string; // T069: Support for SSE error codes
 }
 
-export default function Toast({ message, type = 'info', onClose, duration = 3000, errorCode }: ToastProps) {
+export default function Toast({ message, type = 'info', onClose, duration, errorCode }: ToastProps) {
+  const effectiveDuration = duration ?? (type === 'error' ? 8000 : 3000);
+
   useEffect(() => {
-    if (duration > 0) {
-      const timer = setTimeout(onClose, duration);
+    if (effectiveDuration > 0) {
+      const timer = setTimeout(onClose, effectiveDuration);
       return () => clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [duration]);
+  }, [effectiveDuration]);
 
   const bgColor = {
     success: 'bg-green-600',

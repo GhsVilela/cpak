@@ -5,17 +5,22 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
+import ViewModeSelector, { ViewMode } from '../../components/ViewModeSelector';
+import GameSearchInput from '../../components/GameSearchInput';
 import Toast from '../../components/Toast';
 
 interface Game {
   _id: string;
   gameId: string;
   title: string;
+  customTitle?: string;
   platform: 'steam' | 'xbox' | 'playstation';
   achievementsTotal: number;
   achievementsUnlocked: number;
   completionPercent: number;
-  imagePath?: string;
+  capsuleImagePath?: string;
+  iconImagePath?: string;
+  heroImagePath?: string;
   profileId: string;
   devices?: string[];
 }
@@ -49,6 +54,15 @@ interface SyncStatus {
     completedAt: string;
     status: 'success' | 'failed';
     error?: string;
+  };
+}
+
+interface BackupRestoreStatus {
+  backup: {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
+  };
+  restore: {
+    current: { jobId: string; status: string; progress: number; message: string } | null;
   };
 }
 
@@ -91,11 +105,29 @@ function PlayStationPageContent() {
     searchParams.get('profileId') || undefined
   );
   const [selectedProfile, setSelectedProfile] = useState<PSNProfile | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // View mode — persisted per-platform in localStorage
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('cpak-view-mode-playstation') as ViewMode) || 'capsule';
+    }
+    return 'capsule';
+  });
+
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem('cpak-view-mode-playstation', mode);
+  };
 
   // Sync status polling
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncPollInterval, setSyncPollInterval] = useState<NodeJS.Timeout | null>(null);
   const lastSyncNotified = useRef<string | null>(null);
+
+  // Backup/Restore status (to block edit/sync during backup/restore)
+  const [backupRestoreStatus, setBackupRestoreStatus] = useState<BackupRestoreStatus | null>(null);
+  const [backupRestorePollInterval, setBackupRestorePollInterval] = useState<NodeJS.Timeout | null>(null);
 
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -124,10 +156,11 @@ function PlayStationPageContent() {
       setOnlyCompleted(savedOnlyCompleted);
       loadGames({ onlyCompleted: savedOnlyCompleted });
       loadSyncStatus();
+      loadBackupRestoreStatus();
       loadBaseTrophySummary();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, generationFilter]);
+  }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, generationFilter, searchQuery]);
 
   // Reload when toggle changes
   const toggleReloadRef = useRef(false);
@@ -147,8 +180,51 @@ function PlayStationPageContent() {
       if (syncPollInterval) {
         clearInterval(syncPollInterval);
       }
+      if (backupRestorePollInterval) {
+        clearInterval(backupRestorePollInterval);
+      }
     };
-  }, [syncPollInterval]);
+  }, [syncPollInterval, backupRestorePollInterval]);
+
+  // Load backup/restore status to check if operations are in progress
+  const loadBackupRestoreStatus = async () => {
+    try {
+      const response = await fetch('/api/backup/status');
+      if (response.ok) {
+        const data = await response.json();
+        setBackupRestoreStatus(data);
+
+        // Start polling if there's an active operation
+        if ((data.backup?.current || data.restore?.current) && !backupRestorePollInterval) {
+          startBackupRestorePolling();
+        }
+
+        return data;
+      }
+    } catch (err) {
+      console.error('Failed to load backup/restore status:', err);
+    }
+    return null;
+  };
+
+  // Start polling for backup/restore status
+  const startBackupRestorePolling = () => {
+    if (backupRestorePollInterval) {
+      clearInterval(backupRestorePollInterval);
+    }
+
+    const interval = setInterval(async () => {
+      const status = await loadBackupRestoreStatus();
+
+      // Stop polling when both backup and restore are idle
+      if (!status?.backup?.current && !status?.restore?.current) {
+        clearInterval(interval);
+        setBackupRestorePollInterval(null);
+      }
+    }, 2000);
+
+    setBackupRestorePollInterval(interval);
+  };
 
   const handleProfileChange = (profileId: string) => {
     if (syncPollInterval) {
@@ -283,6 +359,7 @@ function PlayStationPageContent() {
       });
       if (effectiveOnlyCompleted) params.append('onlyCompleted', 'true');
       if (generationFilter) params.append('device', generationFilter);
+      if (searchQuery) params.append('search', searchQuery);
 
       const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
       setGames(response.data);
@@ -309,13 +386,26 @@ function PlayStationPageContent() {
               onError={handleProfileError}
               onProfilesLoaded={(count) => setNoProfiles(count === 0)}
             />
-            {selectedProfileId && !syncStatus?.current && (
-              <button
-                onClick={triggerSync}
-                className="px-4 py-2 bg-[var(--playstation-accent)] hover:opacity-90 rounded font-medium text-sm transition whitespace-nowrap text-white"
-              >
-                Sync Now
-              </button>
+            {selectedProfileId && (
+              <div className="flex items-center gap-2">
+                <a
+                  href={syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? undefined : `/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/playstation?profileId=${selectedProfileId}`)}`}
+                  className={`px-4 py-2 rounded font-medium text-sm transition whitespace-nowrap ${syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'bg-gray-600 text-gray-300 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
+                  aria-disabled={!!syncStatus?.current || !!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                >
+                  Edit
+                </a>
+                {!syncStatus?.current && (
+                  <button
+                    onClick={triggerSync}
+                    disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                    className="px-4 py-2 bg-[var(--playstation-accent)] hover:opacity-90 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-white"
+                    title={backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'Sync disabled during backup/restore operations' : ''}
+                  >
+                    Sync Now
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -335,11 +425,11 @@ function PlayStationPageContent() {
 
         {/* Sync Progress Banner */}
         {selectedProfileId && syncStatus?.current && (
-          <div className="mb-4 p-3 bg-green-900/20 border border-green-500/30 rounded">
+          <div className="mb-4 p-3 bg-blue-900/20 border border-blue-500/30 rounded">
             <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-green-400 font-medium">{syncStatus.current.message}</span>
+              <span className="text-blue-400 font-medium">{syncStatus.current.message}</span>
               <div className="flex items-center gap-3">
-                <span className="text-green-400 font-bold">{syncStatus.current.progress}%</span>
+                <span className="text-blue-400 font-bold">{syncStatus.current.progress}%</span>
                 <button
                   onClick={cancelSync}
                   className="text-sm px-3 py-1.5 bg-red-600/20 hover:bg-red-600/40 border border-red-500/50 rounded text-red-400 transition font-medium"
@@ -354,6 +444,9 @@ function PlayStationPageContent() {
                 style={{ width: `${syncStatus.current.progress}%` }}
               />
             </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Sync in progress. This page will automatically update when complete.
+            </p>
           </div>
         )}
 
@@ -414,6 +507,8 @@ function PlayStationPageContent() {
         {/* Filters */}
         {selectedProfileId && (
           <div className="flex items-center gap-4 flex-wrap">
+            <GameSearchInput onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }} />
+            <ViewModeSelector viewMode={viewMode} onViewModeChange={handleViewModeChange} />
             <button
               role="switch"
               aria-checked={onlyCompleted}
@@ -539,11 +634,13 @@ function PlayStationPageContent() {
         <GameGrid
           games={games}
           loading={loading}
+          viewMode={viewMode}
           emptyMessage={
             onlyCompleted
               ? 'No 100% completed PlayStation games yet.'
               : 'No PlayStation games found. Try syncing your profile.'
           }
+          onGamesUpdated={() => setReloadTrigger((r) => r + 1)}
         />
       )}
 
