@@ -41,7 +41,7 @@ export default function GameSearchInput({ onSearch, placeholder = 'Search games.
         value={value}
         onChange={handleChange}
         placeholder={placeholder}
-        className="w-full sm:w-64 px-4 py-2 pl-10 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition"
+        className="w-40 sm:w-64 px-4 py-2 pl-10 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition"
       />
       {/* Search icon */}
       <svg
