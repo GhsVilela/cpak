@@ -40,11 +40,17 @@ interface GameGridProps {
 export default function GameGrid({ games, loading = false, emptyMessage = 'No games found', viewMode = 'capsule', onGamesUpdated }: GameGridProps) {
   const [editingGame, setEditingGame] = useState<Game | null>(null);
 
-  const handleSave = async (updates: { customTitle?: string | null; images?: { type: string; file: File }[] }) => {
+  const handleSave = async (updates: { customTitle?: string | null; images?: { type: string; file: File }[]; deleteImages?: string[] }) => {
     if (!editingGame) return;
 
     if (updates.customTitle !== undefined) {
       await apiClient.patch(`/games/${editingGame._id}`, { customTitle: updates.customTitle });
+    }
+
+    if (updates.deleteImages) {
+      for (const imageType of updates.deleteImages) {
+        await apiClient.delete(`/games/${editingGame._id}/images/${imageType}`);
+      }
     }
 
     if (updates.images) {

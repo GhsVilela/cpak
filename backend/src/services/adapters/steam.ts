@@ -754,17 +754,48 @@ export class SteamAdapter {
                 return undefined;
               }
             })(),
-            // Icon: Steam CDN header.jpg (resized to 64×64 by imageStorage)
+            // Icon: SteamGridDB icon → Steam CDN header.jpg fallback (resized to 64×64 by imageStorage)
             (async (): Promise<string | undefined> => {
               try {
                 const cached = imageStorage.checkLocalFile('steam', game.appId.toString(), 'game', 'icon');
                 if (cached) return cached;
-                return await imageStorage.downloadAndStore(
-                  `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/header.jpg`,
-                  'steam', game.appId.toString(), 'game', 'icon',
-                );
+
+                // 1. SteamGridDB icon (proper game icons designed for icon display)
+                if (hasSteamGridDB) {
+                  const sgdbGame = await steamGridDBAdapter.searchGameBySteamId(game.appId);
+                  if (sgdbGame) {
+                    const icons = await steamGridDBAdapter.getIconImages(sgdbGame.id);
+                    // Icons are pre-sorted PNG-first; try each until one succeeds
+                    for (const icon of icons) {
+                      try {
+                        const iconPath = await imageStorage.downloadAndStore(
+                          icon.url, 'steam', game.appId.toString(), 'game', 'icon',
+                        );
+                        if (iconPath) {
+                          logger.info({ appId: game.appId }, '[ICON] Downloaded from SteamGridDB');
+                          return iconPath;
+                        }
+                      } catch {
+                        logger.debug({ appId: game.appId, iconUrl: icon.url }, 'SteamGridDB icon variant failed, trying next');
+                      }
+                    }
+                  }
+                }
+
+                // 2. Steam CDN header.jpg fallback (wide banner cropped to 64×64)
+                try {
+                  const path = await imageStorage.downloadAndStore(
+                    `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appId}/header.jpg`,
+                    'steam', game.appId.toString(), 'game', 'icon',
+                  );
+                  if (path) return path;
+                } catch {
+                  logger.debug({ appId: game.appId }, 'Steam CDN icon image not available');
+                }
+
+                return undefined;
               } catch {
-                logger.debug({ appId: game.appId }, 'Steam CDN icon image not available');
+                logger.debug({ appId: game.appId }, 'Icon image not available from any source');
                 return undefined;
               }
             })(),

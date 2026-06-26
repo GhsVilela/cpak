@@ -16,7 +16,7 @@ interface Game {
 interface GameEditModalProps {
   game: Game;
   onClose: () => void;
-  onSave: (updates: { customTitle?: string | null; images?: { type: string; file: File }[] }) => Promise<void>;
+  onSave: (updates: { customTitle?: string | null; images?: { type: string; file: File }[]; deleteImages?: string[] }) => Promise<void>;
 }
 
 export default function GameEditModal({ game, onClose, onSave }: GameEditModalProps) {
@@ -31,6 +31,7 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [heroFile, setHeroFile] = useState<File | null>(null);
   const [capsuleFile, setCapsuleFile] = useState<File | null>(null);
+  const [deletedImages, setDeletedImages] = useState<Set<string>>(new Set());
 
   const iconInputRef = useRef<HTMLInputElement>(null);
   const heroInputRef = useRef<HTMLInputElement>(null);
@@ -80,6 +81,25 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
     return `/api/icons/${imagePath}`;
   };
 
+  const handleDeleteImage = (type: 'icon' | 'hero' | 'capsule') => {
+    setDeletedImages((prev) => new Set(prev).add(type));
+    // Clear any pending upload for this type
+    if (type === 'icon') { setIconFile(null); setIconPreview(null); }
+    if (type === 'hero') { setHeroFile(null); setHeroPreview(null); }
+    if (type === 'capsule') { setCapsuleFile(null); setCapsulePreview(null); }
+  };
+
+  const handleUndoDelete = (type: string) => {
+    setDeletedImages((prev) => { const next = new Set(prev); next.delete(type); return next; });
+  };
+
+  const isImageAvailable = (type: 'icon' | 'hero' | 'capsule') => {
+    if (deletedImages.has(type)) return false;
+    if (type === 'icon') return !!(iconPreview || game.iconImagePath);
+    if (type === 'hero') return !!(heroPreview || game.heroImagePath);
+    return !!(capsulePreview || game.capsuleImagePath);
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setError('');
@@ -91,9 +111,15 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
       if (heroFile) images.push({ type: 'hero', file: heroFile });
       if (capsuleFile) images.push({ type: 'capsule', file: capsuleFile });
 
+      // Only include deletions for images that aren't being replaced by an upload
+      const deleteList = [...deletedImages].filter(
+        (type) => !images.some((img) => img.type === type)
+      );
+
       await onSave({
         customTitle: titleChanged ? (customTitle.trim() === game.title ? null : customTitle.trim()) : undefined,
         images: images.length > 0 ? images : undefined,
+        deleteImages: deleteList.length > 0 ? deleteList : undefined,
       });
       onClose();
     } catch (err) {
@@ -152,7 +178,9 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
             <label className="block text-sm text-gray-400 mb-2">Icon (64×64)</label>
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 bg-gray-800 rounded overflow-hidden flex-shrink-0">
-                {iconPreview ? (
+                {deletedImages.has('icon') ? (
+                  <div className="w-full h-full flex items-center justify-center text-red-400 text-xs">Deleted</div>
+                ) : iconPreview ? (
                   <img src={iconPreview} alt="Icon preview" className="w-full h-full object-cover" />
                 ) : getImageUrl(game.iconImagePath) ? (
                   <img src={getImageUrl(game.iconImagePath)!} alt="Current icon" className="w-full h-full object-cover" />
@@ -175,6 +203,21 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
               >
                 Upload Icon
               </button>
+              {deletedImages.has('icon') ? (
+                <button
+                  onClick={() => handleUndoDelete('icon')}
+                  className="px-3 py-1.5 text-sm bg-yellow-700/30 text-yellow-400 rounded hover:bg-yellow-700/50 transition"
+                >
+                  Undo
+                </button>
+              ) : isImageAvailable('icon') && (
+                <button
+                  onClick={() => handleDeleteImage('icon')}
+                  className="px-3 py-1.5 text-sm bg-red-900/30 text-red-400 rounded hover:bg-red-900/50 transition"
+                >
+                  Delete
+                </button>
+              )}
             </div>
           </div>
 
@@ -183,7 +226,9 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
             <label className="block text-sm text-gray-400 mb-2">Hero Banner (1920×620)</label>
             <div className="space-y-2">
               <div className="w-full aspect-[16/5] bg-gray-800 rounded overflow-hidden">
-                {heroPreview ? (
+                {deletedImages.has('hero') ? (
+                  <div className="w-full h-full flex items-center justify-center text-red-400 text-sm">Deleted</div>
+                ) : heroPreview ? (
                   <img src={heroPreview} alt="Hero preview" className="w-full h-full object-cover" />
                 ) : getImageUrl(game.heroImagePath) ? (
                   <img src={getImageUrl(game.heroImagePath)!} alt="Current hero" className="w-full h-full object-cover" />
@@ -191,19 +236,36 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
                   <div className="w-full h-full flex items-center justify-center text-gray-600 text-sm">No hero image</div>
                 )}
               </div>
-              <input
-                ref={heroInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => handleFileSelect('hero', e.target.files?.[0] || null)}
-              />
-              <button
-                onClick={() => heroInputRef.current?.click()}
-                className="px-3 py-1.5 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition"
-              >
-                Upload Hero
-              </button>
+              <div className="flex gap-2">
+                <input
+                  ref={heroInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handleFileSelect('hero', e.target.files?.[0] || null)}
+                />
+                <button
+                  onClick={() => heroInputRef.current?.click()}
+                  className="px-3 py-1.5 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition"
+                >
+                  Upload Hero
+                </button>
+                {deletedImages.has('hero') ? (
+                  <button
+                    onClick={() => handleUndoDelete('hero')}
+                    className="px-3 py-1.5 text-sm bg-yellow-700/30 text-yellow-400 rounded hover:bg-yellow-700/50 transition"
+                  >
+                    Undo
+                  </button>
+                ) : isImageAvailable('hero') && (
+                  <button
+                    onClick={() => handleDeleteImage('hero')}
+                    className="px-3 py-1.5 text-sm bg-red-900/30 text-red-400 rounded hover:bg-red-900/50 transition"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -212,7 +274,9 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
             <label className="block text-sm text-gray-400 mb-2">Capsule (600×900)</label>
             <div className="flex items-start gap-4">
               <div className="w-24 h-36 bg-gray-800 rounded overflow-hidden flex-shrink-0">
-                {capsulePreview ? (
+                {deletedImages.has('capsule') ? (
+                  <div className="w-full h-full flex items-center justify-center text-red-400 text-xs">Deleted</div>
+                ) : capsulePreview ? (
                   <img src={capsulePreview} alt="Capsule preview" className="w-full h-full object-cover" />
                 ) : getImageUrl(game.capsuleImagePath) ? (
                   <img src={getImageUrl(game.capsuleImagePath)!} alt="Current capsule" className="w-full h-full object-cover" />
@@ -220,19 +284,36 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
                   <div className="w-full h-full flex items-center justify-center text-gray-600 text-sm">No image</div>
                 )}
               </div>
-              <input
-                ref={capsuleInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => handleFileSelect('capsule', e.target.files?.[0] || null)}
-              />
-              <button
-                onClick={() => capsuleInputRef.current?.click()}
-                className="px-3 py-1.5 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition"
-              >
-                Upload Capsule
-              </button>
+              <div className="flex flex-col gap-2">
+                <input
+                  ref={capsuleInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handleFileSelect('capsule', e.target.files?.[0] || null)}
+                />
+                <button
+                  onClick={() => capsuleInputRef.current?.click()}
+                  className="px-3 py-1.5 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition"
+                >
+                  Upload Capsule
+                </button>
+                {deletedImages.has('capsule') ? (
+                  <button
+                    onClick={() => handleUndoDelete('capsule')}
+                    className="px-3 py-1.5 text-sm bg-yellow-700/30 text-yellow-400 rounded hover:bg-yellow-700/50 transition"
+                  >
+                    Undo
+                  </button>
+                ) : isImageAvailable('capsule') && (
+                  <button
+                    onClick={() => handleDeleteImage('capsule')}
+                    className="px-3 py-1.5 text-sm bg-red-900/30 text-red-400 rounded hover:bg-red-900/50 transition"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

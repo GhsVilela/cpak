@@ -147,7 +147,13 @@ export class SteamGridDBAdapter {
     const url = `${this.baseUrl}/heroes/game/${gameId}`;
     
     try {
-      const response = await fetch(url, {
+      const params = new URLSearchParams();
+      params.append('types', 'static');
+      // Request 1920x620 first — avoids downloading 3840x1240 (4× the pixels)
+      // which we'd have to resize down anyway.
+      params.append('dimensions', '1920x620');
+
+      const response = await fetch(`${url}?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
         },
@@ -158,7 +164,22 @@ export class SteamGridDBAdapter {
       }
 
       const data = await response.json() as any;
-      return data.data || [];
+      const results = data.data || [];
+
+      // If no 1920x620 images found, fall back to all dimensions
+      if (results.length === 0) {
+        const fallbackResponse = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+          },
+        });
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json() as any;
+          return fallbackData.data || [];
+        }
+      }
+
+      return results;
     } catch (error) {
       logger.error({ error, gameId }, 'Failed to fetch hero images');
       return [];
@@ -166,13 +187,18 @@ export class SteamGridDBAdapter {
   }
 
   /**
-   * Get icon images for a game
+   * Get icon images for a game.
+   * Returns all formats; callers should prefer PNG URLs over ICO
+   * since sharp cannot reliably process multi-resolution ICO containers.
    */
   async getIconImages(gameId: number): Promise<SteamGridDBImage[]> {
     const url = `${this.baseUrl}/icons/game/${gameId}`;
 
     try {
-      const response = await fetch(url, {
+      const params = new URLSearchParams();
+      params.append('types', 'static');
+
+      const response = await fetch(`${url}?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
         },
@@ -183,7 +209,17 @@ export class SteamGridDBAdapter {
       }
 
       const data = await response.json() as any;
-      return data.data || [];
+      const results: SteamGridDBImage[] = data.data || [];
+
+      // Sort so PNG icons come first (sharp can't process .ico containers)
+      results.sort((a, b) => {
+        const aIsPng = a.url.toLowerCase().endsWith('.png') ? 0 : 1;
+        const bIsPng = b.url.toLowerCase().endsWith('.png') ? 0 : 1;
+        if (aIsPng !== bIsPng) return aIsPng - bIsPng;
+        return b.score - a.score;
+      });
+
+      return results;
     } catch (error) {
       logger.error({ error, gameId }, 'Failed to fetch icon images');
       return [];
@@ -429,7 +465,7 @@ export class SteamGridDBAdapter {
   /**
    * Batch download images for multiple games
    */
-  async downloadGameImages(steamAppIds: number[], concurrency: number = 3): Promise<Map<number, string | null>> {
+  async downloadGameImages(steamAppIds: number[], concurrency: number = 8): Promise<Map<number, string | null>> {
     const results = new Map<number, string | null>();
     const promises: Promise<void>[] = [];
 
@@ -445,7 +481,7 @@ export class SteamGridDBAdapter {
       if (promises.length >= concurrency) {
         await Promise.all(promises.splice(0, concurrency));
         // Small delay between batches
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
     }
 

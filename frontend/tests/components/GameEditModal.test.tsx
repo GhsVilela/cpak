@@ -61,6 +61,7 @@ describe('GameEditModal', () => {
     expect(onSave).toHaveBeenCalledWith({
       customTitle: 'CS2',
       images: undefined,
+      deleteImages: undefined,
     });
   });
 
@@ -104,5 +105,55 @@ describe('GameEditModal', () => {
     await user.click(screen.getByText('Save Changes'));
 
     expect(await screen.findByText('Server error')).toBeInTheDocument();
+  });
+
+  it('shows delete buttons for existing images', () => {
+    render(<GameEditModal game={mockGame} onClose={vi.fn()} onSave={vi.fn()} />);
+    const deleteButtons = screen.getAllByText('Delete');
+    expect(deleteButtons.length).toBe(3);
+  });
+
+  it('does not show delete button when no image exists', () => {
+    const gameNoImages = { ...mockGame, capsuleImagePath: undefined, iconImagePath: undefined, heroImagePath: undefined };
+    render(<GameEditModal game={gameNoImages} onClose={vi.fn()} onSave={vi.fn()} />);
+    expect(screen.queryByText('Delete')).not.toBeInTheDocument();
+  });
+
+  it('shows Undo button after deleting an image', async () => {
+    const user = userEvent.setup();
+    render(<GameEditModal game={mockGame} onClose={vi.fn()} onSave={vi.fn()} />);
+    const deleteButtons = screen.getAllByText('Delete');
+    await user.click(deleteButtons[0]);
+    expect(screen.getByText('Undo')).toBeInTheDocument();
+    expect(screen.getByText('Deleted')).toBeInTheDocument();
+  });
+
+  it('includes deleteImages in onSave when image is deleted', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(<GameEditModal game={mockGame} onClose={onClose} onSave={onSave} />);
+
+    // Delete the icon
+    const deleteButtons = screen.getAllByText('Delete');
+    await user.click(deleteButtons[0]); // First delete button is for icon
+    await user.click(screen.getByText('Save Changes'));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deleteImages: ['icon'],
+      })
+    );
+  });
+
+  it('undo restores deleted image preview', async () => {
+    const user = userEvent.setup();
+    render(<GameEditModal game={mockGame} onClose={vi.fn()} onSave={vi.fn()} />);
+    const deleteButtons = screen.getAllByText('Delete');
+    await user.click(deleteButtons[0]);
+    expect(screen.getByText('Deleted')).toBeInTheDocument();
+
+    await user.click(screen.getByText('Undo'));
+    expect(screen.queryByText('Deleted')).not.toBeInTheDocument();
   });
 });

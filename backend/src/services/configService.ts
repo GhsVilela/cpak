@@ -12,7 +12,6 @@ const DEFAULTS: Record<string, string> = {
 const SECRET_KEYS = new Set([
   'steamgrid_api_key',
   'xbox_client_secret',
-  'igdb_client_id',
   'igdb_client_secret',
 ]);
 

@@ -2263,21 +2263,48 @@ export class XboxAdapter {
                 return undefined;
               }
             })(),
-            // Icon: titleImageUrl → capsule image fallback → SteamGridDB icon
+            // Icon: SteamGridDB icon → titleImageUrl → capsule image fallback
             (async (): Promise<string | undefined> => {
               try {
                 const cached = imageStorage.checkLocalFile('xbox', title.titleId, 'game', 'icon');
                 if (cached) return cached;
 
-                // 1. Xbox displayImage / largeBoxArt
-                if (title.titleImageUrl) {
-                  const path = await imageStorage.downloadAndStore(
-                    title.titleImageUrl, 'xbox', title.titleId, 'game', 'icon',
-                  );
-                  if (path) return path;
+                // 1. SteamGridDB icon (proper game icons designed for icon display)
+                if (hasSteamGridDB) {
+                  const searchName = storeCanonicalTitle || this.normalizeForSearch(title.name);
+                  const game = await steamGridDBAdapter!.searchGameByName(searchName);
+                  if (game) {
+                    const icons = await steamGridDBAdapter!.getIconImages(game.id);
+                    // Icons are pre-sorted PNG-first; try each until one succeeds
+                    for (const icon of icons) {
+                      try {
+                        const iconPath = await imageStorage.downloadAndStore(
+                          icon.url, 'xbox', title.titleId, 'game', 'icon',
+                        );
+                        if (iconPath) {
+                          logger.info({ titleId: title.titleId, name: title.name }, '[ICON] Downloaded from SteamGridDB');
+                          return iconPath;
+                        }
+                      } catch {
+                        logger.debug({ titleId: title.titleId, iconUrl: icon.url }, 'SteamGridDB icon variant failed, trying next');
+                      }
+                    }
+                  }
                 }
 
-                // 2. Use already-downloaded capsule image as icon source
+                // 2. Xbox displayImage / largeBoxArt
+                if (title.titleImageUrl) {
+                  try {
+                    const path = await imageStorage.downloadAndStore(
+                      title.titleImageUrl, 'xbox', title.titleId, 'game', 'icon',
+                    );
+                    if (path) return path;
+                  } catch {
+                    logger.debug({ titleId: title.titleId }, 'Xbox titleImageUrl icon not available');
+                  }
+                }
+
+                // 3. Use already-downloaded capsule image as icon source
                 if (imagePath) {
                   const fs = await import('fs');
                   const pathMod = await import('path');
@@ -2292,31 +2319,11 @@ export class XboxAdapter {
                       const iconDir = pathMod.dirname(absPath);
                       const iconFile = pathMod.join(iconDir, 'game_icon.jpg');
                       await fs.promises.writeFile(iconFile, iconBuffer);
-                      // Derive relative path: same directory as capsule, just different filename
                       const iconRelPath = imagePath.replace(/[^/]+$/, 'game_icon.jpg');
                       logger.info({ titleId: title.titleId, name: title.name }, '[ICON] Generated from capsule image');
                       return iconRelPath;
                     } catch (resizeErr) {
                       logger.debug({ titleId: title.titleId, err: String(resizeErr) }, '[ICON] Failed to generate from capsule');
-                    }
-                  }
-                }
-
-                // 3. SteamGridDB icon
-                if (hasSteamGridDB) {
-                  const searchName = storeCanonicalTitle || this.normalizeForSearch(title.name);
-                  const game = await steamGridDBAdapter!.searchGameByName(searchName);
-                  if (game) {
-                    const icons = await steamGridDBAdapter!.getIconImages(game.id);
-                    if (icons.length > 0) {
-                      const best = icons.sort((a, b) => b.score - a.score)[0];
-                      const path = await imageStorage.downloadAndStore(
-                        best.url, 'xbox', title.titleId, 'game', 'icon',
-                      );
-                      if (path) {
-                        logger.info({ titleId: title.titleId, name: title.name }, '[ICON] Downloaded from SteamGridDB');
-                        return path;
-                      }
                     }
                   }
                 }

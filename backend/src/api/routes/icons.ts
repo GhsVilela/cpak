@@ -32,6 +32,7 @@ export async function getIcon(
     '.png': 'image/png',
     '.gif': 'image/gif',
     '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
   };
   const contentType = contentTypes[ext] || 'application/octet-stream';
 

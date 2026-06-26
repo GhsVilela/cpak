@@ -320,33 +320,17 @@ export class PlayStationAdapter {
   ): Promise<{ capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string }> {
     let capsuleImagePath: string | undefined;
 
-    // 1. Try PlayStation CDN first
-    if (trophyTitleIconUrl) {
-      try {
-        const path = await imageStorage.downloadAndStore(
-          trophyTitleIconUrl,
-          'playstation',
-          npCommunicationId,
-          'game',
-          'grid',
-        );
-        if (path) capsuleImagePath = path;
-      } catch (err) {
-        logger.debug({ err, trophyTitleIconUrl, npCommunicationId }, 'PlayStation CDN image unavailable, trying fallbacks');
-      }
-    }
-
-    // 2. SteamGridDB fallback
+    // 1. SteamGridDB first (proper grid format)
     if (!capsuleImagePath && steamGridDB) {
       try {
         const path = await steamGridDB.downloadGameImageByName(gameTitle, 'playstation', npCommunicationId);
         if (path) capsuleImagePath = path;
       } catch (err) {
-        logger.debug({ err, gameTitle }, 'SteamGridDB fallback failed for PlayStation game');
+        logger.debug({ err, gameTitle }, 'SteamGridDB failed for PlayStation game');
       }
     }
 
-    // 3. IGDB fallback
+    // 2. IGDB fallback (proper grid format)
     if (!capsuleImagePath) {
       try {
         const igdb = await createIGDBAdapter();
@@ -359,17 +343,58 @@ export class PlayStationAdapter {
       }
     }
 
+    // 3. PlayStation CDN fallback (icon images, not ideal grid format but works as last resort)
+    if (!capsuleImagePath && trophyTitleIconUrl) {
+      try {
+        const path = await imageStorage.downloadAndStore(
+          trophyTitleIconUrl,
+          'playstation',
+          npCommunicationId,
+          'game',
+          'grid',
+        );
+        if (path) capsuleImagePath = path;
+      } catch (err) {
+        logger.debug({ err, trophyTitleIconUrl, npCommunicationId }, 'PlayStation CDN image unavailable');
+      }
+    }
+
     // Download icon and hero in parallel (non-blocking — failures are OK)
     const [iconImagePath, heroImagePath] = await Promise.all([
-      // Icon: PlayStation CDN trophyTitleIconUrl resized to 64×64 by imageStorage
+      // Icon: SteamGridDB icon → PlayStation CDN trophyTitleIconUrl fallback
       (async (): Promise<string | undefined> => {
-        if (!trophyTitleIconUrl) return undefined;
         try {
           const cached = imageStorage.checkLocalFile('playstation', npCommunicationId, 'game', 'icon');
           if (cached) return cached;
-          return await imageStorage.downloadAndStore(
-            trophyTitleIconUrl, 'playstation', npCommunicationId, 'game', 'icon',
-          );
+
+          // 1. SteamGridDB icon (proper game icons)
+          if (steamGridDB) {
+            const game = await steamGridDB.searchGameByName(gameTitle);
+            if (game) {
+              const icons = await steamGridDB.getIconImages(game.id);
+              for (const icon of icons) {
+                try {
+                  const iconPath = await imageStorage.downloadAndStore(
+                    icon.url, 'playstation', npCommunicationId, 'game', 'icon',
+                  );
+                  if (iconPath) {
+                    logger.info({ npCommunicationId, gameTitle }, '[ICON] Downloaded from SteamGridDB');
+                    return iconPath;
+                  }
+                } catch {
+                  logger.debug({ npCommunicationId, iconUrl: icon.url }, 'SteamGridDB icon variant failed, trying next');
+                }
+              }
+            }
+          }
+
+          // 2. PlayStation CDN trophyTitleIconUrl fallback
+          if (trophyTitleIconUrl) {
+            return await imageStorage.downloadAndStore(
+              trophyTitleIconUrl, 'playstation', npCommunicationId, 'game', 'icon',
+            );
+          }
+          return undefined;
         } catch {
           logger.debug({ npCommunicationId }, 'PlayStation icon image not available');
           return undefined;

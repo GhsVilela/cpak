@@ -383,3 +383,54 @@ export async function uploadGameImage(
     reply.status(500).send({ error: 'Internal server error' });
   }
 }
+
+export async function deleteGameImage(
+  req: FastifyRequest<{ Params: { id: string; imageType: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const { id, imageType } = req.params;
+    const fieldMap: Record<string, string> = {
+      icon: 'iconImagePath',
+      hero: 'heroImagePath',
+      capsule: 'capsuleImagePath',
+    };
+
+    if (!fieldMap[imageType]) {
+      return reply.status(400).send({ error: 'Invalid imageType. Must be icon, hero, or capsule' });
+    }
+
+    const game = await Game.findById(id);
+    if (!game) {
+      return reply.status(404).send({ error: 'Game not found' });
+    }
+
+    const field = fieldMap[imageType] as keyof typeof game;
+    const currentPath = game[field] as string | undefined;
+
+    if (!currentPath) {
+      return reply.status(404).send({ error: 'No image to delete' });
+    }
+
+    // Delete the file from disk
+    const absolutePath = path.join(IMAGES_BASE_DIR, currentPath);
+    if (fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath);
+      logger.info({ imageType, path: currentPath, gameId: game.gameId }, 'Deleted game image file');
+    }
+
+    // Clear the path in the database
+    (game as any)[fieldMap[imageType]] = undefined;
+    await game.save();
+
+    reply.send({
+      _id: game._id,
+      iconImagePath: game.iconImagePath ?? null,
+      heroImagePath: game.heroImagePath ?? null,
+      capsuleImagePath: game.capsuleImagePath ?? null,
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to delete game image');
+    reply.status(500).send({ error: 'Internal server error' });
+  }
+}
