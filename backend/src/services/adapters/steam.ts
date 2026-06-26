@@ -78,8 +78,8 @@ export class SteamAdapter {
         if (!response.ok) {
           throw new Error(`Steam API returned HTTP ${response.status} — your API key may be invalid or the profile may be private.`);
         }
-        const contentType = response.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
+        const contentType = response.headers?.get('content-type') || '';
+        if (contentType && !contentType.includes('application/json')) {
           throw new Error('Steam API returned an unexpected response — your API key may be invalid or revoked. Please verify it in Settings.');
         }
         const data = await response.json() as any;
@@ -99,8 +99,8 @@ export class SteamAdapter {
         if (!response.ok) {
           throw new Error(`Steam API returned HTTP ${response.status} — your API key may be invalid or the profile may be private.`);
         }
-        const contentType = response.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
+        const contentType = response.headers?.get('content-type') || '';
+        if (contentType && !contentType.includes('application/json')) {
           throw new Error('Steam API returned an unexpected response — your API key may be invalid or revoked. Please verify it in Settings.');
         }
         const data = await response.json() as any;
