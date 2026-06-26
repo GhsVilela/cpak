@@ -127,6 +127,31 @@ export async function getGames(
       }
     }
 
+    // For PlayStation profiles, aggregate trophy summary across all games
+    let trophySummary: { totalBronze: number; totalSilver: number; totalGold: number; totalPlatinum: number } | undefined;
+    if (filter.platform === 'playstation' && filter.profileId) {
+      const trophyAgg = await Game.aggregate([
+        { $match: { profileId: filter.profileId, platform: 'playstation' } },
+        {
+          $group: {
+            _id: null,
+            totalBronze: { $sum: { $ifNull: ['$trophyBronze', 0] } },
+            totalSilver: { $sum: { $ifNull: ['$trophySilver', 0] } },
+            totalGold: { $sum: { $ifNull: ['$trophyGold', 0] } },
+            totalPlatinum: { $sum: { $ifNull: ['$trophyPlatinum', 0] } },
+          },
+        },
+      ]);
+      if (trophyAgg.length > 0) {
+        trophySummary = {
+          totalBronze: trophyAgg[0].totalBronze,
+          totalSilver: trophyAgg[0].totalSilver,
+          totalGold: trophyAgg[0].totalGold,
+          totalPlatinum: trophyAgg[0].totalPlatinum,
+        };
+      }
+    }
+
     // When sorting by completionPercent, use achievementsUnlocked as tiebreaker
     // so that games with 1 unlocked (0%) sort above games with 0 unlocked (0%)
     const sortSpec: Record<string, 1 | -1> = { [sortField]: sortDirection as 1 | -1 };
@@ -151,6 +176,7 @@ export async function getGames(
         ...(totalCurrentGamerscore !== undefined && { totalCurrentGamerscore }),
         ...(totalMaxGamerscore !== undefined && { totalMaxGamerscore }),
         ...(totalAchievementsUnlocked !== undefined && { totalAchievementsUnlocked }),
+        ...(trophySummary !== undefined && { trophySummary }),
       }
     });
   } catch (error) {

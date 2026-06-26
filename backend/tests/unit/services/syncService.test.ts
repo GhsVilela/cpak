@@ -95,7 +95,7 @@ describe('SyncService', () => {
     );
   });
 
-  it('syncProfile throws for PlayStation and records it as failed', async () => {
+  it('syncProfile throws for PlayStation with no credentials and records it as failed', async () => {
     const { syncService } = await import('../../../src/services/syncService.js');
     const { Profile } = await import('../../../src/models/profile.js');
     const { SyncOperation } = await import('../../../src/models/syncOperation.js');
@@ -107,7 +107,7 @@ describe('SyncService', () => {
     });
 
     await expect(syncService.syncProfile(profile as any)).rejects.toThrow(
-      /PlayStation sync not implemented/i,
+      /credentials/i,
     );
 
     const op = await SyncOperation.findOne({ profileId: profile._id });

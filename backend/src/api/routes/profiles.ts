@@ -5,11 +5,14 @@ import { Achievement } from '../../models/achievement.js';
 import { SyncRun } from '../../models/syncRun.js';
 import { logger } from '../../utils/logger.js';
 import { z } from 'zod';
+import { createPlayStationAdapter } from '../../services/adapters/playstation.js';
 
 const profileSchema = z.object({
   platform: z.enum(['steam', 'xbox', 'playstation']),
-  profileId: z.string().min(1),
+  profileId: z.string().min(1).optional(),
   displayName: z.string().optional(),
+  /** PlayStation only: NPSSO token to exchange for OAuth credentials */
+  npssoToken: z.string().optional(),
   credentials: z.object({
     steamApiKey: z.string().optional(),
     xboxRefreshToken: z.string().optional(),
@@ -64,8 +67,61 @@ export async function getProfileById(req: FastifyRequest<{ Params: { id: string 
 export async function createProfile(req: FastifyRequest, reply: FastifyReply) {
   try {
     const body = profileSchema.parse(req.body);
-    logger.info({ body }, 'Creating/updating profile');
-    
+    logger.info({ platform: body.platform }, 'Creating/updating profile');
+
+    // PlayStation: if npssoToken is provided, exchange it for OAuth tokens
+    if (body.platform === 'playstation' && (body as any).npssoToken) {
+      const npssoToken = (body as any).npssoToken as string;
+      const adapter = createPlayStationAdapter();
+
+      let psnTokens: Awaited<ReturnType<typeof adapter.exchangeNpssoForTokens>>;
+      let psnProfile: Awaited<ReturnType<typeof adapter.getProfile>>;
+
+      try {
+        psnTokens = await adapter.exchangeNpssoForTokens(npssoToken);
+        psnProfile = await adapter.getProfile(psnTokens.accessToken, 'me');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Token exchange failed';
+        logger.warn({ error: message }, 'PlayStation NPSSO token exchange failed during profile creation');
+        return reply.status(400).send({
+          error: 'Invalid NPSSO token. Please obtain a new token from https://ca.account.sony.com/api/v1/ssocookie',
+        });
+      }
+
+      // Check for existing profile with this PSN account ID
+      const existingProfile = await Profile.findOne({
+        platform: 'playstation',
+        profileId: psnProfile.accountId,
+      });
+
+      if (existingProfile) {
+        return reply.status(409).send({
+          error: 'Profile already exists for this PlayStation account',
+        });
+      }
+
+      const profile = new Profile({
+        platform: 'playstation',
+        profileId: psnProfile.accountId,
+        displayName: psnProfile.onlineId,
+        credentials: {
+          accessToken: psnTokens.accessToken,
+          refreshToken: psnTokens.refreshToken,
+          expiresAt: psnTokens.expiresAt,
+          tokenType: psnTokens.tokenType,
+        },
+      });
+
+      await profile.save();
+      logger.info({ onlineId: psnProfile.onlineId, accountId: psnProfile.accountId }, 'PlayStation profile created');
+      return reply.status(201).send(profile);
+    }
+
+    // Non-PlayStation (or PlayStation with raw credentials directly)
+    if (!body.profileId) {
+      return reply.status(400).send({ error: 'profileId is required' });
+    }
+
     // Check if profile already exists
     let profile = await Profile.findOne({
       platform: body.platform,
