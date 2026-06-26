@@ -156,8 +156,16 @@ function PlayStationPageContent() {
     if (selectedProfileId) {
       const savedOnlyCompleted = localStorage.getItem(`playstation_onlyCompleted_${selectedProfileId}`) === 'true';
       const savedShowHidden = localStorage.getItem(`playstation_showHidden_${selectedProfileId}`) === 'true';
+      const savedSortBy = localStorage.getItem(`playstation_sortBy_${selectedProfileId}`) || 'completionPercent';
+      const savedSortOrder = (localStorage.getItem(`playstation_sortOrder_${selectedProfileId}`) || 'desc') as 'asc' | 'desc';
+      const savedPerPage = Number(localStorage.getItem(`playstation_perPage_${selectedProfileId}`)) || 100;
+      const savedGenFilter = localStorage.getItem(`playstation_generationFilter_${selectedProfileId}`) || '';
       setOnlyCompleted(savedOnlyCompleted);
       setShowHidden(savedShowHidden);
+      setSortBy(savedSortBy);
+      setSortOrder(savedSortOrder);
+      setItemsPerPage(savedPerPage);
+      setGenerationFilter(savedGenFilter);
       loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
@@ -259,6 +267,7 @@ function PlayStationPageContent() {
   const handleItemsPerPageChange = async (newItemsPerPage: number) => {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1);
+    if (selectedProfileId) localStorage.setItem(`playstation_perPage_${selectedProfileId}`, String(newItemsPerPage));
     await loadGames({ page: 1, perPage: newItemsPerPage });
   };
 
@@ -556,7 +565,7 @@ function PlayStationPageContent() {
               <label className="text-sm text-gray-400">Platform:</label>
               <select
                 value={generationFilter}
-                onChange={(e) => setGenerationFilter(e.target.value)}
+                onChange={(e) => { setGenerationFilter(e.target.value); if (selectedProfileId) localStorage.setItem(`playstation_generationFilter_${selectedProfileId}`, e.target.value); }}
                 className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--playstation-accent)]"
               >
                 {GENERATION_FILTERS.map((f) => (
@@ -569,7 +578,7 @@ function PlayStationPageContent() {
               <label className="text-sm text-gray-400">Sort:</label>
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
+                onChange={(e) => { setSortBy(e.target.value); if (selectedProfileId) localStorage.setItem(`playstation_sortBy_${selectedProfileId}`, e.target.value); }}
                 className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--playstation-accent)]"
               >
                 <option value="title">Title</option>
@@ -579,7 +588,7 @@ function PlayStationPageContent() {
               </select>
               <select
                 value={sortOrder}
-                onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
+                onChange={(e) => { setSortOrder(e.target.value as 'asc' | 'desc'); if (selectedProfileId) localStorage.setItem(`playstation_sortOrder_${selectedProfileId}`, e.target.value); }}
                 className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--playstation-accent)]"
               >
                 <option value="asc">Ascending</option>

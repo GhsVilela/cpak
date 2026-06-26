@@ -122,8 +122,14 @@ function SteamPageContent() {
       // Load per-profile toggle state synchronously before loading games
       const savedOnlyCompleted = localStorage.getItem(`steam_onlyCompleted_${selectedProfileId}`) === 'true';
       const savedShowHidden = localStorage.getItem(`steam_showHidden_${selectedProfileId}`) === 'true';
+      const savedSortBy = localStorage.getItem(`steam_sortBy_${selectedProfileId}`) || 'completionPercent';
+      const savedSortOrder = (localStorage.getItem(`steam_sortOrder_${selectedProfileId}`) || 'desc') as 'asc' | 'desc';
+      const savedPerPage = Number(localStorage.getItem(`steam_perPage_${selectedProfileId}`)) || 100;
       setOnlyCompleted(savedOnlyCompleted);
       setShowHidden(savedShowHidden);
+      setSortBy(savedSortBy);
+      setSortOrder(savedSortOrder);
+      setItemsPerPage(savedPerPage);
       loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
@@ -207,6 +213,7 @@ function SteamPageContent() {
   const handleItemsPerPageChange = async (newItemsPerPage: number) => {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1);
+    if (selectedProfileId) localStorage.setItem(`steam_perPage_${selectedProfileId}`, String(newItemsPerPage));
     // Load immediately with new values
     await loadGames({ page: 1, perPage: newItemsPerPage });
   };
@@ -563,10 +570,10 @@ function SteamPageContent() {
             title="Show games with revoked licenses and games you have manually hidden."
           >Show Hidden</span>
           <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-400">Sort by:</label>
+            <label className="text-sm text-gray-400">Sort:</label>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
+              onChange={(e) => { setSortBy(e.target.value); if (selectedProfileId) localStorage.setItem(`steam_sortBy_${selectedProfileId}`, e.target.value); }}
               className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--steam-accent)]"
             >
               <option value="title">Title</option>
@@ -574,12 +581,9 @@ function SteamPageContent() {
               <option value="achievementsTotal">Total Achievements</option>
               <option value="lastSyncedAt">Last Synced</option>
             </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-400">Order:</label>
             <select
               value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
+              onChange={(e) => { setSortOrder(e.target.value as 'asc' | 'desc'); if (selectedProfileId) localStorage.setItem(`steam_sortOrder_${selectedProfileId}`, e.target.value); }}
               className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--steam-accent)]"
             >
               <option value="asc">Ascending</option>
