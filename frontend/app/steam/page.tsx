@@ -24,6 +24,7 @@ interface Game {
   profileId: string;
   ownershipSource?: 'owned' | 'played_history';
   achievementsFetchFailed?: boolean;
+  isHidden?: boolean;
 }
 
 interface GamesResponse {
@@ -417,6 +418,7 @@ function SteamPageContent() {
               onSelectProfile={handleProfileChange}
               onError={handleProfileError}
               onProfilesLoaded={(count) => setNoProfiles(count === 0)}
+              reloadTrigger={reloadTrigger}
             />
             {selectedProfileId && (
               <div className="flex items-center gap-2">
@@ -558,7 +560,7 @@ function SteamPageContent() {
           </button>
           <span
             className="text-sm cursor-default"
-            title="Show games with revoked licenses. These games may have achievements unlocked but are no longer accessible via the Steam API."
+            title="Show games with revoked licenses and games you have manually hidden."
           >Show Hidden</span>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-400">Sort by:</label>

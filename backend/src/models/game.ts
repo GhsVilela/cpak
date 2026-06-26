@@ -26,6 +26,8 @@ export interface IGame extends Document {
   ownershipSource?: 'owned' | 'played_history';
   /** True when achievement data could not be fetched (e.g. refunded/expired license) */
   achievementsFetchFailed?: boolean;
+  /** True when the user has manually hidden this game */
+  isHidden?: boolean;
   /** PlayStation-specific: count of earned bronze trophies */
   trophyBronze?: number | null;
   /** PlayStation-specific: count of earned silver trophies */
@@ -61,6 +63,7 @@ const GameSchema = new Schema<IGame>(
     playTimeMinutes: { type: Number },
     ownershipSource: { type: String, enum: ['owned', 'played_history'] },
     achievementsFetchFailed: { type: Boolean },
+    isHidden: { type: Boolean },
     trophyBronze: { type: Number, default: null },
     trophySilver: { type: Number, default: null },
     trophyGold: { type: Number, default: null },

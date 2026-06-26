@@ -154,8 +154,9 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
     await waitFor(() => {
       expect(screen.queryByText(/halo/i) || document.body.firstChild).toBeTruthy();
     });
-    const toggle = screen.getByRole('switch');
-    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    const toggles = screen.getAllByRole('switch');
+    expect(toggles.length).toBe(2);
+    expect(toggles[0]).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByText('100% Only')).toBeInTheDocument();
   });
 
@@ -164,20 +165,20 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
     const { default: XboxPage } = await import('../../app/xbox/page');
     render(<XboxPage />);
     await waitFor(() => {
-      expect(screen.getByRole('switch')).toBeInTheDocument();
+      expect(screen.getAllByRole('switch').length).toBeGreaterThan(0);
     });
-    const toggle = screen.getByRole('switch');
-    await user.click(toggle);
+    const toggles = screen.getAllByRole('switch');
+    await user.click(toggles[0]);
     expect(localStorage.getItem('xbox_onlyCompleted_xbox-profile-1')).toBe('true');
   });
 
-  it('does not render a Show Hidden toggle', async () => {
+  it('renders a Show Hidden toggle', async () => {
     const { default: XboxPage } = await import('../../app/xbox/page');
     render(<XboxPage />);
     await waitFor(() => {
       expect(screen.queryByText(/halo/i) || document.body.firstChild).toBeTruthy();
     });
-    expect(screen.queryByText('Show Hidden')).not.toBeInTheDocument();
+    expect(screen.getByText('Show Hidden')).toBeInTheDocument();
   });
 
   it('renders search input', async () => {

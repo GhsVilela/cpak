@@ -23,6 +23,7 @@ interface Game {
   heroImagePath?: string;
   profileId: string;
   devices?: string[];
+  isHidden?: boolean;
 }
 
 interface GamesResponse {
@@ -89,6 +90,7 @@ function XboxPageContent() {
   const [error, setError] = useState('');
   const [noProfiles, setNoProfiles] = useState(false);
   const [onlyCompleted, setOnlyCompleted] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -137,6 +139,22 @@ function XboxPageContent() {
     setToast({ message, type });
   };
 
+  // Handle Xbox auth callback error/success from URL params
+  useEffect(() => {
+    const authError = searchParams.get('error');
+    const authMessage = searchParams.get('message');
+    if (authError) {
+      const friendlyMessage = authMessage || 'Xbox authentication failed';
+      showToast(friendlyMessage, 'error');
+      // Clean up URL params
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('error');
+      params.delete('message');
+      const remaining = params.toString();
+      router.replace(`/xbox${remaining ? `?${remaining}` : ''}`, { scroll: false });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load selected profile details (to check token expiry)
   useEffect(() => {
     if (!selectedProfileId) return;
@@ -162,8 +180,10 @@ function XboxPageContent() {
   useEffect(() => {
     if (selectedProfileId) {
       const savedOnlyCompleted = localStorage.getItem(`xbox_onlyCompleted_${selectedProfileId}`) === 'true';
+      const savedShowHidden = localStorage.getItem(`xbox_showHidden_${selectedProfileId}`) === 'true';
       setOnlyCompleted(savedOnlyCompleted);
-      loadGames({ onlyCompleted: savedOnlyCompleted });
+      setShowHidden(savedShowHidden);
+      loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
       loadBaseGamerscore();
@@ -179,9 +199,9 @@ function XboxPageContent() {
       return;
     }
     if (selectedProfileId) {
-      loadGames({ onlyCompleted });
+      loadGames({ onlyCompleted, showHidden });
     }
-  }, [onlyCompleted]);
+  }, [onlyCompleted, showHidden]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -377,7 +397,7 @@ function XboxPageContent() {
     }
   };
 
-  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean }) => {
+  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; showHidden?: boolean }) => {
     if (!selectedProfileId) return;
 
     setLoading(true);
@@ -386,6 +406,7 @@ function XboxPageContent() {
     const page = overrides?.page ?? currentPage;
     const perPage = overrides?.perPage ?? itemsPerPage;
     const effectiveOnlyCompleted = overrides?.onlyCompleted ?? onlyCompleted;
+    const effectiveShowHidden = overrides?.showHidden ?? showHidden;
 
     try {
       const params = new URLSearchParams({
@@ -399,6 +420,9 @@ function XboxPageContent() {
 
       if (effectiveOnlyCompleted) {
         params.append('onlyCompleted', 'true');
+      }
+      if (!effectiveShowHidden) {
+        params.append('excludeHidden', 'true');
       }
       if (generationFilter) {
         params.append('device', generationFilter);
@@ -432,6 +456,7 @@ function XboxPageContent() {
               onSelectProfile={handleProfileChange}
               onError={handleProfileError}
               onProfilesLoaded={(count) => setNoProfiles(count === 0)}
+              reloadTrigger={reloadTrigger}
             />
             {selectedProfileId && (
               <div className="flex items-center gap-2">
@@ -557,6 +582,27 @@ function XboxPageContent() {
               }`} />
             </button>
             <span className="text-sm">100% Only</span>
+
+          <button
+            role="switch"
+            aria-checked={showHidden}
+            onClick={() => {
+              const next = !showHidden;
+              setShowHidden(next);
+              if (selectedProfileId) localStorage.setItem(`xbox_showHidden_${selectedProfileId}`, String(next));
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              showHidden ? 'bg-[var(--xbox-accent)]' : 'bg-gray-600'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              showHidden ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+          <span
+            className="text-sm cursor-default"
+            title="Show games you have manually hidden."
+          >Show Hidden</span>
 
             {/* Generation filter */}
             <div className="flex items-center gap-2">
