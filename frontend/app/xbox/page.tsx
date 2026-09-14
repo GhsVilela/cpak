@@ -5,8 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
-import ViewModeSelector, { ViewMode } from '../../components/ViewModeSelector';
-import GameSearchInput from '../../components/GameSearchInput';
+import GameToolbar from '../../components/GameToolbar';
+import { StatsStrip, StatTile } from '../../components/StatsStrip';
+import type { ViewMode } from '../../components/ViewModeSelector';
 import Toast from '../../components/Toast';
 
 interface Game {
@@ -535,127 +536,77 @@ function XboxPageContent() {
 
         {/* Last Sync Info */}
         {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
-          <div className="mb-4 flex items-center gap-3 text-sm text-gray-400 flex-wrap">
+          <StatsStrip className="mb-4">
             {baseGamerscore !== undefined && baseGamerscore > 0 && (
               <>
-                <span title="Total gamerscore from all platforms.">
-                  <span>Gamerscore: </span>
-                  <span className="font-bold text-[var(--xbox-accent)]">
-                    {baseGamerscore.toLocaleString()}
-                  </span>
-                </span>
+                <StatTile
+                  title="Total gamerscore from all platforms."
+                  label="Gamerscore"
+                  value={baseGamerscore.toLocaleString()}
+                  valueClassName="text-[var(--xbox-accent)]"
+                />
                 {xbox360Gamerscore !== undefined && xbox360Gamerscore > 0 && (
-                  <>
-                    <span className="text-gray-600">|</span>
-                    <span title="Total gamerscore from xbox 360 only.">
-                      <span>Xbox 360: </span>
-                      <span className="font-bold text-[var(--xbox-accent)]">
-                        {xbox360Gamerscore.toLocaleString()}
-                      </span>
-                    </span>
-                  </>
+                  <StatTile
+                    title="Total gamerscore from xbox 360 only."
+                    label="Xbox 360"
+                    value={xbox360Gamerscore.toLocaleString()}
+                    valueClassName="text-[var(--xbox-accent)]"
+                  />
                 )}
-                <span className="text-gray-600">|</span>
               </>
             )}
-            <span>
-              Synced: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
-              {syncStatus.lastCompleted.status === 'success' ? (
-                <span className="text-green-400 ml-2">✓</span>
-              ) : (
-                <span className="text-red-400 ml-2">✗</span>
-              )}
-            </span>
-          </div>
+            <StatTile
+              label="Last Sync"
+              bold={false}
+              spanFull={
+                (baseGamerscore !== undefined && baseGamerscore > 0
+                  ? xbox360Gamerscore !== undefined && xbox360Gamerscore > 0
+                    ? 2
+                    : 1
+                  : 0) % 2 === 0
+              }
+              value={
+                <>
+                  {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
+                  {syncStatus.lastCompleted.status === 'success' ? (
+                    <span className="text-green-400 ml-2">✓</span>
+                  ) : (
+                    <span className="text-red-400 ml-2">✗</span>
+                  )}
+                </>
+              }
+            />
+          </StatsStrip>
         )}
 
-        {/* Filters */}
-        {selectedProfileId && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-4 flex-wrap">
-              <GameSearchInput onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }} />
-              <ViewModeSelector viewMode={viewMode} onViewModeChange={handleViewModeChange} />
-            </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              <button
-                role="switch"
-                aria-checked={onlyCompleted}
-                onClick={() => {
-                  const next = !onlyCompleted;
-                  setOnlyCompleted(next);
-                  if (selectedProfileId) localStorage.setItem(`xbox_onlyCompleted_${selectedProfileId}`, String(next));
-                }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  onlyCompleted ? 'bg-[var(--xbox-accent)]' : 'bg-gray-600'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  onlyCompleted ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
-              <span className="text-sm">100% Only</span>
-
-              <button
-                role="switch"
-                aria-checked={showHidden}
-                onClick={() => {
-                  const next = !showHidden;
-                  setShowHidden(next);
-                  if (selectedProfileId) localStorage.setItem(`xbox_showHidden_${selectedProfileId}`, String(next));
-                }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  showHidden ? 'bg-[var(--xbox-accent)]' : 'bg-gray-600'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  showHidden ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
-              <span
-                className="text-sm cursor-default"
-                title="Show games you have manually hidden."
-              >Show Hidden</span>
-            </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              {/* Generation filter */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-400">Platform:</label>
-                <select
-                  value={generationFilter}
-                  onChange={(e) => { setGenerationFilter(e.target.value); if (selectedProfileId) localStorage.setItem(`xbox_generationFilter_${selectedProfileId}`, e.target.value); }}
-                  className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--xbox-accent)]"
-                >
-                  {GENERATION_FILTERS.map((f) => (
-                    <option key={f.value} value={f.value}>{f.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-400">Sort:</label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => { setSortBy(e.target.value); if (selectedProfileId) localStorage.setItem(`xbox_sortBy_${selectedProfileId}`, e.target.value); }}
-                  className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--xbox-accent)]"
-                >
-                  <option value="title">Title</option>
-                  <option value="completionPercent">Completion %</option>
-                  <option value="currentGamerscore">Gamerscore</option>
-                  <option value="achievementsTotal">Total Achievements</option>
-                  <option value="lastSyncedAt">Last Synced</option>
-                </select>
-                <select
-                  value={sortOrder}
-                  onChange={(e) => { setSortOrder(e.target.value as 'asc' | 'desc'); if (selectedProfileId) localStorage.setItem(`xbox_sortOrder_${selectedProfileId}`, e.target.value); }}
-                  className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--xbox-accent)]"
-                >
-                  <option value="asc">Ascending</option>
-                  <option value="desc">Descending</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
+      {/* Filters */}
+      {selectedProfileId && (
+        <GameToolbar
+          accent="var(--xbox-accent)"
+          onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }}
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+          onlyCompleted={onlyCompleted}
+          onOnlyCompletedChange={(next) => { setOnlyCompleted(next); if (selectedProfileId) localStorage.setItem(`xbox_onlyCompleted_${selectedProfileId}`, String(next)); }}
+          showHidden={showHidden}
+          onShowHiddenChange={(next) => { setShowHidden(next); if (selectedProfileId) localStorage.setItem(`xbox_showHidden_${selectedProfileId}`, String(next)); }}
+          showHiddenTitle="Show games you have manually hidden."
+          generationOptions={GENERATION_FILTERS}
+          generationFilter={generationFilter}
+          onGenerationFilterChange={(value) => { setGenerationFilter(value); if (selectedProfileId) localStorage.setItem(`xbox_generationFilter_${selectedProfileId}`, value); }}
+          sortByOptions={[
+            { value: 'title', label: 'Title' },
+            { value: 'completionPercent', label: 'Completion %' },
+            { value: 'currentGamerscore', label: 'Gamerscore' },
+            { value: 'achievementsTotal', label: 'Total Achievements' },
+            { value: 'lastSyncedAt', label: 'Last Synced' },
+          ]}
+          sortBy={sortBy}
+          onSortByChange={(value) => { setSortBy(value); if (selectedProfileId) localStorage.setItem(`xbox_sortBy_${selectedProfileId}`, value); }}
+          sortOrder={sortOrder}
+          onSortOrderChange={(value) => { setSortOrder(value); if (selectedProfileId) localStorage.setItem(`xbox_sortOrder_${selectedProfileId}`, value); }}
+        />
+      )}
       </div>
 
       {error && (
