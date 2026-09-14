@@ -19,13 +19,13 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <nav className="border-b border-gray-800 bg-gray-900/50 backdrop-blur">
-          <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
             <Logo />
-            <div className="flex gap-4 text-sm">
-              <a href="/steam" className="hover:text-[var(--steam-accent)] transition">Steam</a>
-              <a href="/xbox" className="hover:text-[var(--xbox-accent)] transition">Xbox</a>
-              <a href="/playstation" className="hover:text-[var(--playstation-accent)] transition">PlayStation</a>
-              <a href="/settings" className="hover:text-gray-300 transition">Settings</a>
+            <div className="flex gap-4 text-sm overflow-x-auto no-scrollbar">
+              <a href="/steam" className="whitespace-nowrap hover:text-[var(--steam-accent)] transition">Steam</a>
+              <a href="/xbox" className="whitespace-nowrap hover:text-[var(--xbox-accent)] transition">Xbox</a>
+              <a href="/playstation" className="whitespace-nowrap hover:text-[var(--playstation-accent)] transition">PlayStation</a>
+              <a href="/settings" className="whitespace-nowrap hover:text-gray-300 transition">Settings</a>
             </div>
           </div>
         </nav>

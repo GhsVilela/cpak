@@ -5,8 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
-import ViewModeSelector, { ViewMode } from '../../components/ViewModeSelector';
-import GameSearchInput from '../../components/GameSearchInput';
+import GameToolbar from '../../components/GameToolbar';
+import { StatsStrip, StatTile } from '../../components/StatsStrip';
+import type { ViewMode } from '../../components/ViewModeSelector';
 import Toast from '../../components/Toast';
 
 interface Game {
@@ -480,124 +481,85 @@ function SteamPageContent() {
 
         {/* Last Sync Info */}
         {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
-          <div className="mb-4 flex items-center gap-3 text-sm text-gray-400 flex-wrap">
+          <StatsStrip className="mb-4">
             {baseTrackedAchievements !== undefined && showcaseAchievements != null ? (
               <>
-                <span title="Total unlocked achievements from your steam profile showcase.">
-                  <span>Achievements Unlocked: </span>
-                  <span className="font-bold text-[var(--steam-accent)]">
-                    {showcaseAchievements.toLocaleString()}
-                  </span>
-                </span>
-                <span className="text-gray-600">|</span>
-                <span title="Achievements tracked by cpak from API-accessible games.">
-                  <span>Tracked: </span>
-                  <span className="font-bold text-[var(--steam-accent)]">
-                    {baseTrackedAchievements.toLocaleString()}
-                  </span>
-                </span>
-                <span className="text-gray-600">|</span>
-                <span title="Achievements cpak couldn't fetch, likely from games with revoked licenses.">
-                  <span>Untracked: </span>
-                  <span className="font-bold text-yellow-400">
-                    {Math.max(0, showcaseAchievements - baseTrackedAchievements).toLocaleString()}
-                  </span>
-                </span>
-                <span className="text-gray-600">|</span>
+                <StatTile
+                  title="Total unlocked achievements from your steam profile showcase."
+                  label="Achievements Unlocked"
+                  value={showcaseAchievements.toLocaleString()}
+                  valueClassName="text-[var(--steam-accent)]"
+                />
+                <StatTile
+                  title="Achievements tracked by cpak from API-accessible games."
+                  label="Tracked"
+                  value={baseTrackedAchievements.toLocaleString()}
+                  valueClassName="text-[var(--steam-accent)]"
+                />
+                <StatTile
+                  title="Achievements cpak couldn't fetch, likely from games with revoked licenses."
+                  label="Untracked"
+                  value={Math.max(0, showcaseAchievements - baseTrackedAchievements).toLocaleString()}
+                  valueClassName="text-yellow-400"
+                />
               </>
             ) : baseTrackedAchievements !== undefined ? (
-              <>
-                <span title="Total achievements tracked by cpak. May differ from steam profile total if some played games licenses were revoked.">
-                  <span>Achievements Unlocked: </span>
-                  <span className="font-bold text-[var(--steam-accent)]">
-                    {baseTrackedAchievements.toLocaleString()}
-                  </span>
-                </span>
-                <span className="text-gray-600">|</span>
-              </>
+              <StatTile
+                title="Total achievements tracked by cpak. May differ from steam profile total if some played games licenses were revoked."
+                label="Achievements Unlocked"
+                value={baseTrackedAchievements.toLocaleString()}
+                valueClassName="text-[var(--steam-accent)]"
+              />
             ) : null}
-            <span>
-              Synced: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
-              {syncStatus.lastCompleted.status === 'success' ? (
-                <span className="text-green-400 ml-2">✓</span>
-              ) : (
-                <span className="text-red-400 ml-2">✗</span>
-              )}
-            </span>
-          </div>
+            <StatTile
+              label="Last Sync"
+              bold={false}
+              spanFull={
+                (baseTrackedAchievements !== undefined && showcaseAchievements != null
+                  ? 3
+                  : baseTrackedAchievements !== undefined
+                    ? 1
+                    : 0) % 2 === 0
+              }
+              value={
+                <>
+                  {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
+                  {syncStatus.lastCompleted.status === 'success' ? (
+                    <span className="text-green-400 ml-2">✓</span>
+                  ) : (
+                    <span className="text-red-400 ml-2">✗</span>
+                  )}
+                </>
+              }
+            />
+          </StatsStrip>
         )}
 
-        {selectedProfileId && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-4 flex-wrap">
-            <GameSearchInput onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }} />
-            <ViewModeSelector viewMode={viewMode} onViewModeChange={handleViewModeChange} />
-          </div>
-          <div className="flex items-center gap-4 flex-wrap">
-            <button
-              role="switch"
-              aria-checked={onlyCompleted}
-              onClick={() => {
-                const next = !onlyCompleted;
-                setOnlyCompleted(next);
-                if (selectedProfileId) localStorage.setItem(`steam_onlyCompleted_${selectedProfileId}`, String(next));
-              }}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                onlyCompleted ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
-              }`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                onlyCompleted ? 'translate-x-6' : 'translate-x-1'
-              }`} />
-            </button>
-            <span className="text-sm">100% Only</span>
-
-            <button
-              role="switch"
-              aria-checked={showHidden}
-              onClick={() => {
-                const next = !showHidden;
-                setShowHidden(next);
-                if (selectedProfileId) localStorage.setItem(`steam_showHidden_${selectedProfileId}`, String(next));
-              }}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                showHidden ? 'bg-[var(--steam-accent)]' : 'bg-gray-600'
-              }`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                showHidden ? 'translate-x-6' : 'translate-x-1'
-              }`} />
-            </button>
-            <span
-              className="text-sm cursor-default"
-              title="Show games with revoked licenses and games you have manually hidden."
-            >Show Hidden</span>
-          </div>
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-400">Sort:</label>
-              <select
-                value={sortBy}
-                onChange={(e) => { setSortBy(e.target.value); if (selectedProfileId) localStorage.setItem(`steam_sortBy_${selectedProfileId}`, e.target.value); }}
-                className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--steam-accent)]"
-              >
-                <option value="title">Title</option>
-                <option value="completionPercent">Completion %</option>
-                <option value="achievementsTotal">Total Achievements</option>
-                <option value="lastSyncedAt">Last Synced</option>
-              </select>
-              <select
-                value={sortOrder}
-                onChange={(e) => { setSortOrder(e.target.value as 'asc' | 'desc'); if (selectedProfileId) localStorage.setItem(`steam_sortOrder_${selectedProfileId}`, e.target.value); }}
-                className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--steam-accent)]"
-              >
-                <option value="asc">Ascending</option>
-                <option value="desc">Descending</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        )}
+      {selectedProfileId && (
+        <GameToolbar
+          accent="var(--steam-accent)"
+          onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }}
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+          onlyCompleted={onlyCompleted}
+          onOnlyCompletedChange={(next) => { setOnlyCompleted(next); if (selectedProfileId) localStorage.setItem(`steam_onlyCompleted_${selectedProfileId}`, String(next)); }}
+          showHidden={showHidden}
+          onShowHiddenChange={(next) => { setShowHidden(next); if (selectedProfileId) localStorage.setItem(`steam_showHidden_${selectedProfileId}`, String(next)); }}
+          showHiddenTitle="Show games with revoked licenses and games you have manually hidden."
+          generationFilter=""
+          onGenerationFilterChange={() => {}}
+          sortByOptions={[
+            { value: 'title', label: 'Title' },
+            { value: 'completionPercent', label: 'Completion %' },
+            { value: 'achievementsTotal', label: 'Total Achievements' },
+            { value: 'lastSyncedAt', label: 'Last Synced' },
+          ]}
+          sortBy={sortBy}
+          onSortByChange={(value) => { setSortBy(value); if (selectedProfileId) localStorage.setItem(`steam_sortBy_${selectedProfileId}`, value); }}
+          sortOrder={sortOrder}
+          onSortOrderChange={(value) => { setSortOrder(value); if (selectedProfileId) localStorage.setItem(`steam_sortOrder_${selectedProfileId}`, value); }}
+        />
+      )}
       </div>
 
       {loading && selectedProfileId && <p>Loading games...</p>}

@@ -5,8 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
-import ViewModeSelector, { ViewMode } from '../../components/ViewModeSelector';
-import GameSearchInput from '../../components/GameSearchInput';
+import GameToolbar from '../../components/GameToolbar';
+import { StatsStrip, StatTile } from '../../components/StatsStrip';
+import type { ViewMode } from '../../components/ViewModeSelector';
 import Toast from '../../components/Toast';
 
 interface Game {
@@ -468,140 +469,105 @@ function PlayStationPageContent() {
 
         {/* Trophy summary + last sync info */}
         {selectedProfileId && !syncStatus?.current && (
-          <div className="mb-4 flex items-center gap-3 text-sm text-gray-400 flex-wrap">
+          <StatsStrip className="mb-4">
             {baseTrophySummary && (baseTrophySummary.totalBronze + baseTrophySummary.totalSilver + baseTrophySummary.totalGold + baseTrophySummary.totalPlatinum) > 0 && (
               <>
-                <span className="font-semibold text-white">Trophies:</span>
-                <span title="Total trophies">
-                  <span className="font-bold text-[var(--playstation-accent)]">{baseTrophySummary.totalBronze + baseTrophySummary.totalSilver + baseTrophySummary.totalGold + baseTrophySummary.totalPlatinum}</span>
-                </span>
-                <span className="text-gray-600">|</span>
+                <StatTile
+                  title="Total trophies"
+                  label="Trophies"
+                  value={baseTrophySummary.totalBronze + baseTrophySummary.totalSilver + baseTrophySummary.totalGold + baseTrophySummary.totalPlatinum}
+                  valueClassName="text-[var(--playstation-accent)]"
+                />
                 {baseTrophySummary.totalPlatinum > 0 && (
-                  <span title="Platinum trophies">
-                    <span style={{ color: '#a0b4c8' }}>● </span>
-                    <span className="font-bold text-white">{baseTrophySummary.totalPlatinum}</span>
-                    <span className="text-gray-500 ml-1">platinum</span>
-                  </span>
+                  <StatTile
+                    title="Platinum trophies"
+                    label="Platinum"
+                    dotColor="#a0b4c8"
+                    value={baseTrophySummary.totalPlatinum}
+                    valueClassName="text-white"
+                  />
                 )}
                 {baseTrophySummary.totalGold > 0 && (
-                  <span title="Gold trophies">
-                    <span style={{ color: '#c8a800' }}>● </span>
-                    <span className="font-bold text-white">{baseTrophySummary.totalGold}</span>
-                    <span className="text-gray-500 ml-1">gold</span>
-                  </span>
+                  <StatTile
+                    title="Gold trophies"
+                    label="Gold"
+                    dotColor="#c8a800"
+                    value={baseTrophySummary.totalGold}
+                    valueClassName="text-white"
+                  />
                 )}
                 {baseTrophySummary.totalSilver > 0 && (
-                  <span title="Silver trophies">
-                    <span style={{ color: '#a8a8a8' }}>● </span>
-                    <span className="font-bold text-white">{baseTrophySummary.totalSilver}</span>
-                    <span className="text-gray-500 ml-1">silver</span>
-                  </span>
+                  <StatTile
+                    title="Silver trophies"
+                    label="Silver"
+                    dotColor="#a8a8a8"
+                    value={baseTrophySummary.totalSilver}
+                    valueClassName="text-white"
+                  />
                 )}
                 {baseTrophySummary.totalBronze > 0 && (
-                  <span title="Bronze trophies">
-                    <span style={{ color: '#cd7f32' }}>● </span>
-                    <span className="font-bold text-white">{baseTrophySummary.totalBronze}</span>
-                    <span className="text-gray-500 ml-1">bronze</span>
-                  </span>
+                  <StatTile
+                    title="Bronze trophies"
+                    label="Bronze"
+                    dotColor="#cd7f32"
+                    value={baseTrophySummary.totalBronze}
+                    valueClassName="text-white"
+                  />
                 )}
-                {syncStatus?.lastCompleted && <span className="text-gray-600">|</span>}
               </>
             )}
             {syncStatus?.lastCompleted && (
-              <span>
-                Synced: {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
-                {syncStatus.lastCompleted.status === 'success' ? (
-                  <span className="text-green-400 ml-2">✓</span>
-                ) : (
-                  <span className="text-red-400 ml-2">✗</span>
-                )}
-              </span>
+              <StatTile
+                label="Last Sync"
+                bold={false}
+                spanFull={
+                  (baseTrophySummary &&
+                  (baseTrophySummary.totalBronze + baseTrophySummary.totalSilver + baseTrophySummary.totalGold + baseTrophySummary.totalPlatinum) > 0
+                    ? 1 + (baseTrophySummary.totalPlatinum > 0 ? 1 : 0) + (baseTrophySummary.totalGold > 0 ? 1 : 0) + (baseTrophySummary.totalSilver > 0 ? 1 : 0) + (baseTrophySummary.totalBronze > 0 ? 1 : 0)
+                    : 0) % 2 === 0
+                }
+                value={
+                  <>
+                    {formatRelativeTime(syncStatus.lastCompleted.completedAt)}
+                    {syncStatus.lastCompleted.status === 'success' ? (
+                      <span className="text-green-400 ml-2">✓</span>
+                    ) : (
+                      <span className="text-red-400 ml-2">✗</span>
+                    )}
+                  </>
+                }
+              />
             )}
-          </div>
+          </StatsStrip>
         )}
 
-        {/* Filters */}
-        {selectedProfileId && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-4 flex-wrap">
-              <GameSearchInput onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }} />
-              <ViewModeSelector viewMode={viewMode} onViewModeChange={handleViewModeChange} />
-            </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              <button
-                role="switch"
-                aria-checked={onlyCompleted}
-                onClick={() => { const next = !onlyCompleted; setOnlyCompleted(next); if (selectedProfileId) localStorage.setItem(`playstation_onlyCompleted_${selectedProfileId}`, String(next)); }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  onlyCompleted ? 'bg-[var(--playstation-accent)]' : 'bg-gray-600'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  onlyCompleted ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
-              <span className="text-sm">100% Only</span>
-
-              <button
-                role="switch"
-                aria-checked={showHidden}
-                onClick={() => {
-                  const next = !showHidden;
-                  setShowHidden(next);
-                  if (selectedProfileId) localStorage.setItem(`playstation_showHidden_${selectedProfileId}`, String(next));
-                }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  showHidden ? 'bg-[var(--playstation-accent)]' : 'bg-gray-600'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  showHidden ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
-              <span
-                className="text-sm cursor-default"
-                title="Show games you have manually hidden."
-              >Show Hidden</span>
-            </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              {/* Generation filter */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-400">Platform:</label>
-                <select
-                  value={generationFilter}
-                  onChange={(e) => { setGenerationFilter(e.target.value); if (selectedProfileId) localStorage.setItem(`playstation_generationFilter_${selectedProfileId}`, e.target.value); }}
-                  className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--playstation-accent)]"
-                >
-                  {GENERATION_FILTERS.map((f) => (
-                    <option key={f.value} value={f.value}>{f.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-400">Sort:</label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => { setSortBy(e.target.value); if (selectedProfileId) localStorage.setItem(`playstation_sortBy_${selectedProfileId}`, e.target.value); }}
-                  className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--playstation-accent)]"
-                >
-                  <option value="title">Title</option>
-                  <option value="completionPercent">Completion %</option>
-                  <option value="achievementsTotal">Total Trophies</option>
-                  <option value="lastSyncedAt">Last Synced</option>
-                </select>
-                <select
-                  value={sortOrder}
-                  onChange={(e) => { setSortOrder(e.target.value as 'asc' | 'desc'); if (selectedProfileId) localStorage.setItem(`playstation_sortOrder_${selectedProfileId}`, e.target.value); }}
-                  className="px-3 py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-[var(--playstation-accent)]"
-                >
-                  <option value="asc">Ascending</option>
-                  <option value="desc">Descending</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
+      {/* Filters */}
+      {selectedProfileId && (
+        <GameToolbar
+          accent="var(--playstation-accent)"
+          onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }}
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+          onlyCompleted={onlyCompleted}
+          onOnlyCompletedChange={(next) => { setOnlyCompleted(next); if (selectedProfileId) localStorage.setItem(`playstation_onlyCompleted_${selectedProfileId}`, String(next)); }}
+          showHidden={showHidden}
+          onShowHiddenChange={(next) => { setShowHidden(next); if (selectedProfileId) localStorage.setItem(`playstation_showHidden_${selectedProfileId}`, String(next)); }}
+          showHiddenTitle="Show games you have manually hidden."
+          generationOptions={GENERATION_FILTERS}
+          generationFilter={generationFilter}
+          onGenerationFilterChange={(value) => { setGenerationFilter(value); if (selectedProfileId) localStorage.setItem(`playstation_generationFilter_${selectedProfileId}`, value); }}
+          sortByOptions={[
+            { value: 'title', label: 'Title' },
+            { value: 'completionPercent', label: 'Completion %' },
+            { value: 'achievementsTotal', label: 'Total Trophies' },
+            { value: 'lastSyncedAt', label: 'Last Synced' },
+          ]}
+          sortBy={sortBy}
+          onSortByChange={(value) => { setSortBy(value); if (selectedProfileId) localStorage.setItem(`playstation_sortBy_${selectedProfileId}`, value); }}
+          sortOrder={sortOrder}
+          onSortOrderChange={(value) => { setSortOrder(value); if (selectedProfileId) localStorage.setItem(`playstation_sortOrder_${selectedProfileId}`, value); }}
+        />
+      )}
       </div>
 
       {error && (
