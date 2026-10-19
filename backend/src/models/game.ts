@@ -36,6 +36,12 @@ export interface IGame extends Document {
   trophyGold?: number | null;
   /** PlayStation-specific: count of earned platinum trophies (0 or 1) */
   trophyPlatinum?: number | null;
+  /**
+   * True when the title's achievements/trophies are split into multiple sets
+   * (base game plus DLC/updates). Only set when the platform/developer exposes
+   * achievement sets or trophy groups.
+   */
+  hasAchievementGroups?: boolean;
   lastSyncedAt: Date;
 }
 
@@ -68,6 +74,7 @@ const GameSchema = new Schema<IGame>(
     trophySilver: { type: Number, default: null },
     trophyGold: { type: Number, default: null },
     trophyPlatinum: { type: Number, default: null },
+    hasAchievementGroups: { type: Boolean },
     lastSyncedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

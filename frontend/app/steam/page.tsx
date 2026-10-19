@@ -36,6 +36,7 @@ interface GamesResponse {
     offset: number;
     hasMore: boolean;
     totalAchievementsUnlocked?: number;
+    completedTotal?: number;
   };
 }
 
@@ -86,6 +87,9 @@ function SteamPageContent() {
   // Persistent tracked achievement count — unfiltered, only refreshed on profile/sync change
   const [baseTrackedAchievements, setBaseTrackedAchievements] = useState<number | undefined>(undefined);
 
+  // Completed achievement groups (unit of completion) — unfiltered base
+  const [baseCompletedTotal, setBaseCompletedTotal] = useState<number | undefined>(undefined);
+
   // View mode — persisted per-platform in localStorage
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (typeof window !== 'undefined') {
@@ -98,9 +102,6 @@ function SteamPageContent() {
     setViewMode(mode);
     localStorage.setItem('cpak-view-mode-steam', mode);
   };
-
-  // Steam profile showcase achievements (scraped during sync)
-  const [showcaseAchievements, setShowcaseAchievements] = useState<number | null>(null);
 
   // Sync status and polling
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -134,7 +135,6 @@ function SteamPageContent() {
       loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
-      loadShowcaseData();
       loadBaseTrackedAchievements();
     }
   }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, searchQuery]);
@@ -189,21 +189,13 @@ function SteamPageContent() {
         offset: '0',
       });
       const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
-      setBaseTrackedAchievements(response.pagination.totalAchievementsUnlocked);
+      const { totalAchievementsUnlocked, completedTotal } = response.pagination;
+      setBaseTrackedAchievements(totalAchievementsUnlocked);
+      if (completedTotal !== undefined) {
+        setBaseCompletedTotal(completedTotal);
+      }
     } catch {
       // ignore — not critical
-    }
-  };
-
-  // Load existing showcase data from profile
-  const loadShowcaseData = async () => {
-    if (!selectedProfileId) return;
-    try {
-      const profiles = await apiClient.get<any[]>('/profiles?platform=steam');
-      const profile = profiles.find((p: any) => p._id === selectedProfileId);
-      setShowcaseAchievements(profile?.steamShowcaseAchievements ?? null);
-    } catch {
-      // ignore — showcase is optional
     }
   };
 
@@ -418,7 +410,11 @@ function SteamPageContent() {
     <div>
       <div className="mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-          <h1 className="text-3xl font-bold text-[var(--steam-accent)]">Steam Games</h1>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--steam-accent)] mb-1">Steam</p>
+            <h1 className="text-3xl font-bold text-[var(--steam-accent)]">Steam Library</h1>
+            <div className="mt-2 h-0.5 w-16 rounded-full bg-gradient-to-r from-[var(--steam-accent)] to-transparent" />
+          </div>
           <div className="flex items-center gap-4">
             <ProfileSelector
               platform="steam"
@@ -482,45 +478,27 @@ function SteamPageContent() {
         {/* Last Sync Info */}
         {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
           <StatsStrip className="mb-4">
-            {baseTrackedAchievements !== undefined && showcaseAchievements != null ? (
-              <>
-                <StatTile
-                  title="Total unlocked achievements from your steam profile showcase."
-                  label="Achievements Unlocked"
-                  value={showcaseAchievements.toLocaleString()}
-                  valueClassName="text-[var(--steam-accent)]"
-                />
-                <StatTile
-                  title="Achievements tracked by cpak from API-accessible games."
-                  label="Tracked"
-                  value={baseTrackedAchievements.toLocaleString()}
-                  valueClassName="text-[var(--steam-accent)]"
-                />
-                <StatTile
-                  title="Achievements cpak couldn't fetch, likely from games with revoked licenses."
-                  label="Untracked"
-                  value={Math.max(0, showcaseAchievements - baseTrackedAchievements).toLocaleString()}
-                  valueClassName="text-yellow-400"
-                />
-              </>
-            ) : baseTrackedAchievements !== undefined ? (
+            {baseTrackedAchievements !== undefined && (
               <StatTile
-                title="Total achievements tracked by cpak. May differ from steam profile total if some played games licenses were revoked."
+                title="Total achievements unlocked and tracked by cpak."
                 label="Achievements Unlocked"
                 value={baseTrackedAchievements.toLocaleString()}
                 valueClassName="text-[var(--steam-accent)]"
               />
-            ) : null}
+            )}
+            {baseCompletedTotal !== undefined && (
+              <StatTile
+                title="Completed achievement groups across your library — a normal game counts once, games with separate DLC/update groups count once per completed group."
+                label="Games & Groups Completed"
+                value={
+                  <span className="text-[var(--steam-accent)]">{baseCompletedTotal.toLocaleString()}</span>
+                }
+              />
+            )}
             <StatTile
               label="Last Sync"
               bold={false}
-              spanFull={
-                (baseTrackedAchievements !== undefined && showcaseAchievements != null
-                  ? 3
-                  : baseTrackedAchievements !== undefined
-                    ? 1
-                    : 0) % 2 === 0
-              }
+              spanFull={baseTrackedAchievements === undefined}
               value={
                 <>
                   {formatRelativeTime(syncStatus.lastCompleted.completedAt)}

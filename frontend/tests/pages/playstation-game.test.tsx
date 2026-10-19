@@ -264,4 +264,38 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
       ).toBeTruthy();
     }, { timeout: 3000 });
   });
+
+  it('renders trophy groups collapsed by default and expands on click', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({ ...mockGame, hasAchievementGroups: true });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          { _id: 'g1', achievementId: '0', name: 'Base Trophy', trophyGrade: 'bronze', unlockedAt: '2026-01-01T00:00:00Z', groupId: 'default', groupName: 'Base Game', groupOrder: 0 },
+          { _id: 'g2', achievementId: '100', name: 'DLC Trophy', trophyGrade: 'silver', unlockedAt: null, groupId: '001', groupName: 'New Game+', groupOrder: 1 },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    const { fireEvent } = await import('@testing-library/react');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+
+    // Group headers are visible but their trophies are hidden until expanded.
+    await waitFor(() => {
+      expect(screen.queryByText('Base Game')).toBeTruthy();
+      expect(screen.queryByText('New Game+')).toBeTruthy();
+    }, { timeout: 3000 });
+    expect(screen.queryByText('Base Trophy')).toBeNull();
+    expect(screen.queryByText('DLC Trophy')).toBeNull();
+
+    // Expanding the base game reveals only that group's trophies.
+    fireEvent.click(screen.getByText('Base Game'));
+    await waitFor(() => {
+      expect(screen.queryByText('Base Trophy')).toBeTruthy();
+    });
+    expect(screen.queryByText('DLC Trophy')).toBeNull();
+  });
 });

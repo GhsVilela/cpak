@@ -283,7 +283,6 @@ describe('SyncService', () => {
 
     vi.mocked(createSteamAdapter).mockReturnValueOnce({
       getPlayerSummary: vi.fn().mockResolvedValue({ personaname: 'Rich User' }),
-      getProfileShowcaseAchievements: vi.fn().mockResolvedValue(42),
       syncGamesAndAchievements: vi.fn().mockResolvedValue({
         games: [{
           appId: 730,

@@ -393,7 +393,11 @@ function PlayStationPageContent() {
       {/* Header row */}
       <div className="mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-          <h1 className="text-3xl font-bold text-[var(--playstation-accent)]">PlayStation Games</h1>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--playstation-accent)] mb-1">PlayStation</p>
+            <h1 className="text-3xl font-bold text-[var(--playstation-accent)]">PlayStation Trophies</h1>
+            <div className="mt-2 h-0.5 w-16 rounded-full bg-gradient-to-r from-[var(--playstation-accent)] to-transparent" />
+          </div>
           <div className="flex items-center gap-4">
             <ProfileSelector
               platform="playstation"

@@ -146,17 +146,6 @@ class SyncService {
       logger.warn({ error, profileId: profile.profileId }, 'Failed to fetch Steam display name');
     }
 
-    // Scrape achievement showcase count from Steam community profile page
-    try {
-      const showcaseCount = await steamAdapter.getProfileShowcaseAchievements(profile.profileId);
-      await Profile.findByIdAndUpdate(profile._id, { steamShowcaseAchievements: showcaseCount });
-      if (showcaseCount != null) {
-        logger.info({ profileId: profile.profileId, showcaseCount }, 'Updated Steam showcase achievement count');
-      }
-    } catch (error) {
-      logger.warn({ error, profileId: profile.profileId }, 'Failed to scrape Steam achievement showcase');
-    }
-
     // Fetch previously-synced game IDs so family-shared / removed games aren't lost
     const previousGames = await Game.find(
       { profileId: profile._id, platform: 'steam' },
@@ -210,6 +199,7 @@ class SyncService {
               playTimeMinutes: game.playtimeMinutes,
               ownershipSource: game.ownershipSource,
               achievementsFetchFailed: game.achievementsFetchFailed || false,
+              hasAchievementGroups: game.hasAchievementGroups || false,
               lastSyncedAt: new Date(),
             };
 
@@ -254,6 +244,28 @@ class SyncService {
       syncOperationId: syncOperation._id,
       gamesProcessed: result.games.length,
     }, 'Games upserted to database');
+
+    // Remove Steam games the adapter no longer reports (e.g. games with no
+    // earned achievements, or games removed from the account) so the library
+    // stays in sync. Guarded on a non-empty result set to avoid wiping the
+    // library if the sync produced nothing.
+    if (result.games.length > 0) {
+      const syncedGameIds = result.games.map((g) => g.appId.toString());
+      const staleGames = await Game.find(
+        { profileId: profile._id, platform: 'steam', gameId: { $nin: syncedGameIds } },
+        { _id: 1 }
+      ).lean();
+
+      if (staleGames.length > 0) {
+        const staleIds = staleGames.map((g) => g._id);
+        await Achievement.deleteMany({ profileId: profile._id, gameId: { $in: staleIds } });
+        await Game.deleteMany({ _id: { $in: staleIds } });
+        logger.info({
+          profileId: profile.profileId,
+          removed: staleGames.length,
+        }, 'Removed stale Steam games with no displayable achievements');
+      }
+    }
 
     // Download achievement icons (adaptive concurrency inside steam adapter)
     const { iconMap: achievementIconMap, completed, failed } = await steamAdapter.downloadAchievementIcons(
@@ -339,6 +351,9 @@ class SyncService {
             name: achievement.name,
             description: achievement.description,
             unlockedAt: achievement.unlocked ? achievement.unlockTime : undefined,
+            groupId: achievement.groupId,
+            groupName: achievement.groupName,
+            groupOrder: achievement.groupOrder,
           };
 
           if (icons?.iconPath) {
@@ -731,6 +746,7 @@ class SyncService {
               trophySilver: title.earnedTrophies.silver,
               trophyGold: title.earnedTrophies.gold,
               trophyPlatinum: title.earnedTrophies.platinum,
+              hasAchievementGroups: title.hasTrophyGroups || false,
               lastPlayed: title.lastUpdatedDateTime ? new Date(title.lastUpdatedDateTime) : undefined,
               ...(imagePaths.capsuleImagePath && { capsuleImagePath: imagePaths.capsuleImagePath }),
               ...(imagePaths.iconImagePath && { iconImagePath: imagePaths.iconImagePath }),
@@ -741,12 +757,18 @@ class SyncService {
           { upsert: true, new: true }
         );
 
-        // Fetch trophy definitions and earned status
-        const [definitions, earned] = await Promise.all([
+        // Fetch trophy definitions and earned status. For titles with trophy
+        // groups (base game + DLC/updates), also fetch the group metadata so
+        // trophies can be split into their respective sets.
+        const [definitions, earned, trophyGroups] = await Promise.all([
           adapter.getTrophyDefinitions(accessToken, title.npCommunicationId, title.npServiceName),
           adapter.getEarnedTrophies(accessToken, 'me', title.npCommunicationId, title.npServiceName),
+          title.hasTrophyGroups
+            ? adapter.getTrophyGroups(accessToken, title.npCommunicationId, title.npServiceName)
+            : Promise.resolve([]),
         ]);
 
+        const groupMap = new Map(trophyGroups.map((g) => [g.groupId, g]));
         const earnedMap = new Map(earned.map((e) => [e.trophyId, e]));
         totalAchievements += definitions.length;
         syncOperation.iconDownloadsPending += definitions.length;
@@ -756,6 +778,7 @@ class SyncService {
           definitions.map(async (def) => {
             const earnStatus = earnedMap.get(def.trophyId);
             const iconPath = await adapter.downloadTrophyIcon(title.npCommunicationId, def.trophyId, def.iconUrl);
+            const group = def.groupId ? groupMap.get(def.groupId) : undefined;
 
             return {
               updateOne: {
@@ -778,6 +801,9 @@ class SyncService {
                     iconGrayPath: iconPath, // Same icon, frontend applies CSS grayscale for locked
                     trophyGrade: def.type,
                     isHidden: def.isHidden,
+                    groupId: def.groupId,
+                    groupName: group?.groupName,
+                    groupOrder: group?.order,
                   },
                 },
                 upsert: true,

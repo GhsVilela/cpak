@@ -54,7 +54,14 @@ beforeEach(() => {
             profileId: 'p1',
           },
         ],
-        pagination: { total: 2, limit: 100, offset: 0, hasMore: false },
+        pagination: {
+          total: 2,
+          limit: 100,
+          offset: 0,
+          hasMore: false,
+          totalAchievementsUnlocked: 570,
+          completedTotal: 3,
+        },
       });
     }
     if (path.includes('/sync/status')) {
@@ -91,6 +98,52 @@ describe('Steam page — app/steam/page.tsx', () => {
       expect(screen.getByText('Counter-Strike 2')).toBeInTheDocument();
       expect(screen.getByText('Team Fortress 2')).toBeInTheDocument();
     });
+  });
+
+  it('shows Games & Groups Completed from the unfiltered games aggregation', async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.startsWith('/profiles')) {
+        return Promise.resolve([
+          { _id: 'p1', platform: 'steam', profileId: 'steam-123', displayName: 'SteamUser' },
+        ]);
+      }
+      if (path.includes('/games')) {
+        return Promise.resolve({
+          data: [],
+          pagination: {
+            total: 0,
+            limit: 1,
+            offset: 0,
+            hasMore: false,
+            totalAchievementsUnlocked: 570,
+            completedTotal: 34,
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/sync/status')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            current: null,
+            lastCompleted: { completedAt: new Date().toISOString(), status: 'success' },
+          }),
+        });
+      }
+      if (url.includes('/api/backup/status')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ backup: null, restore: null }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    }));
+
+    const { default: SteamPage } = await import('../../app/steam/page');
+    render(<SteamPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Games & Groups Completed')).toBeInTheDocument();
+    });
+    expect(screen.getByText('34')).toBeInTheDocument();
   });
 
   it('shows empty state when no games returned', async () => {

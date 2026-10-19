@@ -17,6 +17,7 @@ interface Game {
   playTimeMinutes?: number;
   ownershipSource?: 'owned' | 'played_history';
   achievementsFetchFailed?: boolean;
+  hasAchievementGroups?: boolean;
 }
 
 interface Achievement {
@@ -27,6 +28,9 @@ interface Achievement {
   unlockedAt?: string;
   iconPath?: string;
   iconGrayPath?: string;
+  groupId?: string;
+  groupName?: string;
+  groupOrder?: number;
 }
 
 // Make this page dynamic (not static)
@@ -51,6 +55,146 @@ function formatPlaytime(minutes: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+interface AchievementGroup {
+  id: string;
+  name: string;
+  order: number;
+  items: Achievement[];
+}
+
+function groupAchievements(achievements: Achievement[]): AchievementGroup[] {
+  const map = new Map<string, AchievementGroup>();
+  for (const achievement of achievements) {
+    const id = achievement.groupId ?? '__default__';
+    if (!map.has(id)) {
+      map.set(id, {
+        id,
+        name: achievement.groupName ?? 'Base Game',
+        order: achievement.groupOrder ?? 0,
+        items: [],
+      });
+    }
+    map.get(id)!.items.push(achievement);
+  }
+  return Array.from(map.values()).sort((a, b) => a.order - b.order);
+}
+
+function AchievementCard({ achievement, locked = false }: { achievement: Achievement; locked?: boolean }) {
+  if (locked) {
+    return (
+      <div className="flex items-start gap-4 rounded-xl border border-[var(--border-muted)] bg-[var(--surface-muted)] p-4 opacity-70 transition-colors">
+        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
+          {achievement.iconGrayPath ? (
+            <img
+              src={`/api/icons/${achievement.iconGrayPath}`}
+              alt={achievement.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <span className="text-2xl grayscale">🔒</span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-lg font-semibold text-gray-400">{achievement.name}</h3>
+          {achievement.description && (
+            <p className="mt-1 text-sm text-gray-500">{achievement.description}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 transition-colors hover:border-[var(--steam-accent)]">
+      <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
+        {achievement.iconPath ? (
+          <img
+            src={`/api/icons/${achievement.iconPath}`}
+            alt={achievement.name}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <span className="text-2xl">🏆</span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <h3 className="text-lg font-semibold">{achievement.name}</h3>
+        {achievement.description && (
+          <p className="mt-1 text-sm text-gray-400">{achievement.description}</p>
+        )}
+        {achievement.unlockedAt && (
+          <p className="mt-2 text-xs text-gray-500">
+            Unlocked: {new Date(achievement.unlockedAt).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AchievementGroupSection({ group }: { group: AchievementGroup }) {
+  const [open, setOpen] = useState(false);
+  const groupUnlocked = group.items.filter((a) => a.unlockedAt);
+  const groupLocked = group.items.filter((a) => !a.unlockedAt);
+  const percent = group.items.length > 0 ? Math.round((groupUnlocked.length / group.items.length) * 100) : 0;
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] transition-colors">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-[var(--surface-raised)]"
+      >
+        <span className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center justify-between gap-4">
+            <span className="truncate text-lg font-semibold text-[var(--steam-accent)]">{group.name}</span>
+            <span className="shrink-0 text-sm text-gray-400">
+              {groupUnlocked.length} / {group.items.length}
+            </span>
+          </span>
+          <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-[var(--border-muted)]">
+            <span
+              className="block h-full rounded-full bg-[var(--steam-accent)] transition-all"
+              style={{ width: `${percent}%` }}
+            />
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="space-y-4 border-t border-[var(--border-muted)] px-4 pb-4 pt-4">
+          {groupUnlocked.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Unlocked ({groupUnlocked.length})
+              </h3>
+              <div className="space-y-2">
+                {groupUnlocked.map((achievement) => (
+                  <AchievementCard key={achievement._id} achievement={achievement} />
+                ))}
+              </div>
+            </div>
+          )}
+          {groupLocked.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Locked ({groupLocked.length})
+              </h3>
+              <div className="space-y-2">
+                {groupLocked.map((achievement) => (
+                  <AchievementCard key={achievement._id} achievement={achievement} locked />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function GameDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -63,6 +207,7 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
 
   useEffect(() => {
     loadGameDetails();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, profileId]);
 
   const loadGameDetails = async () => {
@@ -95,16 +240,16 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <p>Loading game details...</p>
+      <div className="mx-auto max-w-4xl">
+        <p className="text-gray-400">Loading game details...</p>
       </div>
     );
   }
 
   if (error || !game) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-2 rounded mb-4">
+      <div className="mx-auto max-w-4xl">
+        <div className="mb-4 rounded-xl border border-red-500/50 bg-red-900/20 px-4 py-3 text-red-400">
           {error || 'Game not found'}
         </div>
         <button
@@ -119,59 +264,65 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
 
   const unlockedAchievements = achievements.filter(a => a.unlockedAt);
   const lockedAchievements = achievements.filter(a => !a.unlockedAt);
+  const groups = groupAchievements(achievements);
+  const showGroups = !!game.hasAchievementGroups && groups.length > 1;
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="mx-auto max-w-4xl">
       {/* Back button */}
       <button
         onClick={() => router.push(profileId ? `/steam?profileId=${profileId}` : '/steam')}
-        className="text-[var(--steam-accent)] hover:underline mb-6 flex items-center gap-2"
+        className="mb-6 flex items-center gap-2 text-sm text-[var(--steam-accent)] transition hover:underline"
       >
         <span>←</span> Back to games
       </button>
 
       {/* Game header */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold mb-4">{game.customTitle || game.title}</h1>
-        <div className="flex items-center gap-0 text-sm divide-x divide-gray-600 overflow-x-auto flex-nowrap">
-          <div className="pr-5 shrink-0 whitespace-nowrap">
-            <div className="text-gray-400 text-xs uppercase tracking-wide">Achievements</div>
-            <div className="font-semibold mt-0.5">
+      <div className="relative mb-6 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-lg">
+        <div
+          className="absolute inset-x-0 top-0 h-1"
+          style={{ background: 'linear-gradient(90deg, var(--steam-accent), transparent)' }}
+        />
+        <h1 className="mb-4 text-3xl font-bold">{game.customTitle || game.title}</h1>
+        <div className="flex flex-nowrap items-center gap-0 overflow-x-auto text-sm divide-x divide-[var(--border)]">
+          <div className="shrink-0 whitespace-nowrap pr-5">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Achievements</div>
+            <div className="mt-0.5 font-semibold">
               {game.achievementsUnlocked} / {game.achievementsTotal}
             </div>
           </div>
-          <div className="px-5 shrink-0 whitespace-nowrap">
-            <div className="text-gray-400 text-xs uppercase tracking-wide">Completion</div>
-            <div className="font-semibold mt-0.5">
+          <div className="shrink-0 whitespace-nowrap px-5">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Completion</div>
+            <div className="mt-0.5 font-semibold">
               {game.completionPercent}%
             </div>
           </div>
           {game.playTimeMinutes !== undefined && game.playTimeMinutes > 0 && (
-            <div className="px-5 shrink-0 whitespace-nowrap">
-              <div className="text-gray-400 text-xs uppercase tracking-wide">Time Played</div>
-              <div className="font-semibold mt-0.5">{formatPlaytime(game.playTimeMinutes)}</div>
+            <div className="shrink-0 whitespace-nowrap px-5">
+              <div className="text-xs uppercase tracking-wide text-gray-400">Time Played</div>
+              <div className="mt-0.5 font-semibold">{formatPlaytime(game.playTimeMinutes)}</div>
             </div>
           )}
           {game.lastPlayed && (
-            <div className="px-5 shrink-0 whitespace-nowrap">
-              <div className="text-gray-400 text-xs uppercase tracking-wide">Last Played</div>
-              <div className="font-semibold mt-0.5" title={new Date(game.lastPlayed).toLocaleString()}>
+            <div className="shrink-0 whitespace-nowrap px-5">
+              <div className="text-xs uppercase tracking-wide text-gray-400">Last Played</div>
+              <div className="mt-0.5 font-semibold" title={new Date(game.lastPlayed).toLocaleString()}>
                 {formatLastPlayed(game.lastPlayed)}
               </div>
             </div>
           )}
           {game.ownershipSource === 'played_history' && (
-            <div className="px-5 shrink-0 whitespace-nowrap">
-              <div className="text-gray-400 text-xs uppercase tracking-wide">Source</div>
-              <div className="font-semibold mt-0.5 text-yellow-400" title="This game is not in the owned games list">
+            <div className="shrink-0 whitespace-nowrap px-5">
+              <div className="text-xs uppercase tracking-wide text-gray-400">Source</div>
+              <div className="mt-0.5 font-semibold text-yellow-400" title="This game is not in the owned games list">
                 {game.achievementsFetchFailed ? 'Revoked License' : 'Family Sharing'}
               </div>
             </div>
           )}
         </div>
-        <div className="mt-4 bg-gray-700 rounded-full h-3 overflow-hidden">
+        <div className="mt-4 h-3 overflow-hidden rounded-full bg-[var(--border-muted)]">
           <div
-            className="bg-[var(--steam-accent)] h-full transition-all"
+            className="h-full bg-[var(--steam-accent)] transition-all"
             style={{ width: `${game.completionPercent}%` }}
           />
         </div>
@@ -179,11 +330,11 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
 
       {/* Warning banner for games with failed achievement fetch */}
       {game.achievementsFetchFailed && (
-        <div className="bg-yellow-900/20 border border-yellow-600 text-yellow-400 px-4 py-3 rounded-lg mb-6 flex items-start gap-3">
-          <span className="text-xl mt-0.5">⚠️</span>
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-yellow-600/60 bg-yellow-900/20 px-4 py-3 text-yellow-400">
+          <span className="mt-0.5 text-xl">⚠️</span>
           <div>
             <p className="font-semibold">Achievement data unavailable</p>
-            <p className="text-sm text-yellow-500 mt-1">
+            <p className="mt-1 text-sm text-yellow-500">
               This game appears in your play history but unlocked achievements could not be fetched.
               This usually happens when a game license has been revoked due to a refunded game, a limited-time free-to-play campaign, or no longer being part of a family sharing group.
               The game is still shown in your library for reference.
@@ -194,83 +345,44 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
 
       {/* Achievements list */}
       <div className="space-y-6">
-        {/* Unlocked achievements */}
-        {unlockedAchievements.length > 0 && (
-          <div>
-            <h2 className="text-xl font-semibold mb-4 text-[var(--steam-accent)]">
-              Unlocked ({unlockedAchievements.length})
-            </h2>
-            <div className="space-y-2">
-              {unlockedAchievements.map((achievement) => (
-                <div
-                  key={achievement._id}
-                  className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex gap-4 items-start"
-                >
-                  <div className="flex-shrink-0 w-16 h-16 bg-gray-700 rounded flex items-center justify-center overflow-hidden">
-                    {achievement.iconPath ? (
-                      <img
-                        src={`/api/icons/${achievement.iconPath}`}
-                        alt={achievement.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-2xl">🏆</span>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-lg">{achievement.name}</h3>
-                    {achievement.description && (
-                      <p className="text-sm text-gray-400 mt-1">{achievement.description}</p>
-                    )}
-                    {achievement.unlockedAt && (
-                      <p className="text-xs text-gray-500 mt-2">
-                        Unlocked: {new Date(achievement.unlockedAt).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}
-                      </p>
-                    )}
-                  </div>
+        {showGroups ? (
+          groups.map((group) => (
+            <AchievementGroupSection key={group.id} group={group} />
+          ))
+        ) : (
+          <>
+            {/* Unlocked achievements */}
+            {unlockedAchievements.length > 0 && (
+              <div>
+                <h2 className="mb-4 text-xl font-semibold text-[var(--steam-accent)]">
+                  Unlocked ({unlockedAchievements.length})
+                </h2>
+                <div className="space-y-2">
+                  {unlockedAchievements.map((achievement) => (
+                    <AchievementCard key={achievement._id} achievement={achievement} />
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+              </div>
+            )}
 
-        {/* Locked achievements */}
-        {lockedAchievements.length > 0 && (
-          <div>
-            <h2 className="text-xl font-semibold mb-4 text-gray-400">
-              Locked ({lockedAchievements.length})
-            </h2>
-            <div className="space-y-2">
-              {lockedAchievements.map((achievement) => (
-                <div
-                  key={achievement._id}
-                  className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 flex gap-4 items-start opacity-60"
-                >
-                  <div className="flex-shrink-0 w-16 h-16 bg-gray-700/50 rounded flex items-center justify-center overflow-hidden">
-                    {achievement.iconGrayPath ? (
-                      <img
-                        src={`/api/icons/${achievement.iconGrayPath}`}
-                        alt={achievement.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-2xl grayscale">🔒</span>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-lg text-gray-400">{achievement.name}</h3>
-                    {achievement.description && (
-                      <p className="text-sm text-gray-500 mt-1">{achievement.description}</p>
-                    )}
-                  </div>
+            {/* Locked achievements */}
+            {lockedAchievements.length > 0 && (
+              <div>
+                <h2 className="mb-4 text-xl font-semibold text-gray-400">
+                  Locked ({lockedAchievements.length})
+                </h2>
+                <div className="space-y-2">
+                  {lockedAchievements.map((achievement) => (
+                    <AchievementCard key={achievement._id} achievement={achievement} locked />
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+            )}
+          </>
         )}
 
         {achievements.length === 0 && (
-          <div className="text-center text-gray-400 py-12">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] py-12 text-center text-gray-400">
             <p>No achievement data available for this game or sync is still in progress.</p>
           </div>
         )}
