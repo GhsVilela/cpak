@@ -473,6 +473,49 @@ export class ImageStorage {
   }
 
   /**
+   * Store an image buffer that was obtained locally (e.g. extracted from a
+   * PS5 trophy backup) instead of downloading it. Game icons are resized to
+   * 64×64 JPEG to match the download pipeline; trophy icons are stored as-is.
+   */
+  async storeBuffer(
+    buffer: Buffer,
+    platform: string,
+    gameId: string,
+    achievementId: string,
+    imageType: ImageType,
+  ): Promise<string> {
+    const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
+    await fs.promises.mkdir(gameDir, { recursive: true });
+
+    let ext = '.png';
+    let data = buffer;
+
+    const isGameIcon = imageType === 'icon' && achievementId === 'game';
+    if (isGameIcon) {
+      try {
+        const meta = await sharp(buffer).metadata();
+        if (!(meta.width === 64 && meta.height === 64 && meta.format === 'jpeg')) {
+          data = await sharp(buffer)
+            .resize(64, 64, { fit: 'cover', position: 'centre' })
+            .jpeg({ quality: 90 })
+            .toBuffer();
+        }
+        ext = '.jpg';
+      } catch (err) {
+        logger.warn({ platform, gameId, err: String(err) }, 'Failed to process game icon buffer, storing original');
+        ext = '.png';
+      }
+    }
+
+    const filePath = path.join(
+      gameDir,
+      `${this.sanitizeFilename(achievementId)}_${imageType}${ext}`,
+    );
+    await fs.promises.writeFile(filePath, data);
+    return this.getRelativePath(filePath);
+  }
+
+  /**
    * Get the relative path from the base images directory
    */
   private getRelativePath(absolutePath: string): string {
