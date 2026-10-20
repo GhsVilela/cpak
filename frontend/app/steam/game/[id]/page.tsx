@@ -3,12 +3,17 @@ import { demoGames } from '../../../../services/demo/demoData';
 import Client from './Client';
 
 export async function generateStaticParams() {
-  return demoGames
-    .filter(g => g.platform === 'steam')
-    .map(game => ({
-      id: game._id,
-    }));
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
+    return demoGames
+      .filter(g => g.platform === 'steam')
+      .map(game => ({
+        id: game._id,
+      }));
+  }
+  return [];
 }
+
+export const dynamic = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'auto' : 'force-dynamic';
 
 export default function GamePage({ params }: { params: Promise<{ id: string }> }) {
   return (
