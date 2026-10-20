@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Logo from "@/components/Logo";
+import { DemoInit } from "../components/DemoInit";
 
 export const metadata: Metadata = {
   title: "cpak - Cross Platform Achievement Keeper",
@@ -18,9 +18,16 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <DemoInit />
         <nav className="border-b border-gray-800 bg-gray-900/50 backdrop-blur">
           <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
-            <Logo />
+            <a href="/" className="group">
+              <h1 className="text-2xl font-black tracking-tight logo-text">
+                <span className="logo-bracket">[</span>
+                <span className="logo-gradient">cpak</span>
+                <span className="logo-bracket">]</span>
+              </h1>
+            </a>
             <div className="flex gap-4 text-sm overflow-x-auto no-scrollbar">
               <a href="/steam" className="whitespace-nowrap hover:text-[var(--steam-accent)] transition">Steam</a>
               <a href="/xbox" className="whitespace-nowrap hover:text-[var(--xbox-accent)] transition">Xbox</a>
@@ -29,7 +36,9 @@ export default function RootLayout({
             </div>
           </div>
         </nav>
-        <main className="container mx-auto px-4 py-8">{children}</main>
+        <main className="container mx-auto px-4 py-8">
+          {children}
+        </main>
       </body>
     </html>
   );

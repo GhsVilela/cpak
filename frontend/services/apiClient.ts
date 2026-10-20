@@ -1,9 +1,30 @@
 import { getConfig } from './config';
+import { setupMockApi } from './demo/mockApi';
+
+const isDemoMode = () => {
+  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
+    return true;
+  }
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('demo') === 'true') return true;
+    if ((window as any).__DEMO_MODE__ === true) return true;
+  }
+  return false;
+};
 
 export class ApiClient {
   private baseUrl: string | null = null;
+  private demoInitialized = false;
 
   private async getBaseUrl(): Promise<string> {
+    if (isDemoMode()) {
+      if (!this.demoInitialized) {
+        setupMockApi();
+        this.demoInitialized = true;
+      }
+      return '';
+    }
     if (!this.baseUrl) {
       const config = await getConfig();
       this.baseUrl = config.API_BASE_URL;
@@ -13,7 +34,8 @@ export class ApiClient {
 
   async get<T>(path: string): Promise<T> {
     const baseUrl = await this.getBaseUrl();
-    const response = await fetch(`${baseUrl}${path}`);
+    const url = baseUrl ? `${baseUrl}${path}` : path;
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`API error: ${response.statusText}`);
     }
@@ -22,6 +44,7 @@ export class ApiClient {
 
   async post<T>(path: string, body?: any): Promise<T> {
     const baseUrl = await this.getBaseUrl();
+    const url = baseUrl ? `${baseUrl}${path}` : path;
     const headers: Record<string, string> = {};
     let requestBody: string | undefined = undefined;
 
@@ -30,7 +53,7 @@ export class ApiClient {
       requestBody = JSON.stringify(body);
     }
 
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(url, {
       method: 'POST',
       headers,
       body: requestBody,
@@ -43,7 +66,8 @@ export class ApiClient {
 
   async patch<T>(path: string, body: any): Promise<T> {
     const baseUrl = await this.getBaseUrl();
-    const response = await fetch(`${baseUrl}${path}`, {
+    const url = baseUrl ? `${baseUrl}${path}` : path;
+    const response = await fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -56,7 +80,8 @@ export class ApiClient {
 
   async put<T>(path: string, body: any): Promise<T> {
     const baseUrl = await this.getBaseUrl();
-    const response = await fetch(`${baseUrl}${path}`, {
+    const url = baseUrl ? `${baseUrl}${path}` : path;
+    const response = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -69,7 +94,8 @@ export class ApiClient {
 
   async delete(path: string): Promise<void> {
     const baseUrl = await this.getBaseUrl();
-    const response = await fetch(`${baseUrl}${path}`, {
+    const url = baseUrl ? `${baseUrl}${path}` : path;
+    const response = await fetch(url, {
       method: 'DELETE',
     });
     if (!response.ok) {

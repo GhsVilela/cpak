@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { setupMockApi } from '../services/demo/mockApi';
 
 interface Profile {
   _id: string;
@@ -14,6 +15,10 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
+      (window as any).__DEMO_MODE__ = true;
+      setupMockApi();
+    }
     async function checkProfiles() {
       try {
         const response = await fetch('/api/profiles');
@@ -24,15 +29,12 @@ export default function Home() {
         const profiles: Profile[] = await response.json();
 
         if (profiles.length === 0) {
-          // No profiles configured, redirect to settings
           router.push('/settings');
           return;
         }
 
-        // Check which platforms have profiles
         const platforms = new Set(profiles.map(p => p.platform));
 
-        // Priority: steam > xbox > playstation
         if (platforms.has('steam')) {
           router.push('/steam');
         } else if (platforms.has('xbox')) {
@@ -40,12 +42,10 @@ export default function Home() {
         } else if (platforms.has('playstation')) {
           router.push('/playstation');
         } else {
-          // Fallback to settings if unknown platform
           router.push('/settings');
         }
       } catch (error) {
         console.error('Error checking profiles:', error);
-        // On error, default to settings page
         router.push('/settings');
       }
     }
