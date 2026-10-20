@@ -2,7 +2,7 @@ name: Deploy Demo to GitHub Pages
 
 on:
   push:
-    branches: [gh-pages-demo]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -28,6 +28,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Install dependencies
         working-directory: ./frontend
         run: npm ci
