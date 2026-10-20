@@ -94,14 +94,13 @@ describe('PlayStation page — app/playstation/page.tsx (T026)', () => {
     });
   });
 
-  it('displays PlayStation Games heading', async () => {
+  it('displays PlayStation Trophies heading', async () => {
     const { default: PlayStationPage } = await import('../../app/playstation/page');
     render(<PlayStationPage />);
     await waitFor(() => {
       expect(
-        screen.queryByText(/playstation games/i) ||
-          screen.queryByText(/playstation/i),
-      ).toBeTruthy();
+        screen.getByRole('heading', { name: /playstation trophies/i }),
+      ).toBeInTheDocument();
     });
   });
 

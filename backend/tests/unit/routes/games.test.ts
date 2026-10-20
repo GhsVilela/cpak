@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
   gameFindMock, gameCountDocumentsMock, gameFindOneMock, gameFindByIdMock, gameAggregateMock,
+  achievementAggregateMock,
   profileFindByIdMock, sharpMockFn, fsMkdirSyncMock, fsWriteFileSyncMock,
 } = vi.hoisted(() => {
   const sharpChain: any = {};
@@ -15,6 +16,7 @@ const {
     gameFindOneMock: vi.fn(),
     gameFindByIdMock: vi.fn(),
     gameAggregateMock: vi.fn(),
+    achievementAggregateMock: vi.fn(),
     profileFindByIdMock: vi.fn(),
     sharpMockFn: vi.fn(() => sharpChain),
     fsMkdirSyncMock: vi.fn(),
@@ -34,6 +36,10 @@ vi.mock('../../../src/models/game.js', () => ({
 
 vi.mock('../../../src/models/profile.js', () => ({
   Profile: { findById: profileFindByIdMock },
+}));
+
+vi.mock('../../../src/models/achievement.js', () => ({
+  Achievement: { aggregate: achievementAggregateMock },
 }));
 
 vi.mock('../../../src/utils/logger.js', () => ({
@@ -213,13 +219,30 @@ describe('Games Route Handlers', () => {
 
     it('includes achievements aggregation for steam platform with profileId', async () => {
       profileFindByIdMock.mockResolvedValue({ _id: 'p1' });
-      gameCountDocumentsMock.mockResolvedValue(3);
+      gameCountDocumentsMock.mockResolvedValue(5);
       gameAggregateMock.mockResolvedValue([{ total: 42 }]);
+      achievementAggregateMock.mockResolvedValue([{ count: 7 }]);
       gameFindMock.mockReturnValue(chainedQuery([{ _id: '1', title: 'TF2' }]));
 
       const reply = createMockReply();
       await getGames({ query: { platform: 'steam', profileId: 'p1' } } as any, reply);
       expect(reply.body.pagination.totalAchievementsUnlocked).toBe(42);
+      // completed groups are the unit of completion
+      expect(reply.body.pagination.completedTotal).toBe(7);
+      expect(reply.body.pagination).not.toHaveProperty('completedGames');
+      expect(reply.body.pagination).not.toHaveProperty('completedGroups');
+    });
+
+    it('reports zero completedTotal when the group aggregation is empty', async () => {
+      profileFindByIdMock.mockResolvedValue({ _id: 'p1' });
+      gameCountDocumentsMock.mockResolvedValue(0);
+      gameAggregateMock.mockResolvedValue([{ total: 0 }]);
+      achievementAggregateMock.mockResolvedValue([]);
+      gameFindMock.mockReturnValue(chainedQuery([]));
+
+      const reply = createMockReply();
+      await getGames({ query: { platform: 'steam', profileId: 'p1' } } as any, reply);
+      expect(reply.body.pagination.completedTotal).toBe(0);
     });
 
     it('sorts by completionPercent with achievementsUnlocked as tiebreaker', async () => {

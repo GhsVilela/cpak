@@ -334,4 +334,157 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
     expect(result.games).toEqual([]);
     expect(result.adaptiveStats).toBeDefined();
   });
+
+  it('uses the group-aware IPlayerService endpoints and maps achievement sets', async () => {
+    stubFetch({
+      GetOwnedGames: {
+        response: {
+          games: [{ appid: 500, name: 'Grouped Game', playtime_forever: 100 }],
+        },
+      },
+      GetGameAchievements: {
+        response: {
+          schema_version: 1,
+          achievements: [
+            { internal_name: 'ACH_BASE', internal_key: 1, localized_name: 'Base Ach', localized_desc: 'base', icon: 'b.png', icon_gray: 'bg.png', groupid: 0 },
+            { internal_name: 'ACH_DLC', internal_key: 2, localized_name: 'DLC Ach', localized_desc: 'dlc', icon: 'd.png', icon_gray: 'dg.png', groupid: 1 },
+            { internal_name: 'ACH_ARCHIVED', internal_key: 3, localized_name: 'Old', groupid: 0, archived: true },
+          ],
+          groups: [
+            { groupid: 0, localized_name: 'Base Game', dlcappid: 0, order: 0 },
+            { groupid: 1, localized_name: 'Update 1', dlcappid: 1234, order: 1 },
+          ],
+        },
+      },
+      GetUserAchievements: {
+        response: {
+          achievements: [
+            { internal_key: 1, unlocked: true, unlock_time: 1700000000 },
+            { internal_key: 2, unlocked: false },
+          ],
+          groups: [],
+        },
+      },
+    });
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+
+    expect(result.games).toHaveLength(1);
+    expect(result.games[0]).toMatchObject({
+      appId: 500,
+      name: 'Grouped Game',
+      totalAchievements: 2,
+      earnedAchievements: 1,
+      hasAchievementGroups: true,
+    });
+
+    // Archived achievements are excluded from the totals/list
+    expect(result.achievements).toHaveLength(2);
+
+    const base = result.achievements.find((a) => a.achievementId === 'ACH_BASE');
+    expect(base).toMatchObject({
+      groupId: '0',
+      groupName: 'Base Game',
+      groupOrder: 0,
+      unlocked: true,
+      icon: 'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/500/b.png',
+      iconGray: 'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/500/bg.png',
+    });
+    expect(base!.unlockTime).toEqual(new Date(1700000000 * 1000));
+
+    const dlc = result.achievements.find((a) => a.achievementId === 'ACH_DLC');
+    expect(dlc).toMatchObject({
+      groupId: '1',
+      groupName: 'Update 1',
+      groupOrder: 1,
+      unlocked: false,
+    });
+  });
+
+  it('treats a valid empty GetGameAchievements response as definitive (no legacy fallback)', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => {
+        if (url.includes('GetOwnedGames')) {
+          return { response: { games: [{ appid: 42, name: 'NoAch', playtime_forever: 30 }] } };
+        }
+        if (url.includes('GetGameAchievements')) {
+          return { response: { schema_version: 1, achievements: [], groups: [] } };
+        }
+        if (url.includes('GetPlayerAchievements')) {
+          return { playerstats: { success: true, achievements: [] } };
+        }
+        if (url.includes('GetSchemaForGame')) {
+          return { game: { availableGameStats: { achievements: [] } } };
+        }
+        return {};
+      },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+
+    expect(result.games).toHaveLength(0);
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes('GetGameAchievements'))).toBe(true);
+    expect(urls.some((u) => u.includes('GetPlayerAchievements'))).toBe(false);
+    expect(urls.some((u) => u.includes('GetSchemaForGame'))).toBe(false);
+  });
+
+  it('filters out owned games with a valid response but no unlocked achievements', async () => {
+    stubFetch({
+      GetOwnedGames: {
+        response: {
+          games: [{ appid: 777, name: 'Unplayed', playtime_forever: 60 }],
+        },
+      },
+      GetGameAchievements: {
+        response: {
+          achievements: [
+            { internal_name: 'A1', internal_key: 1, localized_name: 'One', groupid: 0 },
+          ],
+          groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+        },
+      },
+      // Valid response, but the player has unlocked nothing (no achievements array).
+      GetUserAchievements: { response: { groups: [{ groupid: 0, completed_achievements: 0 }] } },
+    });
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+
+    expect(result.games).toHaveLength(0);
+    expect(result.achievements).toHaveLength(0);
+  });
+
+  it('surfaces play-history games with no unlocked achievements as fetch-failed (revoked license)', async () => {
+    stubFetch({
+      GetOwnedGames: { response: { games: [] } },
+      // Game appears in play history but is not owned.
+      ClientGetLastPlayedTimes: {
+        response: { games: [{ appid: 777, playtime_forever: 60 }] },
+      },
+      GetGameAchievements: {
+        response: {
+          achievements: [
+            { internal_name: 'A1', internal_key: 1, localized_name: 'One', groupid: 0 },
+          ],
+          groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+        },
+      },
+      GetUserAchievements: { response: { groups: [{ groupid: 0, completed_achievements: 0 }] } },
+    });
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+
+    expect(result.games).toHaveLength(1);
+    expect(result.games[0]).toMatchObject({
+      appId: 777,
+      totalAchievements: 1,
+      earnedAchievements: 0,
+      achievementsFetchFailed: true,
+      ownershipSource: 'played_history',
+    });
+    expect(result.achievements).toHaveLength(1);
+    expect(result.achievements[0].unlocked).toBe(false);
+  });
 });

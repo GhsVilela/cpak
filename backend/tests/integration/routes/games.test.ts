@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import { createTestServer, teardownTestServer } from '../../helpers/server.js';
 import { Game } from '../../../src/models/game.js';
 import { Profile } from '../../../src/models/profile.js';
+import { Achievement } from '../../../src/models/achievement.js';
 
 let app: FastifyInstance;
 
@@ -370,6 +371,89 @@ describe('GET /api/games platform aggregations', () => {
     const body = res.json();
     expect(body.pagination.totalAchievementsUnlocked).toBe(20);
     expect(body.data).toHaveLength(2);
+  });
+
+  it('includes completedTotal for steam + profileId', async () => {
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-completion-test',
+      displayName: 'Steam Completion Test',
+      credentials: {},
+    });
+    const games = await Game.create([
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'sc1',
+        title: 'Complete Grouped',
+        achievementsTotal: 3,
+        achievementsUnlocked: 3,
+        completionPercent: 100,
+        hasAchievementGroups: true,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'sc2',
+        title: 'Incomplete With Completed Group',
+        achievementsTotal: 3,
+        achievementsUnlocked: 1,
+        completionPercent: 33,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'sc3',
+        title: 'Complete Legacy',
+        achievementsTotal: 2,
+        achievementsUnlocked: 2,
+        completionPercent: 100,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'sc4',
+        title: 'Complete Two Groups',
+        achievementsTotal: 3,
+        achievementsUnlocked: 3,
+        completionPercent: 100,
+        hasAchievementGroups: true,
+        lastSyncedAt: new Date(),
+      },
+    ]);
+    await Achievement.create([
+      // sc1 base group: fully unlocked → 1
+      { platform: 'steam', profileId: profile._id, gameId: games[0]._id, achievementId: 'a1', name: 'A1', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date() },
+      { platform: 'steam', profileId: profile._id, gameId: games[0]._id, achievementId: 'a2', name: 'A2', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date() },
+      // sc1 DLC group: partially unlocked → does not count
+      { platform: 'steam', profileId: profile._id, gameId: games[0]._id, achievementId: 'a3', name: 'A3', groupId: '5', groupName: 'DLC', groupOrder: 1 },
+      // sc2 legacy achievements (no groupId) → do not count
+      { platform: 'steam', profileId: profile._id, gameId: games[1]._id, achievementId: 'b1', name: 'B1', unlockedAt: new Date() },
+      { platform: 'steam', profileId: profile._id, gameId: games[1]._id, achievementId: 'b2', name: 'B2' },
+      // sc2 update group: fully unlocked → counts even though game itself is not 100%
+      { platform: 'steam', profileId: profile._id, gameId: games[1]._id, achievementId: 'b3', name: 'B3', groupId: '9', groupName: 'Update', groupOrder: 1, unlockedAt: new Date() },
+      // sc3 completed but no group data → contributes nothing
+      { platform: 'steam', profileId: profile._id, gameId: games[2]._id, achievementId: 'c1', name: 'C1', unlockedAt: new Date() },
+      { platform: 'steam', profileId: profile._id, gameId: games[2]._id, achievementId: 'c2', name: 'C2', unlockedAt: new Date() },
+      // sc4 two fully unlocked groups → 2
+      { platform: 'steam', profileId: profile._id, gameId: games[3]._id, achievementId: 'd1', name: 'D1', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date() },
+      { platform: 'steam', profileId: profile._id, gameId: games[3]._id, achievementId: 'd2', name: 'D2', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date() },
+      { platform: 'steam', profileId: profile._id, gameId: games[3]._id, achievementId: 'd3', name: 'D3', groupId: '7', groupName: 'Update', groupOrder: 1, unlockedAt: new Date() },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=steam&profileId=${profile._id}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // groups are the unit of completion: sc1 (1) + sc2 update group (1) + sc4 (2)
+    expect(body.pagination.completedTotal).toBe(4);
+    expect(body.pagination).not.toHaveProperty('completedGames');
+    expect(body.pagination).not.toHaveProperty('completedGroups');
   });
 
   it('includes gamerscore totals for xbox + profileId', async () => {

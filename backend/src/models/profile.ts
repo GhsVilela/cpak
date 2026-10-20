@@ -17,8 +17,6 @@ export interface IProfile extends Document {
   isDefault?: boolean;
   /** Whether the user has manually edited the display name. */
   displayNameEdited?: boolean;
-  /** Total achievements from Steam profile achievement showcase (null if not available). */
-  steamShowcaseAchievements?: number | null;
   createdAt: Date;
   updatedAt: Date;
   getDecryptedCredentials(): any;
@@ -36,7 +34,6 @@ const ProfileSchema = new Schema<IProfile>(
     credentials: { type: Schema.Types.Mixed, default: {} },
     isDefault: { type: Boolean, default: false },
     displayNameEdited: { type: Boolean, default: false },
-    steamShowcaseAchievements: { type: Number, default: null },
   },
   { timestamps: true }
 );

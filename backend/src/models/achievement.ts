@@ -16,6 +16,16 @@ export interface IAchievement extends Document {
   trophyGrade?: 'bronze' | 'silver' | 'gold' | 'platinum' | null;
   /** PlayStation-specific: whether this is a hidden/secret trophy */
   isHidden?: boolean;
+  /**
+   * Achievement set / trophy group identifier this achievement belongs to.
+   * PlayStation: "default" for the base game, "001"/"002"… for DLC/updates.
+   * Steam: the numeric achievement set (group) id as a string ("0" = base game).
+   */
+  groupId?: string;
+  /** Human-readable name of the achievement set / trophy group. */
+  groupName?: string;
+  /** Display order of the group (base game first). */
+  groupOrder?: number;
 }
 
 const AchievementSchema = new Schema<IAchievement>(
@@ -40,6 +50,9 @@ const AchievementSchema = new Schema<IAchievement>(
       default: null,
     },
     isHidden: { type: Boolean, default: false },
+    groupId: { type: String },
+    groupName: { type: String },
+    groupOrder: { type: Number, default: null },
   },
   { timestamps: true }
 );

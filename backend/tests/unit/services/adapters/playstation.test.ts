@@ -14,6 +14,7 @@ vi.mock('psn-api', () => ({
   getUserTrophyProfileSummary: vi.fn(),
   getUserTitles: vi.fn(),
   getTitleTrophies: vi.fn(),
+  getTitleTrophyGroups: vi.fn(),
   getUserTrophiesEarnedForTitle: vi.fn(),
 }));
 
@@ -43,6 +44,7 @@ import {
   getUserTrophyProfileSummary,
   getUserTitles,
   getTitleTrophies,
+  getTitleTrophyGroups,
   getUserTrophiesEarnedForTitle,
 } from 'psn-api';
 import { imageStorage } from '../../../../src/utils/imageStorage.js';
@@ -383,6 +385,55 @@ describe('PlayStationAdapter', () => {
 
       const result = await adapter.getTrophyDefinitions('mock-access-token', 'NPWR12345_00', 'trophy2');
       expect(result[0].name).toBe('Hidden Trophy');
+    });
+
+    it('maps the trophy group id from the API', async () => {
+      vi.mocked(getTitleTrophies).mockResolvedValue({
+        trophies: [
+          { trophyId: 0, trophyHidden: false, trophyType: 'bronze', trophyName: 'Base', trophyGroupId: 'default' },
+          { trophyId: 1, trophyHidden: false, trophyType: 'bronze', trophyName: 'DLC', trophyGroupId: '001' },
+        ],
+      } as any);
+
+      const result = await adapter.getTrophyDefinitions('mock-access-token', 'NPWR12345_00', 'trophy2');
+      expect(result[0].groupId).toBe('default');
+      expect(result[1].groupId).toBe('001');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getTrophyGroups
+  // -------------------------------------------------------------------------
+
+  describe('getTrophyGroups', () => {
+    it('fetches trophy groups, labelling the default group "Base Game"', async () => {
+      vi.mocked(getTitleTrophyGroups).mockResolvedValue({
+        trophyGroups: [
+          { trophyGroupId: 'default', trophyGroupName: 'God of War', trophyGroupIconUrl: 'a.png', definedTrophies: {} },
+          { trophyGroupId: '001', trophyGroupName: 'New Game+', trophyGroupIconUrl: 'b.png', definedTrophies: {} },
+        ],
+      } as any);
+
+      const result = await adapter.getTrophyGroups('mock-access-token', 'NPWR12345_00', 'trophy2');
+
+      expect(getTitleTrophyGroups).toHaveBeenCalledWith(
+        { accessToken: 'mock-access-token' },
+        'NPWR12345_00',
+        expect.any(Object),
+      );
+      expect(result).toEqual([
+        { groupId: 'default', groupName: 'Base Game', iconUrl: 'a.png', order: 0 },
+        { groupId: '001', groupName: 'New Game+', iconUrl: 'b.png', order: 1 },
+      ]);
+    });
+
+    it('falls back to a generated name when a group has no name', async () => {
+      vi.mocked(getTitleTrophyGroups).mockResolvedValue({
+        trophyGroups: [{ trophyGroupId: '002', trophyGroupName: '', trophyGroupIconUrl: 'c.png', definedTrophies: {} }],
+      } as any);
+
+      const result = await adapter.getTrophyGroups('mock-access-token', 'NPWR12345_00', 'trophy2');
+      expect(result[0].groupName).toBe('Set 002');
     });
   });
 

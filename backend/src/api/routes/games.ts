@@ -4,6 +4,7 @@ import * as path from 'path';
 import sharp from 'sharp';
 import { Game } from '../../models/game.js';
 import { Profile } from '../../models/profile.js';
+import { Achievement } from '../../models/achievement.js';
 import { logger } from '../../utils/logger.js';
 
 interface GamesQuery {
@@ -152,6 +153,33 @@ export async function getGames(
       }
     }
 
+    // For Steam profiles, count completed achievement groups — the unit of
+    // completion. A non-split game has a single group (its base achievements),
+    // so it counts once; a game with separate DLC/update groups counts once
+    // per fully-completed group.
+    let completedTotal: number | undefined;
+    if (filter.platform === 'steam' && filter.profileId) {
+      const groupAgg = await Achievement.aggregate([
+        {
+          $match: {
+            platform: 'steam',
+            profileId: filter.profileId,
+            groupId: { $exists: true, $nin: [null, ''] },
+          },
+        },
+        {
+          $group: {
+            _id: { gameId: '$gameId', groupId: '$groupId' },
+            total: { $sum: 1 },
+            unlocked: { $sum: { $cond: [{ $ifNull: ['$unlockedAt', false] }, 1, 0] } },
+          },
+        },
+        { $match: { $expr: { $eq: ['$unlocked', '$total'] } } },
+        { $count: 'count' },
+      ]);
+      completedTotal = groupAgg.length > 0 ? groupAgg[0].count : 0;
+    }
+
     // For PlayStation profiles, aggregate trophy summary across all games
     let trophySummary: { totalBronze: number; totalSilver: number; totalGold: number; totalPlatinum: number } | undefined;
     if (filter.platform === 'playstation' && filter.profileId) {
@@ -201,6 +229,7 @@ export async function getGames(
         ...(totalCurrentGamerscore !== undefined && { totalCurrentGamerscore }),
         ...(totalMaxGamerscore !== undefined && { totalMaxGamerscore }),
         ...(totalAchievementsUnlocked !== undefined && { totalAchievementsUnlocked }),
+        ...(completedTotal !== undefined && { completedTotal }),
         ...(trophySummary !== undefined && { trophySummary }),
       }
     });

@@ -16,6 +16,7 @@ import {
   getUserTrophyProfileSummary,
   getUserTitles,
   getTitleTrophies,
+  getTitleTrophyGroups,
   getUserTrophiesEarnedForTitle,
   type AuthTokensResponse,
   type TrophyTitle,
@@ -55,6 +56,8 @@ export interface PSNTrophyTitle {
   earnedTrophies: { bronze: number; silver: number; gold: number; platinum: number };
   progress: number;
   lastUpdatedDateTime: string;
+  /** True when the title splits its trophies into multiple groups (base game + DLC/updates). */
+  hasTrophyGroups: boolean;
 }
 
 export interface PSNTrophyDetail {
@@ -64,6 +67,19 @@ export interface PSNTrophyDetail {
   type: 'bronze' | 'silver' | 'gold' | 'platinum';
   iconUrl?: string;
   isHidden: boolean;
+  /** Trophy group this trophy belongs to ("default" = base game, "001"/"002" = DLC/updates). */
+  groupId?: string;
+}
+
+/**
+ * A trophy group for a title. The "default" group is the base game; additional
+ * groups (e.g. "001", "002") are DLC or content updates.
+ */
+export interface PSNTrophyGroup {
+  groupId: string;
+  groupName: string;
+  iconUrl?: string;
+  order: number;
 }
 
 export interface PSNEarnedTrophy {
@@ -240,6 +256,7 @@ export class PlayStationAdapter {
         },
         progress: t.progress,
         lastUpdatedDateTime: t.lastUpdatedDateTime,
+        hasTrophyGroups: t.hasTrophyGroups ?? false,
       }));
   }
 
@@ -272,6 +289,38 @@ export class PlayStationAdapter {
       type: (t.trophyType as 'bronze' | 'silver' | 'gold' | 'platinum') ?? 'bronze',
       iconUrl: t.trophyIconUrl,
       isHidden: t.trophyHidden ?? false,
+      groupId: t.trophyGroupId,
+    }));
+  }
+
+  /**
+   * Fetch the trophy groups for a title. The "default" group holds the base
+   * game trophies; additional groups are DLC/updates.
+   *
+   * Only meaningful when the title reports `hasTrophyGroups`.
+   */
+  async getTrophyGroups(
+    accessToken: string,
+    npCommunicationId: string,
+    npServiceName: 'trophy' | 'trophy2',
+  ): Promise<PSNTrophyGroup[]> {
+    const auth = { accessToken };
+    await this._sleep(DEFAULT_REQUEST_DELAY_MS);
+    const response = await this._withRetry(() =>
+      getTitleTrophyGroups(auth, npCommunicationId, {
+        npServiceName: npServiceName === 'trophy' ? 'trophy' : undefined,
+      })
+    );
+
+    const groups = response.trophyGroups ?? [];
+    return groups.map((g, index) => ({
+      groupId: g.trophyGroupId,
+      groupName:
+        g.trophyGroupId === 'default'
+          ? 'Base Game'
+          : (g.trophyGroupName || `Set ${g.trophyGroupId}`),
+      iconUrl: g.trophyGroupIconUrl,
+      order: index,
     }));
   }
 
