@@ -9,6 +9,9 @@ import GameToolbar from '../../components/GameToolbar';
 import { StatsStrip, StatTile } from '../../components/StatsStrip';
 import type { ViewMode } from '../../components/ViewModeSelector';
 import Toast from '../../components/Toast';
+import TrophyBackupImportModal, {
+  TrophyBackupImportResult,
+} from '../../components/TrophyBackupImportModal';
 
 interface Game {
   _id: string;
@@ -134,6 +137,10 @@ function PlayStationPageContent() {
 
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Trophy backup import state
+  const [importing, setImporting] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info') => {
     setToast({ message, type });
@@ -353,6 +360,41 @@ function PlayStationPageContent() {
     }
   };
 
+  const handleImportFinished = (result: TrophyBackupImportResult) => {
+    const importedCount = result.imported?.length ?? 0;
+    const skipped = result.skipped ?? [];
+    const alreadyTracked = skipped.filter((s) => s.reason !== 'no-unlocked-trophies').length;
+    const emptyBackups = skipped.filter((s) => s.reason === 'no-unlocked-trophies').length;
+    const errorCount = result.errors?.length ?? 0;
+    const trophyCount = (result.imported ?? []).reduce(
+      (sum, game) => sum + game.trophiesUnlocked,
+      0,
+    );
+    if (errorCount > 0) {
+      console.warn('[TrophyBackup] Skipped/ignored files', {
+        skipped: result.skipped,
+        errors: result.errors,
+      });
+    }
+    const parts: string[] = [];
+    if (alreadyTracked > 0) parts.push(`${alreadyTracked} already tracked`);
+    if (emptyBackups > 0) parts.push(`${emptyBackups} with no unlocked trophies`);
+    if (errorCount > 0) parts.push(`${errorCount} unreadable`);
+    const suffix = parts.length > 0 ? `, skipped ${parts.join(', ')}` : '';
+    if (importedCount > 0) {
+      showToast(
+        `Imported ${importedCount} game${importedCount === 1 ? '' : 's'} (${trophyCount} trophies earned)${suffix}`,
+        'success',
+      );
+    } else if (alreadyTracked > 0 || emptyBackups > 0) {
+      showToast(`No new games imported — skipped ${parts.join(', ')}.`, 'info');
+    } else {
+      showToast('No games were imported.', 'info');
+    }
+    setReloadTrigger((prev) => prev + 1);
+    loadBaseTrophySummary();
+  };
+
   const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; showHidden?: boolean }) => {
     if (!selectedProfileId) return;
     setLoading(true);
@@ -410,16 +452,24 @@ function PlayStationPageContent() {
             {selectedProfileId && (
               <div className="flex items-center gap-2">
                 <a
-                  href={syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? undefined : `/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/playstation?profileId=${selectedProfileId}`)}`}
-                  className={`px-4 py-2 rounded font-medium text-sm transition whitespace-nowrap ${syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'bg-gray-600 text-gray-300 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
-                  aria-disabled={!!syncStatus?.current || !!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                  href={syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current || importing ? undefined : `/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/playstation?profileId=${selectedProfileId}`)}`}
+                  className={`px-4 py-2 rounded font-medium text-sm transition whitespace-nowrap ${syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current || importing ? 'bg-gray-600 text-gray-300 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
+                  aria-disabled={!!syncStatus?.current || !!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current || importing}
                 >
                   Edit
                 </a>
+                <button
+                  onClick={() => setIsImportModalOpen(true)}
+                  disabled={!!syncStatus?.current || !!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current || importing}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-gray-200"
+                  title="Import trophies from a PlayStation trophy backup"
+                >
+                  Import Backup
+                </button>
                 {!syncStatus?.current && (
                   <button
                     onClick={triggerSync}
-                    disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
+                    disabled={!!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current || importing}
                     className="px-4 py-2 bg-[var(--playstation-accent)] hover:opacity-90 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium text-sm transition whitespace-nowrap text-white"
                     title={backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'Sync disabled during backup/restore operations' : ''}
                   >
@@ -656,10 +706,19 @@ function PlayStationPageContent() {
         />
       )}
 
+      <TrophyBackupImportModal
+        isOpen={isImportModalOpen}
+        profileId={selectedProfileId ?? null}
+        onClose={() => setIsImportModalOpen(false)}
+        onFinished={handleImportFinished}
+        onImportingChange={setImporting}
+      />
+
       {toast && (
         <Toast
           message={toast.message}
           type={toast.type}
+          duration={toast.type === 'error' ? 12000 : 8000}
           onClose={() => setToast(null)}
         />
       )}

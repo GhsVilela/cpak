@@ -182,5 +182,47 @@ describe('PlayStation page — app/playstation/page.tsx (T026)', () => {
       expect(screen.getByPlaceholderText('Search games...')).toBeInTheDocument();
     });
   });
+
+  it('renders the trophy backup import button for a selected profile', async () => {
+    const { default: PlayStationPage } = await import('../../app/playstation/page');
+    render(<PlayStationPage />);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /import backup/i })).toBeInTheDocument();
+    });
+  });
+
+  it('opens the trophy backup modal with console options', async () => {
+    const { default: PlayStationPage } = await import('../../app/playstation/page');
+    render(<PlayStationPage />);
+
+    const importButton = await screen.findByRole('button', { name: /import backup/i });
+    importButton.click();
+
+    await waitFor(() => {
+      expect(screen.getByText(/import trophy backup/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /playstation 5/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /playstation 4/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /playstation 3/i })).toBeDisabled();
+  });
+
+  it('reveals the file picker only after choosing PS5', async () => {
+    const { default: PlayStationPage } = await import('../../app/playstation/page');
+    render(<PlayStationPage />);
+
+    const importButton = await screen.findByRole('button', { name: /import backup/i });
+    importButton.click();
+
+    const fileInput = await screen.findByTestId('trophy-backup-input');
+    expect(fileInput.closest('div[class*="pointer-events-none"]')).not.toBeNull();
+
+    screen.getByRole('button', { name: /playstation 5/i }).click();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('trophy-backup-input').closest('div[class*="pointer-events-none"]'),
+      ).toBeNull();
+    });
+  });
 });
 
