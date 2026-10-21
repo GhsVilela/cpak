@@ -78,6 +78,10 @@ export default function TrophyBackupImportSection({
       setError('Select a PlayStation profile first.');
       return;
     }
+    if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
+      setError('Importing a trophy backup is not available in the demo.');
+      return;
+    }
     setFile(selected);
     setError('');
     setResult(null);

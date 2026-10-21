@@ -5,6 +5,9 @@ export interface DemoProfile {
   platform: 'steam' | 'xbox' | 'playstation';
   profileId: string;
   displayName: string;
+  /** Whether this profile is the "favorite" shown by default on its platform. */
+  isDefault?: boolean;
+  credentials?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -74,6 +77,8 @@ export const demoProfiles: DemoProfile[] = [
     platform: 'steam',
     profileId: '76561198000000001',
     displayName: 'DemoSteamGamer',
+    isDefault: true,
+    credentials: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -82,6 +87,8 @@ export const demoProfiles: DemoProfile[] = [
     platform: 'xbox',
     profileId: '2533274856345678',
     displayName: 'DemoXboxHero',
+    isDefault: true,
+    credentials: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -90,6 +97,8 @@ export const demoProfiles: DemoProfile[] = [
     platform: 'playstation',
     profileId: '1234567890123456789',
     displayName: 'DemoTrophyHunter',
+    isDefault: true,
+    credentials: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -98,6 +107,8 @@ export const demoProfiles: DemoProfile[] = [
     platform: 'steam',
     profileId: '76561198000000002',
     displayName: 'CasualSteamPlayer',
+    isDefault: false,
+    credentials: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },

@@ -6,6 +6,7 @@ import {
   demoSettings,
   demoBackupStatus,
   type DemoGame,
+  type DemoProfile,
 } from './demoData';
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || '';
@@ -33,6 +34,60 @@ function createResponse(data: any, status = 200): Response {
 
 function isGet(init?: RequestInit): boolean {
   return !init?.method || init.method === 'GET';
+}
+
+/** localStorage key holding the demo's "favorite" profile per platform. */
+function defaultProfileKey(platform: string): string {
+  return `cpak-demo-default-${platform}`;
+}
+
+function readStoredDefault(platform: string): string | null {
+  try {
+    return window.localStorage.getItem(defaultProfileKey(platform));
+  } catch {
+    return null;
+  }
+}
+
+function storeDefault(platform: string, profileId: string): void {
+  try {
+    window.localStorage.setItem(defaultProfileKey(platform), profileId);
+  } catch {
+    // storage unavailable — the favorite is then only kept for this session
+  }
+}
+
+/**
+ * Mirrors the backend: only one profile per platform can be the default one.
+ */
+function setDefaultProfile(profileId: string): DemoProfile | undefined {
+  const profile = demoProfiles.find((p) => p._id === profileId);
+  if (!profile) return undefined;
+  for (const p of demoProfiles) {
+    if (p.platform === profile.platform) {
+      p.isDefault = p._id === profileId;
+    }
+  }
+  storeDefault(profile.platform, profileId);
+  return profile;
+}
+
+/**
+ * Restores the favorite profile chosen in a previous session, so the demo
+ * keeps it across reloads.
+ */
+function restoreDefaultProfiles(): void {
+  for (const platform of ['steam', 'xbox', 'playstation']) {
+    const stored = readStoredDefault(platform);
+    if (!stored) continue;
+    const target = demoProfiles.find((p) => p._id === stored && p.platform === platform);
+    if (!target) continue;
+    for (const p of demoProfiles) {
+      if (p.platform === platform) {
+        p.isDefault = p._id === stored;
+      }
+    }
+  }
 }
 
 function parseBody(init?: RequestInit): Record<string, any> {
@@ -165,6 +220,7 @@ function handleRequest(url: string, init?: RequestInit): Response | Promise<Resp
 
   // Profiles
   if (path === '/api/profiles' && isGet(init)) {
+    restoreDefaultProfiles();
     const platform = searchParams.get('platform');
     const profiles = platform
       ? demoProfiles.filter((p) => p.platform === platform)
@@ -178,7 +234,10 @@ function handleRequest(url: string, init?: RequestInit): Response | Promise<Resp
     return createResponse({ ...profile });
   }
   if (path.match(/^\/api\/profiles\/[^/]+\/default$/) && init?.method === 'PATCH') {
-    return createResponse({ success: true, message: 'Demo mode - operation simulated' });
+    const id = decodeURIComponent(path.split('/').slice(3, 4)[0]);
+    const profile = setDefaultProfile(id);
+    if (!profile) return createResponse({ error: 'Profile not found' }, 404);
+    return createResponse({ ...profile });
   }
   if (path.match(/^\/api\/profiles\/[^/]+$/) && init?.method === 'PATCH') {
     const id = decodeURIComponent(path.split('/').pop()!);

@@ -427,13 +427,18 @@ function SteamPageContent() {
             />
             {selectedProfileId && (
               <div className="flex items-center gap-2">
-                <a
-                  href={syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? undefined : `/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/steam?profileId=${selectedProfileId}`)}`}
+                <Link
+                  href={`/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/steam?profileId=${selectedProfileId}`)}`}
+                  onClick={(e) => {
+                    if (syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current) {
+                      e.preventDefault();
+                    }
+                  }}
                   className={`px-4 py-2 rounded font-medium text-sm transition whitespace-nowrap ${syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'bg-gray-600 text-gray-300 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
                   aria-disabled={!!syncStatus?.current || !!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
                 >
                   Edit
-                </a>
+                </Link>
                 {!syncStatus?.current && (
                   <button
                     onClick={triggerSync}
