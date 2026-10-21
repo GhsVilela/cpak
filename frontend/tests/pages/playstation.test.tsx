@@ -183,46 +183,21 @@ describe('PlayStation page — app/playstation/page.tsx (T026)', () => {
     });
   });
 
-  it('renders the trophy backup import button for a selected profile', async () => {
+  it('no longer renders the trophy backup import button (moved to the edit profile page)', async () => {
     const { default: PlayStationPage } = await import('../../app/playstation/page');
     render(<PlayStationPage />);
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /import backup/i })).toBeInTheDocument();
+      expect(document.body.firstChild).toBeTruthy();
     });
+    expect(screen.queryByRole('button', { name: /import backup/i })).toBeNull();
   });
 
-  it('opens the trophy backup modal with console options', async () => {
+  it('links to the edit profile page', async () => {
     const { default: PlayStationPage } = await import('../../app/playstation/page');
     render(<PlayStationPage />);
-
-    const importButton = await screen.findByRole('button', { name: /import backup/i });
-    importButton.click();
-
-    await waitFor(() => {
-      expect(screen.getByText(/import trophy backup/i)).toBeInTheDocument();
-    });
-    expect(screen.getByRole('button', { name: /playstation 5/i })).not.toBeDisabled();
-    expect(screen.getByRole('button', { name: /playstation 4/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /playstation 3/i })).toBeDisabled();
-  });
-
-  it('reveals the file picker only after choosing PS5', async () => {
-    const { default: PlayStationPage } = await import('../../app/playstation/page');
-    render(<PlayStationPage />);
-
-    const importButton = await screen.findByRole('button', { name: /import backup/i });
-    importButton.click();
-
-    const fileInput = await screen.findByTestId('trophy-backup-input');
-    expect(fileInput.closest('div[class*="pointer-events-none"]')).not.toBeNull();
-
-    screen.getByRole('button', { name: /playstation 5/i }).click();
-
-    await waitFor(() => {
-      expect(
-        screen.getByTestId('trophy-backup-input').closest('div[class*="pointer-events-none"]'),
-      ).toBeNull();
-    });
+    // The link only renders once the profile list has loaded.
+    const editLink = await screen.findByRole('link', { name: /edit/i });
+    expect(editLink.getAttribute('href')).toContain('/settings/edit/');
   });
 });
 

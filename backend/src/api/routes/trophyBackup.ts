@@ -15,6 +15,7 @@ import {
   TrophyBackupGame,
 } from '../../services/ps5TrophyBackup.js';
 import { imageStorage } from '../../utils/imageStorage.js';
+import { backfillPlayStationGameImages } from '../../services/playstationImageBackfill.js';
 import { logger } from '../../utils/logger.js';
 
 /** Full console backups can easily exceed 500 MB — allow up to 4 GB. */
@@ -155,6 +156,21 @@ export async function importTrophyBackup(
       { profileId, imported: imported.length, skipped: skipped.length, errors: errors.length },
       '[TrophyBackup] Import finished',
     );
+
+    // The imported games are not returned by the PSN API, so a regular sync
+    // never visits them. Download their cover art in the background so they
+    // show up with images right away instead of waiting for the next sync.
+    if (imported.length > 0) {
+      const importedGameIds = imported.map((game) => game.gameId);
+      backfillPlayStationGameImages(profile._id, { gameIds: importedGameIds }).catch(
+        (err) => {
+          logger.warn(
+            { err, profileId },
+            '[TrophyBackup] Background image download failed',
+          );
+        },
+      );
+    }
 
     reply.send({ imported, skipped, errors });
   } catch (error) {
