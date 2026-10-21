@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 export default function Logo() {
@@ -16,12 +17,12 @@ export default function Logo() {
   }
 
   return (
-    <a href="/" className={groupClass}>
+    <Link href="/" className={groupClass}>
       <h1 className="text-2xl font-black tracking-tight logo-text">
         <span className="logo-bracket">[</span>
         <span className="logo-gradient">cpak</span>
         <span className="logo-bracket">]</span>
       </h1>
-    </a>
+    </Link>
   );
 }

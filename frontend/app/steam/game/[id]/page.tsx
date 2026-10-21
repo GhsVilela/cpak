@@ -13,8 +13,6 @@ export async function generateStaticParams() {
   return [];
 }
 
-export const dynamic = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? 'auto' : 'force-dynamic';
-
 export default function GamePage({ params }: { params: Promise<{ id: string }> }) {
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>

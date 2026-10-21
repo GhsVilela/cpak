@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 
@@ -301,9 +302,9 @@ function SetupPageContent() {
                 <p>
                   Make sure you have configured your <strong>Client ID</strong>, <strong>Client Secret</strong>,
                   and <strong>Redirect URI</strong> in{' '}
-                  <a href="/settings" className="text-[var(--xbox-accent)] hover:underline">
+                  <Link href="/settings" className="text-[var(--xbox-accent)] hover:underline">
                     Settings → Xbox OAuth Settings
-                  </a>
+                  </Link>
                   .
                 </p>
               </div>
@@ -333,7 +334,7 @@ function SetupPageContent() {
               {xboxConfigured === false && (
                 <div className="bg-yellow-900/20 border border-yellow-600/40 rounded px-4 py-3 text-yellow-300 text-sm">
                   Xbox OAuth is not configured. Please go to{' '}
-                  <a href="/settings" className="underline hover:text-yellow-100">Settings → Xbox OAuth Settings</a>{' '}
+                  <Link href="/settings" className="underline hover:text-yellow-100">Settings → Xbox OAuth Settings</Link>{' '}
                   and enter your <strong>Client ID</strong>, <strong>Client Secret</strong>, and <strong>Redirect URI</strong> before signing in.
                 </div>
               )}

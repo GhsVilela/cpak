@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, Suspense, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
@@ -581,12 +582,12 @@ function SteamPageContent() {
           <p className="text-gray-400 text-sm mb-6 max-w-sm">
             Add a Steam profile to start tracking your games and achievements.
           </p>
-          <a
+          <Link
             href="/setup?platform=steam"
             className="px-5 py-2.5 bg-[var(--steam-accent)] hover:opacity-90 text-gray-900 rounded-lg font-semibold text-sm transition"
           >
             Add Steam Profile
-          </a>
+          </Link>
         </div>
       )}
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, Suspense, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
@@ -431,12 +432,12 @@ function PlayStationPageContent() {
         {tokenExpired && (
           <div className="flex items-center gap-4 bg-yellow-900/30 border border-yellow-600 text-yellow-300 px-4 py-3 rounded mb-4">
             <span>⚠️ Your PlayStation token has expired. Re-add your profile with a fresh NPSSO token to resume syncing.</span>
-            <a
+            <Link
               href="/settings?platform=playstation"
               className="underline font-semibold whitespace-nowrap hover:text-yellow-100"
             >
               Update NPSSO
-            </a>
+            </Link>
           </div>
         )}
 
@@ -631,12 +632,12 @@ function PlayStationPageContent() {
           <p className="text-gray-400 text-sm mb-6 max-w-sm">
             Add a PlayStation profile to start tracking your trophies.
           </p>
-          <a
+          <Link
             href="/setup?platform=playstation"
             className="px-5 py-2.5 bg-[var(--playstation-accent)] hover:opacity-90 text-white rounded-lg font-semibold text-sm transition"
           >
             Add PlayStation Profile
-          </a>
+          </Link>
         </div>
       ) : (
         <GameGrid

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../services/apiClient';
 import ProfileSyncControls from '../../components/ProfileSyncControls';
@@ -961,7 +962,7 @@ export default function SettingsPage() {
       <div className="bg-gray-900 rounded-lg p-6 mb-6">
         <div className="flex items-start justify-between gap-4 mb-1">
           <h2 className="text-xl font-semibold">Xbox OAuth Settings</h2>
-          <a
+          <Link
             href="/xbox-guide"
             className="flex items-center gap-1.5 text-xs text-[var(--xbox-accent)] hover:underline whitespace-nowrap mt-1"
           >
@@ -969,7 +970,7 @@ export default function SettingsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
             </svg>
             Setup Guide
-          </a>
+          </Link>
         </div>
         <p className="text-sm text-gray-400 mb-4">
           Configure your Azure app registration credentials to enable Xbox sign-in.
@@ -982,7 +983,7 @@ export default function SettingsPage() {
           >
             entra.microsoft.com
           </a>
-          . See the <a href="/xbox-guide" className="text-[var(--xbox-accent)] hover:underline">Setup Guide</a> for step-by-step instructions.
+          . See the <Link href="/xbox-guide" className="text-[var(--xbox-accent)] hover:underline">Setup Guide</Link> for step-by-step instructions.
         </p>
 
         <div className="space-y-4">

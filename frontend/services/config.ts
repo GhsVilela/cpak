@@ -4,6 +4,8 @@ export interface AppConfig {
 
 let cachedConfig: AppConfig | null = null;
 
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+
 export async function getConfig(): Promise<AppConfig> {
   if (cachedConfig) return cachedConfig;
 
@@ -15,7 +17,7 @@ export async function getConfig(): Promise<AppConfig> {
 
   // Fall back to config.json
   try {
-    const response = await fetch('/config.json');
+    const response = await fetch(`${basePath}/config.json`);
     cachedConfig = await response.json();
     return cachedConfig as AppConfig;
   } catch (error) {
