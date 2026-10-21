@@ -9,58 +9,61 @@ export interface DemoProfile {
   updatedAt: string;
 }
 
+/**
+ * Mirrors the backend Game model (backend/src/models/game.ts) so the demo
+ * renders exactly like the real API.
+ */
 export interface DemoGame {
   _id: string;
-  profileId: string;
   platform: 'steam' | 'xbox' | 'playstation';
+  profileId: string;
   gameId: string;
   title: string;
-  imagePath: string | null;
-  heroImagePath: string | null;
-  logoImagePath: string | null;
-  iconImagePath: string | null;
-  completionPercent: number;
-  totalAchievements: number;
+  achievementsTotal: number;
   achievementsUnlocked: number;
-  lastPlayed?: string | null;
-  playtimeForever?: number | null;
-  isHidden: boolean;
+  completionPercent: number;
+  capsuleImagePath?: string;
+  iconImagePath?: string;
+  heroImagePath?: string;
+  customTitle?: string;
+  devices?: string[];
+  currentGamerscore?: number;
+  maxGamerscore?: number;
+  lastPlayed?: string;
+  playTimeMinutes?: number;
+  ownershipSource?: 'owned' | 'played_history';
+  achievementsFetchFailed?: boolean;
+  isHidden?: boolean;
+  trophyBronze?: number | null;
+  trophySilver?: number | null;
+  trophyGold?: number | null;
+  trophyPlatinum?: number | null;
+  hasAchievementGroups?: boolean;
+  lastSyncedAt: string;
   createdAt: string;
   updatedAt: string;
-  // Platform specific
-  gamerscoreTotal?: number;
-  gamerscoreEarned?: number;
-  gamerscore360Total?: number;
-  gamerscore360Earned?: number;
-  trophyCounts?: {
-    platinum: number;
-    gold: number;
-    silver: number;
-    bronze: number;
-  };
-  trophyCountsEarned?: {
-    platinum: number;
-    gold: number;
-    silver: number;
-    bronze: number;
-  };
 }
 
+/**
+ * Mirrors the backend Achievement model (backend/src/models/achievement.ts).
+ */
 export interface DemoAchievement {
   _id: string;
-  gameId: string;
+  platform: 'steam' | 'xbox' | 'playstation';
   profileId: string;
+  gameId: string;
   achievementId: string;
   name: string;
-  description: string;
-  iconPath: string | null;
-  iconGrayPath: string | null;
-  unlocked: boolean;
-  unlockTime?: number | null;
-  percent?: number | null;
-  gamerscore?: number | null;
-  trophyType?: 'bronze' | 'silver' | 'gold' | 'platinum' | null;
-  trophyRare?: number | null;
+  description?: string;
+  unlockedAt?: string | null;
+  iconPath?: string;
+  iconGrayPath?: string;
+  gamerscore?: number;
+  trophyGrade?: 'bronze' | 'silver' | 'gold' | 'platinum' | null;
+  isHidden?: boolean;
+  groupId?: string;
+  groupName?: string;
+  groupOrder?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -100,24 +103,34 @@ export const demoProfiles: DemoProfile[] = [
   },
 ];
 
-function makeGame(id: string, profileId: string, platform: DemoGame['platform'], title: string, total: number, unlocked: number, opts: Partial<DemoGame> = {}): DemoGame {
+function makeGame(
+  id: string,
+  profileId: string,
+  platform: DemoGame['platform'],
+  title: string,
+  total: number,
+  unlocked: number,
+  opts: Partial<DemoGame> = {}
+): DemoGame {
   const completionPercent = total === 0 ? 0 : Math.round((unlocked / total) * 100);
-  const base = {
+  const base: DemoGame = {
     _id: `game_${id}`,
     profileId,
     platform,
     gameId: id,
     title,
-    imagePath: getPlaceholderCover(`${platform}-${id}`),
-    heroImagePath: getPlaceholderHero(`${platform}-${id}`),
-    logoImagePath: null,
-    iconImagePath: getPlaceholderIcon(`${platform}-${id}`),
-    completionPercent,
-    totalAchievements: total,
+    achievementsTotal: total,
     achievementsUnlocked: unlocked,
-    lastPlayed: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
-    playtimeForever: Math.floor(Math.random() * 5000),
+    completionPercent,
+    capsuleImagePath: getPlaceholderCover(`${platform}-${id}`),
+    heroImagePath: getPlaceholderHero(`${platform}-${id}`),
+    iconImagePath: getPlaceholderIcon(`${platform}-${id}`),
+    lastPlayed: new Date(Date.now() - Math.floor(Math.random() * 30) * 86400000).toISOString(),
+    playTimeMinutes: Math.floor(Math.random() * 5000),
+    ownershipSource: 'owned',
+    achievementsFetchFailed: false,
     isHidden: false,
+    lastSyncedAt: new Date(Date.now() - 3600000).toISOString(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -138,39 +151,97 @@ export const demoGames: DemoGame[] = [
   makeGame('steam_101', 'demo_steam_2', 'steam', 'Cozy Garden Simulator', 20, 18),
   makeGame('steam_102', 'demo_steam_2', 'steam', 'Retro Arcade Collection', 100, 25),
   // Xbox
-  makeGame('xbox_001', 'demo_xbox_1', 'xbox', 'Eternal Guardians', 40, 40, { gamerscoreTotal: 1000, gamerscoreEarned: 1000 }),
-  makeGame('xbox_002', 'demo_xbox_1', 'xbox', 'Racing Legends', 30, 22, { gamerscoreTotal: 750, gamerscoreEarned: 550 }),
-  makeGame('xbox_003', 'demo_xbox_1', 'xbox', 'Desert Survival', 50, 10, { gamerscoreTotal: 1250, gamerscoreEarned: 250 }),
-  makeGame('xbox_004', 'demo_xbox_1', 'xbox', 'Action Heroes', 35, 35, { gamerscoreTotal: 875, gamerscoreEarned: 875 }),
-  makeGame('xbox_005', 'demo_xbox_1', 'xbox', 'Sci-Fi Conquest', 45, 18, { gamerscoreTotal: 1125, gamerscoreEarned: 450 }),
+  makeGame('xbox_001', 'demo_xbox_1', 'xbox', 'Eternal Guardians', 40, 40, {
+    devices: ['XboxSeries', 'PC'],
+    currentGamerscore: 1000,
+    maxGamerscore: 1000,
+  }),
+  makeGame('xbox_002', 'demo_xbox_1', 'xbox', 'Racing Legends', 30, 22, {
+    devices: ['Xbox360'],
+    currentGamerscore: 550,
+    maxGamerscore: 750,
+  }),
+  makeGame('xbox_003', 'demo_xbox_1', 'xbox', 'Desert Survival', 50, 10, {
+    devices: ['XboxOne', 'PC'],
+    currentGamerscore: 250,
+    maxGamerscore: 1250,
+  }),
+  makeGame('xbox_004', 'demo_xbox_1', 'xbox', 'Action Heroes', 35, 35, {
+    devices: ['XboxOne'],
+    currentGamerscore: 875,
+    maxGamerscore: 875,
+  }),
+  makeGame('xbox_005', 'demo_xbox_1', 'xbox', 'Sci-Fi Conquest', 45, 18, {
+    devices: ['XboxSeries', 'PC'],
+    currentGamerscore: 450,
+    maxGamerscore: 1125,
+  }),
   // PlayStation
-  makeGame('psn_001', 'demo_psn_1', 'playstation', 'Mythic Quest', 48, 48, { trophyCounts: { platinum: 1, gold: 5, silver: 12, bronze: 30 }, trophyCountsEarned: { platinum: 1, gold: 5, silver: 12, bronze: 30 } }),
-  makeGame('psn_002', 'demo_psn_1', 'playstation', 'Urban Ninja', 42, 28, { trophyCounts: { platinum: 1, gold: 4, silver: 10, bronze: 27 }, trophyCountsEarned: { platinum: 0, gold: 2, silver: 8, bronze: 18 } }),
-  makeGame('psn_003', 'demo_psn_1', 'playstation', 'Dragon\'s Legacy', 56, 15, { trophyCounts: { platinum: 1, gold: 6, silver: 14, bronze: 35 }, trophyCountsEarned: { platinum: 0, gold: 1, silver: 4, bronze: 10 } }),
-  makeGame('psn_004', 'demo_psn_1', 'playstation', 'Racing Royale', 39, 39, { trophyCounts: { platinum: 1, gold: 3, silver: 9, bronze: 26 }, trophyCountsEarned: { platinum: 1, gold: 3, silver: 9, bronze: 26 } }),
+  makeGame('psn_001', 'demo_psn_1', 'playstation', 'Mythic Quest', 48, 48, {
+    trophyBronze: 30,
+    trophySilver: 12,
+    trophyGold: 5,
+    trophyPlatinum: 1,
+    hasAchievementGroups: true,
+  }),
+  makeGame('psn_002', 'demo_psn_1', 'playstation', 'Urban Ninja', 42, 28, {
+    trophyBronze: 18,
+    trophySilver: 8,
+    trophyGold: 2,
+    trophyPlatinum: 0,
+    hasAchievementGroups: true,
+  }),
+  makeGame('psn_003', 'demo_psn_1', 'playstation', "Dragon's Legacy", 56, 15, {
+    trophyBronze: 10,
+    trophySilver: 4,
+    trophyGold: 1,
+    trophyPlatinum: 0,
+    hasAchievementGroups: true,
+  }),
+  makeGame('psn_004', 'demo_psn_1', 'playstation', 'Racing Royale', 39, 39, {
+    trophyBronze: 26,
+    trophySilver: 9,
+    trophyGold: 3,
+    trophyPlatinum: 1,
+    hasAchievementGroups: true,
+  }),
 ];
 
 function generateAchievements(game: DemoGame): DemoAchievement[] {
   const achievements: DemoAchievement[] = [];
-  const total = game.totalAchievements;
+  const total = game.achievementsTotal;
   const unlocked = game.achievementsUnlocked;
   for (let i = 0; i < total; i++) {
     const isUnlocked = i < unlocked;
+    const trophyGrade =
+      game.platform === 'playstation'
+        ? i === 0 && unlocked > 0
+          ? 'platinum'
+          : i < 5
+            ? 'gold'
+            : i < 15
+              ? 'silver'
+              : 'bronze'
+        : null;
     achievements.push({
       _id: `ach_${game._id}_${i}`,
+      platform: game.platform,
       gameId: game._id,
       profileId: game.profileId,
       achievementId: `ach_${i}`,
       name: `${game.title} - Challenge ${i + 1}`,
       description: `Complete challenge ${i + 1} in ${game.title}.`,
+      unlockedAt: isUnlocked
+        ? new Date(Date.now() - Math.floor(Math.random() * 86400000)).toISOString()
+        : null,
       iconPath: getPlaceholderIcon(`${game.gameId}-ach-${i}`),
       iconGrayPath: getPlaceholderIcon(`${game.gameId}-ach-${i}-gray`),
-      unlocked: isUnlocked,
-      unlockTime: isUnlocked ? Math.floor(Date.now() / 1000) - Math.floor(Math.random() * 86400000) : null,
-      percent: Math.floor(Math.random() * 80) + 10,
-      gamerscore: game.platform === 'xbox' ? (i % 5 === 0 ? 100 : i % 3 === 0 ? 50 : 25) : null,
-      trophyType: game.platform === 'playstation' ? (i === 0 && unlocked ? 'platinum' : i < 5 ? 'gold' : i < 15 ? 'silver' : 'bronze') : null,
-      trophyRare: game.platform === 'playstation' ? Math.floor(Math.random() * 40) + 5 : null,
+      gamerscore: game.platform === 'xbox' ? (i % 5 === 0 ? 100 : i % 3 === 0 ? 50 : 25) : undefined,
+      trophyGrade,
+      isHidden: false,
+      groupId: 'default',
+      groupName: 'Base Game',
+      groupOrder: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -181,10 +252,62 @@ function generateAchievements(game: DemoGame): DemoAchievement[] {
 export const demoAchievements: DemoAchievement[] = demoGames.flatMap(generateAchievements);
 
 export const demoSyncStatus: Record<string, any> = {
-  demo_steam_1: { status: 'idle', lastSyncAt: new Date(Date.now() - 3600000).toISOString(), progress: 100, message: 'Sync completed' },
-  demo_steam_2: { status: 'idle', lastSyncAt: new Date(Date.now() - 7200000).toISOString(), progress: 100, message: 'Sync completed' },
-  demo_xbox_1: { status: 'idle', lastSyncAt: new Date(Date.now() - 1800000).toISOString(), progress: 100, message: 'Sync completed' },
-  demo_psn_1: { status: 'idle', lastSyncAt: new Date(Date.now() - 900000).toISOString(), progress: 100, message: 'Sync completed' },
+  demo_steam_1: {
+    current: {
+      operationId: 'sync_steam_1',
+      status: 'completed',
+      progress: 100,
+      message: 'Sync completed',
+      platform: 'steam',
+      profileId: 'demo_steam_1',
+      totalGames: 8,
+      gamesProcessed: 8,
+      startedAt: new Date(Date.now() - 3600000).toISOString(),
+      lastSyncAt: new Date(Date.now() - 3600000).toISOString(),
+    },
+  },
+  demo_steam_2: {
+    current: {
+      operationId: 'sync_steam_2',
+      status: 'completed',
+      progress: 100,
+      message: 'Sync completed',
+      platform: 'steam',
+      profileId: 'demo_steam_2',
+      totalGames: 2,
+      gamesProcessed: 2,
+      startedAt: new Date(Date.now() - 7200000).toISOString(),
+      lastSyncAt: new Date(Date.now() - 7200000).toISOString(),
+    },
+  },
+  demo_xbox_1: {
+    current: {
+      operationId: 'sync_xbox_1',
+      status: 'completed',
+      progress: 100,
+      message: 'Sync completed',
+      platform: 'xbox',
+      profileId: 'demo_xbox_1',
+      totalGames: 5,
+      gamesProcessed: 5,
+      startedAt: new Date(Date.now() - 1800000).toISOString(),
+      lastSyncAt: new Date(Date.now() - 1800000).toISOString(),
+    },
+  },
+  demo_psn_1: {
+    current: {
+      operationId: 'sync_psn_1',
+      status: 'completed',
+      progress: 100,
+      message: 'Sync completed',
+      platform: 'playstation',
+      profileId: 'demo_psn_1',
+      totalGames: 4,
+      gamesProcessed: 4,
+      startedAt: new Date(Date.now() - 900000).toISOString(),
+      lastSyncAt: new Date(Date.now() - 900000).toISOString(),
+    },
+  },
 };
 
 export const demoSettings = {
@@ -194,6 +317,6 @@ export const demoSettings = {
 };
 
 export const demoBackupStatus = {
-  backup: { current: null },
-  restore: { current: null },
+  backup: { current: null, lastCompleted: null, ready: false },
+  restore: { current: null, lastCompleted: null, ready: false },
 };

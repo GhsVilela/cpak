@@ -23,7 +23,10 @@ export class ApiClient {
         setupMockApi();
         this.demoInitialized = true;
       }
-      return '';
+      // Keep the '/api' prefix so the mock API recognises the request.
+      // Dropping it would make the request escape the mock and hit the
+      // static host, which answers with a 404 ("API error: ").
+      return '/api';
     }
     if (!this.baseUrl) {
       const config = await getConfig();
