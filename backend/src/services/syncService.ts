@@ -7,6 +7,7 @@ import { createSteamAdapter } from './adapters/steam.js';
 import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
 import { createXboxAdapter } from './adapters/xbox.js';
 import { createPlayStationAdapter } from './adapters/playstation.js';
+import { backfillPlayStationGameImages } from './playstationImageBackfill.js';
 import { logger } from '../utils/logger.js';
 import { configService } from './configService.js';
 import { SYNC_DEFAULTS } from './syncDefaults.js';
@@ -837,6 +838,24 @@ class SyncService {
     syncOperation.totalAchievements = totalAchievements;
     syncOperation.achievementsSynced = achievementsSynced;
     await syncOperation.save();
+
+    // -----------------------------------------------------------------------
+    // Phase 4: Image backfill for games missing from the PSN response
+    // -----------------------------------------------------------------------
+    // Games imported from a trophy backup are never returned by the PSN API,
+    // so the loop above never visits them and they stay without cover art.
+    // Run the same provider chain for those games so they look like synced
+    // ones (SteamGridDB → IGDB → PlayStation CDN).
+    const syncedGameIds = titles.map((t) => t.npCommunicationId);
+    const backfilled = await backfillPlayStationGameImages(profile._id, {
+      excludeGameIds: syncedGameIds,
+    });
+    if (backfilled > 0) {
+      logger.info(
+        { profileId: accountId, backfilled },
+        'PlayStation images backfilled for games not returned by PSN',
+      );
+    }
 
     logger.info({
       profileId: accountId,
