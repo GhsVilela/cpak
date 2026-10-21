@@ -10,6 +10,7 @@ import { getAllSettings, getSetting, updateSetting, deleteSetting } from './sett
 import { exportData, importData } from './exportImport.js';
 import { startBackup, getBackupProgress, downloadBackup, startRestore, getRestoreProgress, getRestoreJobs, getStatus, cancelBackup, cancelRestore } from './backup.js';
 import { xboxAuthRoutes, playstationAuthRoutes } from './auth.js';
+import { importTrophyBackup } from './trophyBackup.js';
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Register system routes at root
@@ -62,6 +63,9 @@ export async function registerRoutes(fastify: FastifyInstance) {
   fastify.get('/backup/restore/progress/:jobId', getRestoreProgress);
   fastify.get('/backup/restore/status', getRestoreJobs);
   fastify.delete('/backup/restore/cancel/:jobId', cancelRestore);
+
+  // PlayStation trophy backup import
+  fastify.post('/playstation/trophy-backup/import', importTrophyBackup);
 
   // Icons API
   await registerIconRoutes(fastify);

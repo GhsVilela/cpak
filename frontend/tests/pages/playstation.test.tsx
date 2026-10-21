@@ -94,14 +94,13 @@ describe('PlayStation page — app/playstation/page.tsx (T026)', () => {
     });
   });
 
-  it('displays PlayStation Games heading', async () => {
+  it('displays PlayStation Trophies heading', async () => {
     const { default: PlayStationPage } = await import('../../app/playstation/page');
     render(<PlayStationPage />);
     await waitFor(() => {
       expect(
-        screen.queryByText(/playstation games/i) ||
-          screen.queryByText(/playstation/i),
-      ).toBeTruthy();
+        screen.getByRole('heading', { name: /playstation trophies/i }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -182,6 +181,23 @@ describe('PlayStation page — app/playstation/page.tsx (T026)', () => {
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Search games...')).toBeInTheDocument();
     });
+  });
+
+  it('no longer renders the trophy backup import button (moved to the edit profile page)', async () => {
+    const { default: PlayStationPage } = await import('../../app/playstation/page');
+    render(<PlayStationPage />);
+    await waitFor(() => {
+      expect(document.body.firstChild).toBeTruthy();
+    });
+    expect(screen.queryByRole('button', { name: /import backup/i })).toBeNull();
+  });
+
+  it('links to the edit profile page', async () => {
+    const { default: PlayStationPage } = await import('../../app/playstation/page');
+    render(<PlayStationPage />);
+    // The link only renders once the profile list has loaded.
+    const editLink = await screen.findByRole('link', { name: /edit/i });
+    expect(editLink.getAttribute('href')).toContain('/settings/edit/');
   });
 });
 

@@ -11,7 +11,7 @@ interface ToastProps {
 }
 
 export default function Toast({ message, type = 'info', onClose, duration, errorCode }: ToastProps) {
-  const effectiveDuration = duration ?? (type === 'error' ? 8000 : 3000);
+  const effectiveDuration = duration ?? (type === 'error' ? 10000 : 6000);
 
   useEffect(() => {
     if (effectiveDuration > 0) {

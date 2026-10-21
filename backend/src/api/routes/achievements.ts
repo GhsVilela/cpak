@@ -30,7 +30,7 @@ export async function getAchievements(
     }
 
     const achievements = await Achievement.find(filter)
-      .sort({ unlocked: -1, name: 1 })
+      .sort({ groupOrder: 1, unlockedAt: -1, name: 1 })
       .lean();
 
     reply.send(achievements);

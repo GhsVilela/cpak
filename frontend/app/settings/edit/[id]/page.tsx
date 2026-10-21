@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { demoProfiles } from '../../../../services/demo/demoData';
 import Client from './Client';
 
@@ -11,5 +12,9 @@ export async function generateStaticParams() {
 }
 
 export default function EditProfilePage({ params }: { params: Promise<{ id: string }> }) {
-  return <Client params={params} />;
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <Client params={params} />
+    </Suspense>
+  );
 }

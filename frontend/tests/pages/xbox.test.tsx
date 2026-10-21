@@ -91,14 +91,13 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
     });
   });
 
-  it('displays Xbox Games heading', async () => {
+  it('displays Xbox Achievements heading', async () => {
     const { default: XboxPage } = await import('../../app/xbox/page');
     render(<XboxPage />);
     await waitFor(() => {
       expect(
-        screen.queryByText(/xbox games/i) ||
-          screen.queryByText(/xbox/i),
-      ).toBeTruthy();
+        screen.getByRole('heading', { name: /xbox achievements/i }),
+      ).toBeInTheDocument();
     });
   });
 

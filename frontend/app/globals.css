@@ -3,8 +3,13 @@
 @tailwind utilities;
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --surface: #161c26;
+  --surface-raised: #1c2430;
+  --surface-muted: #121820;
+  --border: #2a3441;
+  --border-muted: #212a35;
   --steam-primary: #1b2838;
   --steam-accent: #66c0f4;
   --xbox-primary: #107c10;
@@ -15,7 +20,12 @@
 
 body {
   color: var(--foreground);
-  background: var(--background);
+  background:
+    radial-gradient(1100px 520px at 50% -180px, rgba(102, 192, 244, 0.09), transparent 70%),
+    radial-gradient(900px 480px at 100% 0%, rgba(0, 112, 204, 0.06), transparent 65%),
+    var(--background);
+  background-attachment: fixed;
+  min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

@@ -459,7 +459,11 @@ function XboxPageContent() {
       {/* Header row: title + ProfileSelector + Sync Now button */}
       <div className="mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-          <h1 className="text-3xl font-bold text-[var(--xbox-accent)]">Xbox Games</h1>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--xbox-accent)] mb-1">Xbox</p>
+            <h1 className="text-3xl font-bold text-[var(--xbox-accent)]">Xbox Achievements</h1>
+            <div className="mt-2 h-0.5 w-16 rounded-full bg-gradient-to-r from-[var(--xbox-accent)] to-transparent" />
+          </div>
           <div className="flex items-center gap-4">
             <ProfileSelector
               platform="xbox"

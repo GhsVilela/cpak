@@ -46,6 +46,69 @@ interface SteamGameSchema {
   };
 }
 
+/**
+ * Response shape for IPlayerService/GetGameAchievements (protobuf Web API).
+ * This is the modern achievement API that supports "achievement sets"
+ * (groups), where group 0 is the base game and other groups are DLC/updates.
+ */
+interface SteamGameAchievementsResponse {
+  achievements: Array<{
+    internal_name?: string;
+    internal_key?: number;
+    localized_name?: string;
+    localized_desc?: string;
+    icon?: string;
+    icon_gray?: string;
+    hidden?: boolean;
+    archived?: boolean;
+    groupid?: number;
+  }>;
+  groups: Array<{
+    groupid?: number;
+    localized_name?: string;
+    dlcappid?: number;
+    archived?: boolean;
+    developeronly?: boolean;
+    order?: number;
+    ispublic?: boolean;
+    total_achievements?: number;
+    completion_achievements?: number;
+  }>;
+}
+
+/** Response shape for IPlayerService/GetUserAchievements (protobuf Web API). */
+interface SteamUserAchievementsResponse {
+  achievements: Array<{
+    internal_key?: number;
+    unlocked?: boolean;
+    unlock_time?: number;
+    progress_int?: number;
+    progress_float?: number;
+  }>;
+  groups: Array<{
+    groupid?: number;
+    is_achievable?: boolean;
+    completed_achievements?: number;
+    is_completed?: boolean;
+    time_completed?: number;
+  }>;
+}
+
+/** Normalized achievement produced by the modern group-aware Steam flow. */
+interface SteamMappedAchievement {
+  appId: number;
+  achievementId: string;
+  name: string;
+  description: string;
+  unlocked: boolean;
+  unlockTime?: Date;
+  icon?: string;
+  iconGray?: string;
+  groupId?: string;
+  groupName?: string;
+  groupOrder?: number;
+}
+
 export class SteamAdapter {
   private apiKey: string;
   private baseUrl = 'https://api.steampowered.com';
@@ -231,6 +294,215 @@ export class SteamAdapter {
   }
 
   /**
+   * Fetch achievement metadata (names, descriptions, icons) plus achievement
+   * sets (groups) via IPlayerService/GetGameAchievements.
+   *
+   * This is the modern replacement for GetSchemaForGame and is the only source
+   * of achievement-set grouping. Returns null for games/endpoints that don't
+   * support it (delisted titles, no achievements, transient errors).
+   */
+  async getGameAchievements(appId: number): Promise<SteamGameAchievementsResponse | null> {
+    const url = `${this.baseUrl}/IPlayerService/GetGameAchievements/v1/?key=${this.apiKey}&appid=${appId}&language=english`;
+
+    return rateLimiter.executeWithRetry(
+      'steam',
+      async () => {
+        const response = await fetch(url);
+        // Retryable server/rate-limit errors — throw so executeWithRetry can retry
+        if (response.status === 429 || response.status >= 500) {
+          throw new Error(`Steam API ${response.status} for game achievements appId=${appId}`);
+        }
+        if (!response.ok) {
+          return null;
+        }
+        const contentType = response.headers?.get?.('content-type') || '';
+        if (contentType && !contentType.includes('application/json')) {
+          return null;
+        }
+        const data = await response.json() as any;
+        const payload = data?.response;
+        if (!payload || typeof payload !== 'object') {
+          return null;
+        }
+        return {
+          achievements: Array.isArray(payload.achievements) ? payload.achievements : [],
+          groups: Array.isArray(payload.groups) ? payload.groups : [],
+        };
+      },
+      `gameach:${appId}`
+    );
+  }
+
+  /**
+   * Fetch the authenticated player's achievement unlock state via
+   * IPlayerService/GetUserAchievements. Returns null when unavailable.
+   *
+   * Achievements are keyed by `internal_key` (joined against the metadata from
+   * GetGameAchievements), not by the legacy `apiname`.
+   */
+  async getUserAchievements(steamId: string, appId: number): Promise<SteamUserAchievementsResponse | null> {
+    const url = `${this.baseUrl}/IPlayerService/GetUserAchievements/v1/?key=${this.apiKey}&steamid=${steamId}&appid=${appId}`;
+
+    return rateLimiter.executeWithRetry(
+      'steam',
+      async () => {
+        const response = await fetch(url);
+        if (response.status === 429 || response.status >= 500) {
+          throw new Error(`Steam API ${response.status} for user achievements appId=${appId}`);
+        }
+        if (!response.ok) {
+          return null;
+        }
+        const contentType = response.headers?.get?.('content-type') || '';
+        if (contentType && !contentType.includes('application/json')) {
+          return null;
+        }
+        const data = await response.json() as any;
+        const payload = data?.response;
+        if (!payload || typeof payload !== 'object') {
+          return null;
+        }
+        // NOTE: when the player has unlocked nothing, Steam omits the
+        // `achievements` array entirely and only returns `groups`. That is a
+        // valid "0 unlocked" response, not a failure — callers must not treat
+        // a missing array as a fetch error.
+        return {
+          achievements: Array.isArray(payload.achievements) ? payload.achievements : [],
+          groups: Array.isArray(payload.groups) ? payload.groups : [],
+        };
+      },
+      `userach:${steamId}:${appId}`
+    );
+  }
+
+  /**
+   * Build group-aware achievements using the modern IPlayerService endpoints.
+   *
+   * Returns null only when the modern endpoint is unavailable (HTTP error /
+   * missing payload) so the caller can fall back to the legacy
+   * GetPlayerAchievements/GetSchemaForGame path. A valid response with no
+   * achievements is definitive: the app genuinely has none.
+   *
+   * Group semantics: achievement set groupid 0 / dlcappid 0 is the base game;
+   * other groups are DLC or content updates added by the developer.
+   */
+  private async getAchievementsWithGroups(steamId: string, appId: number): Promise<{
+    totalAchievements: number;
+    earnedAchievements: number;
+    hasGroups: boolean;
+    achievementsData: SteamMappedAchievement[];
+  } | null> {
+    const gameSet = await this.getGameAchievements(appId);
+    if (!gameSet) {
+      return null;
+    }
+
+    const groupMap = new Map<number, { name: string; order: number }>();
+    gameSet.groups.forEach((g, index) => {
+      const gid = g.groupid ?? 0;
+      const name = g.localized_name
+        || (gid === 0 ? 'Base Game' : (g.dlcappid ? `DLC ${g.dlcappid}` : `Set ${gid}`));
+      groupMap.set(gid, { name, order: g.order ?? index });
+    });
+
+    // Archived achievements are no longer visible/earnable in Steam — exclude
+    // them so totals match what the Steam client reports.
+    const visible = gameSet.achievements.filter((a) => !a.archived && !!a.internal_name);
+
+    const activeGroups = gameSet.groups.filter((g) => !g.archived && !g.developeronly);
+    const hasGroups = activeGroups.length > 1;
+
+    // A valid response with no achievements means the app has none — the caller
+    // should not fall back to the legacy endpoints in this case.
+    if (visible.length === 0) {
+      return {
+        totalAchievements: 0,
+        earnedAchievements: 0,
+        hasGroups: false,
+        achievementsData: [],
+      };
+    }
+
+    const userSet = await this.getUserAchievements(steamId, appId);
+
+    const userMap = new Map<number, { unlocked: boolean; unlockTime?: number }>();
+    for (const ua of userSet?.achievements ?? []) {
+      if (ua.internal_key == null) continue;
+      userMap.set(ua.internal_key, { unlocked: !!ua.unlocked, unlockTime: ua.unlock_time });
+    }
+
+    // GetGameAchievements returns bare icon hashes (e.g. "abc123.jpg"), unlike
+    // GetSchemaForGame which returns fully-qualified URLs. Rebuild the CDN URL.
+    const iconUrl = (value?: string): string | undefined => {
+      if (!value) return undefined;
+      if (/^https?:\/\//i.test(value)) return value;
+      return `https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/${appId}/${value}`;
+    };
+
+    let earnedAchievements = 0;
+    const achievementsData: SteamMappedAchievement[] = visible.map((a) => {
+      const key = a.internal_key;
+      const user = key != null ? userMap.get(key) : undefined;
+      const unlocked = !!user?.unlocked;
+      if (unlocked) earnedAchievements++;
+
+      const gid = a.groupid ?? 0;
+      const group = groupMap.get(gid);
+
+      return {
+        appId,
+        achievementId: a.internal_name as string,
+        name: a.localized_name || (a.internal_name as string),
+        description: a.localized_desc || '',
+        unlocked,
+        unlockTime: unlocked && user?.unlockTime ? new Date(user.unlockTime * 1000) : undefined,
+        icon: iconUrl(a.icon),
+        iconGray: iconUrl(a.icon_gray),
+        groupId: String(gid),
+        groupName: group?.name ?? 'Base Game',
+        groupOrder: group?.order ?? 0,
+      };
+    });
+
+    return {
+      totalAchievements: visible.length,
+      earnedAchievements,
+      hasGroups,
+      achievementsData,
+    };
+  }
+
+  /**
+   * Resolve a display name for a game using the established fallback chain:
+   * owned-list name → Steam Store API → Steam Community hub → (optional) schema.
+   */
+  private async resolveGameName(game: SteamGame, schemaGameName?: string): Promise<string> {
+    let gameName = game.name || '';
+    if (!gameName) {
+      const storeDetails = await this.getAppDetails(game.appid);
+      if (storeDetails?.name) {
+        logger.info({ appId: game.appid, newName: storeDetails.name }, 'Resolved game name from Steam Store API');
+        gameName = storeDetails.name;
+      }
+    }
+    if (!gameName) {
+      const communityName = await this.getAppNameFromCommunity(game.appid);
+      if (communityName) {
+        logger.info({ appId: game.appid, newName: communityName }, 'Resolved game name from Steam Community');
+        gameName = communityName;
+      }
+    }
+    if (!gameName && schemaGameName) {
+      gameName = schemaGameName;
+      if (gameName.length <= 4 || /^(test|placeholder|unknown|valvetestapp)/i.test(gameName)) {
+        logger.info({ appId: game.appid, schemaName: gameName }, 'Discarding suspicious schema game name');
+        gameName = '';
+      }
+    }
+    return gameName || `Unknown (${game.appid})`;
+  }
+
+  /**
    * Fetch app details from the Steam Store API.
    * This is the most reliable source for game names — the community API schema
    * occasionally returns placeholder/test names for certain titles.
@@ -296,6 +568,7 @@ export class SteamAdapter {
       iconHash?: string;
       ownershipSource?: 'owned' | 'played_history';
       achievementsFetchFailed?: boolean;
+      hasAchievementGroups?: boolean;
     }>;
     achievements: Array<{
       appId: number;
@@ -306,6 +579,9 @@ export class SteamAdapter {
       unlockTime?: Date;
       icon?: string;
       iconGray?: string;
+      groupId?: string;
+      groupName?: string;
+      groupOrder?: number;
     }>;
     adaptiveStats?: {
       finalBatchSize: number;
@@ -395,6 +671,7 @@ export class SteamAdapter {
         iconHash?: string;
         ownershipSource?: 'owned' | 'played_history';
         achievementsFetchFailed?: boolean;
+        hasAchievementGroups?: boolean;
       }>;
       achievements: Array<{
         appId: number;
@@ -405,6 +682,9 @@ export class SteamAdapter {
         unlockTime?: Date;
         icon?: string;
         iconGray?: string;
+        groupId?: string;
+        groupName?: string;
+        groupOrder?: number;
       }>;
     } = { games: [], achievements: [] };
 
@@ -438,6 +718,64 @@ export class SteamAdapter {
           return Promise.all(
             batch.map(async (game) => {
               try {
+                const ownershipSource = ownershipSourceMap.get(game.appid);
+
+                // Prefer the modern group-aware IPlayerService endpoints. They are
+                // the only source of achievement sets (base game vs DLC/updates).
+                // Falls back to the legacy schema + player-achievement path when
+                // the modern data isn't available.
+                const modern = await concurrencyController.execute(async () =>
+                  performanceMonitor.measureApiCall(
+                    `steam.getAchievementsWithGroups:${game.appid}`,
+                    async () => this.getAchievementsWithGroups(steamId, game.appid)
+                  )
+                );
+
+                if (modern) {
+                  // Games with no unlocked achievements are normally filtered out
+                  // (matching the legacy path). The exception is games the player
+                  // has in their play history but no longer owns (refunded,
+                  // limited-time free-to-play, or removed from family sharing) —
+                  // those are surfaced with a "revoked license" notice so the
+                  // user understands why no achievement data could be loaded.
+                  const fetchFailed =
+                    modern.earnedAchievements === 0 &&
+                    modern.totalAchievements > 0 &&
+                    ownershipSource === 'played_history';
+
+                  if (modern.earnedAchievements === 0 && !fetchFailed) {
+                    return null;
+                  }
+
+                  const gameName = await this.resolveGameName(game);
+
+                  logger.debug({
+                    appId: game.appid,
+                    name: gameName,
+                    totalAchievements: modern.totalAchievements,
+                    earnedAchievements: modern.earnedAchievements,
+                    hasAchievementGroups: modern.hasGroups,
+                    ownershipSource,
+                    achievementsFetchFailed: fetchFailed,
+                  }, 'Found game with unlocked achievements (group-aware)');
+
+                  const gameData = {
+                    appId: game.appid,
+                    name: gameName,
+                    playtimeMinutes: game.playtime_forever,
+                    lastPlayed: game.rtime_last_played ? new Date(game.rtime_last_played * 1000) : undefined,
+                    totalAchievements: modern.totalAchievements,
+                    earnedAchievements: modern.earnedAchievements,
+                    iconHash: game.img_icon_url,
+                    ownershipSource,
+                    hasAchievementGroups: modern.hasGroups || undefined,
+                    achievementsFetchFailed: fetchFailed || undefined,
+                  };
+
+                  return { game: gameData, achievements: modern.achievementsData };
+                }
+
+                // ---- Legacy path (no achievement-set support) ----
                 // Fetch achievements and schema with performance monitoring and adaptive concurrency
                 const [playerAchievements, gameSchema] = await Promise.all([
                   concurrencyController.execute(async () => 
@@ -456,7 +794,6 @@ export class SteamAdapter {
 
                 const schemaTotalAchievements = gameSchema?.availableGameStats?.achievements?.length || 0;
                 const earnedAchievements = playerAchievements.filter((a) => a.achieved === 1).length;
-                const ownershipSource = ownershipSourceMap.get(game.appid);
 
                 // Achievement fetch failed: the game has a schema with achievements but we
                 // couldn't retrieve any player achievement data (e.g. refunded/expired license).
@@ -488,29 +825,7 @@ export class SteamAdapter {
                 // 2. Steam Store API (reliable for F2P, early access, family-shared games)
                 // 3. Steam Community hub page (persists for delisted/removed games)
                 // 4. GetSchemaForGame (last resort — may return outdated or test names)
-                let gameName = game.name || '';
-                if (!gameName) {
-                  const storeDetails = await this.getAppDetails(game.appid);
-                  if (storeDetails?.name) {
-                    logger.info({ appId: game.appid, newName: storeDetails.name }, 'Resolved game name from Steam Store API');
-                    gameName = storeDetails.name;
-                  }
-                }
-                if (!gameName) {
-                  const communityName = await this.getAppNameFromCommunity(game.appid);
-                  if (communityName) {
-                    logger.info({ appId: game.appid, newName: communityName }, 'Resolved game name from Steam Community');
-                    gameName = communityName;
-                  }
-                }
-                if (!gameName && gameSchema?.gameName) {
-                  gameName = gameSchema.gameName;
-                  if (gameName.length <= 4 || /^(test|placeholder|unknown|valvetestapp)/i.test(gameName)) {
-                    logger.info({ appId: game.appid, schemaName: gameName }, 'Discarding suspicious schema game name');
-                    gameName = '';
-                  }
-                }
-                if (!gameName) gameName = `Unknown (${game.appid})`;
+                const gameName = await this.resolveGameName(game, gameSchema?.gameName);
 
                 const gameData = {
                   appId: game.appid,
@@ -979,89 +1294,6 @@ export class SteamAdapter {
       },
       appId.toString()
     );
-  }
-  /**
-   * Scrape the Steam community profile page for the total achievements count
-   * shown in the achievement showcase. Returns null if the user doesn't have
-   * the achievement showcase enabled or the profile is private.
-   */
-  async getProfileShowcaseAchievements(steamId: string): Promise<number | null> {
-    const url = `https://steamcommunity.com/profiles/${steamId}`;
-    try {
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(15_000),
-        redirect: 'follow',
-        headers: {
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      });
-      if (!response.ok) return null;
-      const html = await response.text();
-
-      // The achievement showcase is wrapped in <div class="achievement_showcase">.
-      // Inside it, a showcase_stats_row contains showcase_stat divs:
-      //   <div class="showcase_stat" data-tooltip-text="2,384 achievements in 412 different games.">
-      //     <div class="value">2,384</div>
-      //     <div class="label">Achievements</div>
-      //   </div>
-      //
-      // Other showcases on the page also use showcase_stat, so we MUST first
-      // isolate the achievement_showcase section to avoid false matches.
-      // We use indexOf to find the section start, then take a bounded window
-      // that covers the whole showcase block (stats row is within ~3000 chars).
-
-      const sectionStart = html.indexOf('achievement_showcase');
-      if (sectionStart === -1) {
-        logger.debug({ steamId }, 'No achievement_showcase div found on profile page');
-        return null;
-      }
-      // Take a generous window — the stats row sits within 3000 chars of the section start
-      const section = html.slice(sectionStart, sectionStart + 5000);
-
-      // Pattern 1: tooltip with "X achievements in N different games."
-      const tooltipMatch = section.match(
-        /data-tooltip-text="([\d,.]+)\s+achievements?\s+in\s+[\d,]+\s+different\s+games/i
-      );
-      if (tooltipMatch?.[1]) {
-        const count = parseInt(tooltipMatch[1].replace(/,/g, ''), 10);
-        if (!isNaN(count) && count > 0) {
-          logger.info({ steamId, count }, 'Found achievement showcase count (tooltip pattern)');
-          return count;
-        }
-      }
-
-      // Pattern 2: value div with "Achievements" label inside a showcase_stat block
-      const statMatch = section.match(
-        /<div[^>]*class="value"[^>]*>\s*([\d,]+)\s*<\/div>\s*<div[^>]*class="label"[^>]*>\s*Achievements\s*<\/div>/i
-      );
-      if (statMatch?.[1]) {
-        const count = parseInt(statMatch[1].replace(/,/g, ''), 10);
-        if (!isNaN(count) && count > 0) {
-          logger.info({ steamId, count }, 'Found achievement showcase count (stat block pattern)');
-          return count;
-        }
-      }
-
-      // Pattern 3: "+N" in showcase_achievement plus_more (total = shown + N)
-      const plusMoreMatch = section.match(
-        /showcase_achievement\s+plus_more[^>]*>\s*\+([\d,]+)/i
-      );
-      if (plusMoreMatch?.[1]) {
-        const shownCount = (section.match(/showcase_achievement\s+(?:first|")/gi) || []).length;
-        const moreCount = parseInt(plusMoreMatch[1].replace(/,/g, ''), 10);
-        const total = shownCount + moreCount;
-        if (!isNaN(total) && total > 0) {
-          logger.info({ steamId, count: total }, 'Found achievement showcase count (plus_more pattern)');
-          return total;
-        }
-      }
-
-      logger.debug({ steamId }, 'No achievement showcase found on profile page');
-      return null;
-    } catch (error) {
-      logger.debug({ error: String(error), steamId }, 'Failed to scrape achievement showcase');
-      return null;
-    }
   }
 }
 
