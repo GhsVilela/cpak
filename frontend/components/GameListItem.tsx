@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { getImageUrl, handleImageError } from '../services/imageUrl';
 
 interface GameListItemProps {
   game: {
@@ -76,10 +77,11 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
       <div className="w-16 h-16 flex-shrink-0 rounded-md overflow-hidden bg-gray-900">
         {game.iconImagePath ? (
           <img
-            src={`/api/icons/${game.iconImagePath}`}
+            src={getImageUrl(game.iconImagePath)}
             alt={displayTitle}
             className="w-full h-full object-cover"
             loading="lazy"
+            onError={(e) => handleImageError(e, displayTitle)}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-500 text-xl font-bold">

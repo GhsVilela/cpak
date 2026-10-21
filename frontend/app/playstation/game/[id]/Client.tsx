@@ -4,6 +4,7 @@ import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
 import TrophyGradeBadge from '../../../../components/TrophyGradeBadge';
+import { getImageUrl, handleImageError } from '../../../../services/imageUrl';
 
 interface Game {
   _id: string;
@@ -91,8 +92,8 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
           {/* PSN stores a single icon URL; lock state uses CSS grayscale */}
           {trophy.iconPath || trophy.iconGrayPath ? (
             <img
-              src={`/api/icons/${trophy.iconGrayPath ?? trophy.iconPath}`}
-              alt={trophy.isHidden ? 'Hidden Trophy' : trophy.name}
+              src={getImageUrl(trophy.iconGrayPath ?? trophy.iconPath)}
+              onError={(e) => handleImageError(e, trophy.isHidden ? 'Hidden Trophy' : trophy.name)}
               className="h-full w-full object-cover grayscale"
             />
           ) : (
@@ -122,8 +123,8 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
       <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
         {trophy.iconPath ? (
           <img
-            src={`/api/icons/${trophy.iconPath}`}
-            alt={trophy.name}
+            src={getImageUrl(trophy.iconPath)}
+            onError={(e) => handleImageError(e, trophy.name)}
             className="h-full w-full object-cover"
           />
         ) : (

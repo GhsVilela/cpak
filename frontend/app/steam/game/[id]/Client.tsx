@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
+import { getImageUrl, handleImageError } from '../../../../services/imageUrl';
 
 interface Game {
   _id: string;
@@ -84,8 +85,8 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
         <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
           {achievement.iconGrayPath ? (
             <img
-              src={`/api/icons/${achievement.iconGrayPath}`}
-              alt={achievement.name}
+              src={getImageUrl(achievement.iconGrayPath)}
+              onError={(e) => handleImageError(e, achievement.name)}
               className="h-full w-full object-cover"
             />
           ) : (
@@ -107,8 +108,8 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
       <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
         {achievement.iconPath ? (
           <img
-            src={`/api/icons/${achievement.iconPath}`}
-            alt={achievement.name}
+            src={getImageUrl(achievement.iconPath)}
+            onError={(e) => handleImageError(e, achievement.name)}
             className="h-full w-full object-cover"
           />
         ) : (

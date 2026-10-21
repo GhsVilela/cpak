@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { getImageUrl, handleImageError } from '../services/imageUrl';
 
 interface GameTileProps {
   game: {
@@ -64,10 +65,11 @@ export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
       <div className="relative aspect-[2/3] bg-gray-900">
         {game.capsuleImagePath ? (
           <img
-            src={`/api/icons/${game.capsuleImagePath}`}
+            src={getImageUrl(game.capsuleImagePath)}
             alt={game.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
+            onError={(e) => handleImageError(e, game.title)}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-600">

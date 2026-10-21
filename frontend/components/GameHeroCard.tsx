@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { getImageUrl, handleImageError } from '../services/imageUrl';
 
 interface GameHeroCardProps {
   game: {
@@ -53,10 +54,11 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
       <div className="relative aspect-[16/5] bg-gray-900">
         {game.heroImagePath ? (
           <img
-            src={`/api/icons/${game.heroImagePath}`}
+            src={getImageUrl(game.heroImagePath)}
             alt={displayTitle}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
+            onError={(e) => handleImageError(e, displayTitle)}
           />
         ) : (
           <div

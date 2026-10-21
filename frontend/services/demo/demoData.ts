@@ -251,61 +251,34 @@ function generateAchievements(game: DemoGame): DemoAchievement[] {
 
 export const demoAchievements: DemoAchievement[] = demoGames.flatMap(generateAchievements);
 
+/**
+ * Mirrors the backend's /api/sync/status: `current` is only set while a sync
+ * is actually running, so the pages show the aggregated stats instead of a
+ * progress bar.
+ */
 export const demoSyncStatus: Record<string, any> = {
   demo_steam_1: {
-    current: {
-      operationId: 'sync_steam_1',
-      status: 'completed',
-      progress: 100,
-      message: 'Sync completed',
-      platform: 'steam',
-      profileId: 'demo_steam_1',
-      totalGames: 8,
-      gamesProcessed: 8,
-      startedAt: new Date(Date.now() - 3600000).toISOString(),
-      lastSyncAt: new Date(Date.now() - 3600000).toISOString(),
+    lastCompleted: {
+      completedAt: new Date(Date.now() - 3600000).toISOString(),
+      status: 'success',
     },
   },
   demo_steam_2: {
-    current: {
-      operationId: 'sync_steam_2',
-      status: 'completed',
-      progress: 100,
-      message: 'Sync completed',
-      platform: 'steam',
-      profileId: 'demo_steam_2',
-      totalGames: 2,
-      gamesProcessed: 2,
-      startedAt: new Date(Date.now() - 7200000).toISOString(),
-      lastSyncAt: new Date(Date.now() - 7200000).toISOString(),
+    lastCompleted: {
+      completedAt: new Date(Date.now() - 7200000).toISOString(),
+      status: 'success',
     },
   },
   demo_xbox_1: {
-    current: {
-      operationId: 'sync_xbox_1',
-      status: 'completed',
-      progress: 100,
-      message: 'Sync completed',
-      platform: 'xbox',
-      profileId: 'demo_xbox_1',
-      totalGames: 5,
-      gamesProcessed: 5,
-      startedAt: new Date(Date.now() - 1800000).toISOString(),
-      lastSyncAt: new Date(Date.now() - 1800000).toISOString(),
+    lastCompleted: {
+      completedAt: new Date(Date.now() - 1800000).toISOString(),
+      status: 'success',
     },
   },
   demo_psn_1: {
-    current: {
-      operationId: 'sync_psn_1',
-      status: 'completed',
-      progress: 100,
-      message: 'Sync completed',
-      platform: 'playstation',
-      profileId: 'demo_psn_1',
-      totalGames: 4,
-      gamesProcessed: 4,
-      startedAt: new Date(Date.now() - 900000).toISOString(),
-      lastSyncAt: new Date(Date.now() - 900000).toISOString(),
+    lastCompleted: {
+      completedAt: new Date(Date.now() - 900000).toISOString(),
+      status: 'success',
     },
   },
 };

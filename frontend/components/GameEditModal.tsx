@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { getImageUrl } from '../services/imageUrl';
 
 interface Game {
   _id: string;
@@ -76,9 +77,9 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
     }
   };
 
-  const getImageUrl = (imagePath?: string) => {
+  const resolveImageUrl = (imagePath?: string) => {
     if (!imagePath) return null;
-    return `/api/icons/${imagePath}`;
+    return getImageUrl(imagePath) ?? null;
   };
 
   const handleDeleteImage = (type: 'icon' | 'hero' | 'capsule') => {
@@ -182,8 +183,8 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
                   <div className="w-full h-full flex items-center justify-center text-red-400 text-xs">Deleted</div>
                 ) : iconPreview ? (
                   <img src={iconPreview} alt="Icon preview" className="w-full h-full object-cover" />
-                ) : getImageUrl(game.iconImagePath) ? (
-                  <img src={getImageUrl(game.iconImagePath)!} alt="Current icon" className="w-full h-full object-cover" />
+                ) : resolveImageUrl(game.iconImagePath) ? (
+                  <img src={resolveImageUrl(game.iconImagePath)!} alt="Current icon" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-600 text-2xl font-bold">
                     {game.title[0]}
@@ -230,8 +231,8 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
                   <div className="w-full h-full flex items-center justify-center text-red-400 text-sm">Deleted</div>
                 ) : heroPreview ? (
                   <img src={heroPreview} alt="Hero preview" className="w-full h-full object-cover" />
-                ) : getImageUrl(game.heroImagePath) ? (
-                  <img src={getImageUrl(game.heroImagePath)!} alt="Current hero" className="w-full h-full object-cover" />
+                ) : resolveImageUrl(game.heroImagePath) ? (
+                  <img src={resolveImageUrl(game.heroImagePath)!} alt="Current hero" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-600 text-sm">No hero image</div>
                 )}
@@ -278,8 +279,8 @@ export default function GameEditModal({ game, onClose, onSave }: GameEditModalPr
                   <div className="w-full h-full flex items-center justify-center text-red-400 text-xs">Deleted</div>
                 ) : capsulePreview ? (
                   <img src={capsulePreview} alt="Capsule preview" className="w-full h-full object-cover" />
-                ) : getImageUrl(game.capsuleImagePath) ? (
-                  <img src={getImageUrl(game.capsuleImagePath)!} alt="Current capsule" className="w-full h-full object-cover" />
+                ) : resolveImageUrl(game.capsuleImagePath) ? (
+                  <img src={resolveImageUrl(game.capsuleImagePath)!} alt="Current capsule" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-600 text-sm">No image</div>
                 )}

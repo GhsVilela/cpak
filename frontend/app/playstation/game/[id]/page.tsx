@@ -7,7 +7,7 @@ export async function generateStaticParams() {
     return demoGames
       .filter(g => g.platform === 'playstation')
       .map(game => ({
-        id: game._id,
+        id: game.gameId,
       }));
   }
   return [];

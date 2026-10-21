@@ -104,11 +104,14 @@ describe('Demo mode API', () => {
     await expect(apiClient.get('/games/does-not-exist')).rejects.toThrow('API error');
   });
 
-  it('returns the sync status for a profile', async () => {
+  it('returns the last completed sync for a profile', async () => {
     const status = await apiClient.get('/sync/status?profileId=demo_steam_1');
-    expect(status.current).toBeDefined();
-    expect(status.current.status).toBe('completed');
-    expect(status.current.progress).toBe(100);
+    // No active sync in demo mode, so the pages show the stats instead of
+    // the sync progress bar.
+    expect(status.current).toBeUndefined();
+    expect(status.lastCompleted).toBeDefined();
+    expect(status.lastCompleted.status).toBe('success');
+    expect(status.lastCompleted.completedAt).toBeTruthy();
   });
 
   it('returns the backup status', async () => {
