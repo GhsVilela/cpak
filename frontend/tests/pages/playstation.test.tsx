@@ -195,10 +195,8 @@ describe('PlayStation page — app/playstation/page.tsx (T026)', () => {
   it('links to the edit profile page', async () => {
     const { default: PlayStationPage } = await import('../../app/playstation/page');
     render(<PlayStationPage />);
-    await waitFor(() => {
-      expect(document.body.firstChild).toBeTruthy();
-    });
-    const editLink = screen.getByRole('link', { name: /edit/i });
+    // The link only renders once the profile list has loaded.
+    const editLink = await screen.findByRole('link', { name: /edit/i });
     expect(editLink.getAttribute('href')).toContain('/settings/edit/');
   });
 });
