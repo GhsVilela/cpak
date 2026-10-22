@@ -265,6 +265,17 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
     }, { timeout: 3000 });
   });
 
+  it('scrolls to the top when the page opens', async () => {
+    const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+
+    await waitFor(() => {
+      expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
+    }, { timeout: 3000 });
+    scrollToSpy.mockRestore();
+  });
+
   it('renders trophy groups collapsed by default and expands on click', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path.includes('/games/')) {

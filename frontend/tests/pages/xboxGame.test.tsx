@@ -189,4 +189,14 @@ describe('Xbox Game detail page — app/xbox/game/[id]/page.tsx (T021)', () => {
     expect(document.querySelectorAll('[aria-expanded]')).toHaveLength(0);
     expect(screen.queryByText(/Base Game/i)).toBeNull();
   });
+
+  it('scrolls to the top when the page opens', async () => {
+    const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    await renderPage();
+
+    await waitFor(() => {
+      expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
+    });
+    scrollToSpy.mockRestore();
+  });
 });
