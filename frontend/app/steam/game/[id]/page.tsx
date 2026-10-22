@@ -206,6 +206,10 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
   const [error, setError] = useState('');
 
   useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [id]);
+
+  useEffect(() => {
     loadGameDetails();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, profileId]);

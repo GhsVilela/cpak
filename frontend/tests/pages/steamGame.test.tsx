@@ -114,4 +114,18 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
     });
     expect(screen.queryByText('Update Achievement')).toBeNull();
   });
+
+  it('scrolls to the top when the page opens', async () => {
+    const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const { default: GameDetailsPage } = await import(
+      // @ts-ignore
+      '../../app/steam/game/[id]/page'
+    );
+    render(<GameDetailsPage params={Promise.resolve({ id: '12345' })} />);
+
+    await waitFor(() => {
+      expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
+    });
+    scrollToSpy.mockRestore();
+  });
 });
