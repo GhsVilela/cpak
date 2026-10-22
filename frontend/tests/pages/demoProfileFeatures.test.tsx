@@ -127,7 +127,7 @@ describe('Demo mode — profile edit page and favorite profile', () => {
 
     const input = (await screen.findByLabelText('Display Name')) as HTMLInputElement;
     await waitFor(() => {
-      expect(input.value).toBe('DemoSteamGamer');
+      expect(input.value).toBe('SteamProfile1');
     });
 
     fireEvent.change(input, { target: { value: 'Renamed Gamer' } });
