@@ -9,6 +9,12 @@ export interface TrophyBackupImportResult {
     trophiesTotal: number;
     trophiesUnlocked: number;
   }>;
+  updated?: Array<{
+    gameId: string;
+    title: string;
+    trophiesTotal: number;
+    trophiesUnlocked: number;
+  }>;
   skipped: Array<{ gameId: string; reason?: string }>;
   errors: Array<{ file: string; error: string }>;
 }
@@ -169,10 +175,26 @@ export default function TrophyBackupImportSection({
   };
 
   const importedCount = result?.imported?.length ?? 0;
-  const trophyCount = (result?.imported ?? []).reduce(
+  const updatedGames = result?.updated ?? [];
+  const updatedCount = updatedGames.length;
+  const importedTrophyCount = (result?.imported ?? []).reduce(
     (sum, game) => sum + (game.trophiesUnlocked ?? 0),
     0,
   );
+  const updatedTrophyCount = updatedGames.reduce(
+    (sum, game) => sum + (game.trophiesUnlocked ?? 0),
+    0,
+  );
+  const summary = [
+    importedCount > 0
+      ? `Imported ${importedCount} game${importedCount === 1 ? '' : 's'} (${importedTrophyCount} trophies earned)`
+      : null,
+    updatedCount > 0
+      ? `Updated ${updatedCount} game${updatedCount === 1 ? '' : 's'} (${updatedTrophyCount} trophies earned)`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' and ');
   const skipped = result?.skipped ?? [];
   const alreadyTracked = skipped.filter(
     (s) => s.reason && s.reason !== 'no-unlocked-trophies',
@@ -328,22 +350,26 @@ export default function TrophyBackupImportSection({
       {result && !busy && (
         <div
           className={`rounded border px-4 py-3 text-sm ${
-            importedCount > 0
+            importedCount > 0 || updatedCount > 0
               ? 'bg-green-900/30 border-green-600 text-green-200'
               : 'bg-blue-900/30 border-blue-600 text-blue-200'
           }`}
           data-testid="trophy-backup-result"
         >
           <div className="font-semibold">
-            {importedCount > 0
-              ? `Imported ${importedCount} game${importedCount === 1 ? '' : 's'} (${trophyCount} trophies earned)`
-              : 'No new games were imported.'}
+            {summary || 'No new games were imported.'}
           </div>
-          {importedCount > 0 && result.imported.length > 0 && (
+          {(importedCount > 0 || updatedCount > 0) && (
             <ul className="mt-2 space-y-1 text-xs text-green-100/90">
               {result.imported.map((game) => (
                 <li key={game.gameId} className="truncate">
                   {game.title} — {game.trophiesUnlocked}/{game.trophiesTotal} trophies
+                </li>
+              ))}
+              {updatedGames.map((game) => (
+                <li key={game.gameId} className="truncate">
+                  {game.title} — {game.trophiesUnlocked}/{game.trophiesTotal} trophies
+                  <span className="ml-1 text-green-300/70">(updated)</span>
                 </li>
               ))}
             </ul>

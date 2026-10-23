@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
 import { Profile } from '../../models/profile.js';
-import { Game } from '../../models/game.js';
+import { Game, IGame } from '../../models/game.js';
 import { Achievement } from '../../models/achievement.js';
 import {
   buildTrophyBackups,
@@ -28,7 +28,8 @@ const UPLOAD_TEMP_DIR = path.join(os.tmpdir(), 'cpak-trophy-import');
  * Upload a PS5 trophy backup (ZIP containing /user/trophy2 and
  * /user/home/<uid>/trophy2, or a single TRPTITLE.DAT / TROPHY.UCP) and import
  * achievement data for games that are not already tracked for the profile.
- * Existing games are never modified — only missing ones are added.
+ * Existing games are only updated when the backup contains more unlocked
+ * trophies than the stored game (i.e. the backup is newer).
  */
 export async function importTrophyBackup(
   req: FastifyRequest<{ Querystring: { profileId?: string } }>,
@@ -117,6 +118,12 @@ export async function importTrophyBackup(
       trophiesTotal: number;
       trophiesUnlocked: number;
     }> = [];
+    const updated: Array<{
+      gameId: string;
+      title: string;
+      trophiesTotal: number;
+      trophiesUnlocked: number;
+    }> = [];
     const skipped: Array<{ gameId: string; reason: string }> = [];
 
     for (const backup of games) {
@@ -132,7 +139,31 @@ export async function importTrophyBackup(
         gameId: backup.npwr,
       });
       if (existing) {
-        skipped.push({ gameId: backup.npwr, reason: 'already-exists' });
+        // Only replace the stored data when the backup has made progress;
+        // otherwise the existing record is already up to date.
+        if (backup.earned <= existing.achievementsUnlocked) {
+          skipped.push({ gameId: backup.npwr, reason: 'already-exists' });
+          continue;
+        }
+
+        try {
+          await importGameFromBackup(
+            profile._id as Types.ObjectId,
+            backup,
+            existing,
+          );
+          updated.push({
+            gameId: backup.npwr,
+            title: backup.title,
+            trophiesTotal: backup.total,
+            trophiesUnlocked: backup.earned,
+          });
+        } catch (err) {
+          errors.push({
+            file: backup.npwr,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
         continue;
       }
 
@@ -153,16 +184,22 @@ export async function importTrophyBackup(
     }
 
     logger.info(
-      { profileId, imported: imported.length, skipped: skipped.length, errors: errors.length },
+      {
+        profileId,
+        imported: imported.length,
+        updated: updated.length,
+        skipped: skipped.length,
+        errors: errors.length,
+      },
       '[TrophyBackup] Import finished',
     );
 
-    // The imported games are not returned by the PSN API, so a regular sync
-    // never visits them. Download their cover art in the background so they
+    // Games touched by the import are not returned by the PSN API, so a regular
+    // sync never visits them. Download their cover art in the background so they
     // show up with images right away instead of waiting for the next sync.
-    if (imported.length > 0) {
-      const importedGameIds = imported.map((game) => game.gameId);
-      backfillPlayStationGameImages(profile._id, { gameIds: importedGameIds }).catch(
+    const touchedGameIds = [...imported, ...updated].map((game) => game.gameId);
+    if (touchedGameIds.length > 0) {
+      backfillPlayStationGameImages(profile._id, { gameIds: touchedGameIds }).catch(
         (err) => {
           logger.warn(
             { err, profileId },
@@ -172,7 +209,7 @@ export async function importTrophyBackup(
       );
     }
 
-    reply.send({ imported, skipped, errors });
+    reply.send({ imported, updated, skipped, errors });
   } catch (error) {
     logger.error({ error }, '[TrophyBackup] Unexpected import error');
     reply.status(500).send({ error: 'Failed to import trophy backup' });
@@ -182,6 +219,7 @@ export async function importTrophyBackup(
 async function importGameFromBackup(
   profileObjectId: Types.ObjectId,
   backup: TrophyBackupGame,
+  existing?: IGame,
 ): Promise<void> {
   // Store icons first (failures are non-fatal — data matters more than images)
   let iconImagePath: string | undefined;
@@ -224,23 +262,45 @@ async function importGameFromBackup(
     return !latest || t.unlockedAt > latest ? t.unlockedAt : latest;
   }, null);
 
-  const game = await Game.create({
-    platform: 'playstation',
-    profileId: profileObjectId,
-    gameId: backup.npwr,
+  const previousLastPlayed = existing?.lastPlayed
+    ? new Date(existing.lastPlayed)
+    : null;
+  const lastPlayed =
+    lastUnlock && (!previousLastPlayed || lastUnlock > previousLastPlayed)
+      ? lastUnlock
+      : previousLastPlayed;
+
+  const devices = existing?.devices?.length
+    ? Array.from(new Set([...existing.devices, 'PS5']))
+    : ['PS5']; // T2PD/trophy2 backups originate from PS5 trophy data
+
+  const gameFields = {
     title: backup.title,
     achievementsTotal: backup.total,
     achievementsUnlocked: backup.earned,
     completionPercent: backup.total > 0 ? Math.round((backup.earned / backup.total) * 100) : 0,
-    devices: ['PS5'], // T2PD/trophy2 backups originate from PS5 trophy data
+    devices,
     trophyBronze: earnedBronze,
     trophySilver: earnedSilver,
     trophyGold: earnedGold,
     trophyPlatinum: earnedPlatinum,
     ...(iconImagePath && { iconImagePath }),
-    ...(lastUnlock && { lastPlayed: lastUnlock }),
+    ...(lastPlayed && { lastPlayed }),
     lastSyncedAt: new Date(),
-  });
+  };
+
+  const game = existing
+    ? await Game.findByIdAndUpdate(existing._id, { $set: gameFields }, { new: true })
+    : await Game.create({
+        platform: 'playstation',
+        profileId: profileObjectId,
+        gameId: backup.npwr,
+        ...gameFields,
+      });
+
+  if (!game) {
+    throw new Error(`Failed to save game ${backup.npwr}`);
+  }
 
   if (backup.trophies.length > 0) {
     const bulkOps = backup.trophies.map((t) => {
