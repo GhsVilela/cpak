@@ -158,6 +158,43 @@ describe('POST /api/playstation/trophy-backup/import', () => {
     expect(achievements[2].unlockedAt).toBeUndefined();
   });
 
+  it('ignores catalogs that have no matching progress file', async () => {
+    const profile = await createPlayStationProfile();
+    const zip = buildZip([
+      { name: 'TRPTITLE.DAT', data: makeDat() },
+      { name: 'TROPHY.UCP', data: makeUcp() },
+      {
+        name: 'user/trophy2/nobackup/conf/NPWR99999_00/TROPHY.UCP',
+        data: buildTrophyUcp({
+          npwr: 'NPWR99999_00',
+          title: 'Never Played',
+          trophies: [
+            { id: 0, name: 'Unearned', detail: 'Not played yet', grade: 'bronze' },
+          ],
+        }),
+      },
+    ]);
+    const { payload, headers } = multipartBody('trophy-backup.zip', zip);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/playstation/trophy-backup/import?profileId=${profile._id}`,
+      headers,
+      payload,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.imported).toHaveLength(1);
+    expect(body.errors).toEqual([]);
+    expect(body.ignored).toEqual([
+      {
+        file: 'user/trophy2/nobackup/conf/NPWR99999_00/TROPHY.UCP',
+        reason: 'No trophy progress for NPWR99999_00 (Never Played)',
+      },
+    ]);
+  });
+
   it('skips games that already exist for the profile', async () => {
     const profile = await createPlayStationProfile();
     await Game.create({
@@ -188,6 +225,72 @@ describe('POST /api/playstation/trophy-backup/import', () => {
     expect(games).toHaveLength(1);
     expect(games[0].title).toBe('Existing Title');
     expect(await Achievement.countDocuments({})).toBe(0);
+  });
+
+  it('updates an existing game when the backup has more unlocked trophies', async () => {
+    const profile = await createPlayStationProfile();
+    const existing = await Game.create({
+      platform: 'playstation',
+      profileId: profile._id,
+      gameId: NPWR,
+      title: 'Old Title',
+      achievementsTotal: 3,
+      achievementsUnlocked: 1,
+      completionPercent: 33,
+      trophyPlatinum: 0,
+      trophyBronze: 0,
+    });
+    await Achievement.create({
+      platform: 'playstation',
+      profileId: profile._id,
+      gameId: existing._id,
+      achievementId: '0',
+      name: 'Old Name',
+      trophyGrade: 'platinum',
+      unlockedAt: new Date(Date.UTC(2020, 0, 1)),
+    });
+
+    const zip = buildZip([
+      { name: 'TRPTITLE.DAT', data: makeDat() },
+      { name: 'TROPHY.UCP', data: makeUcp() },
+    ]);
+    const { payload, headers } = multipartBody('trophy-backup.zip', zip);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/playstation/trophy-backup/import?profileId=${profile._id}`,
+      headers,
+      payload,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.imported).toEqual([]);
+    expect(body.updated).toEqual([
+      {
+        gameId: NPWR,
+        title: 'Ratchet & Clank: Rift Apart',
+        trophiesTotal: 3,
+        trophiesUnlocked: 2,
+      },
+    ]);
+    expect(body.skipped).toEqual([]);
+
+    const game = await Game.findById(existing._id);
+    expect(game).not.toBeNull();
+    expect(game!.title).toBe('Ratchet & Clank: Rift Apart');
+    expect(game!.achievementsTotal).toBe(3);
+    expect(game!.achievementsUnlocked).toBe(2);
+    expect(game!.completionPercent).toBe(67);
+    expect(game!.trophyPlatinum).toBe(1);
+    expect(game!.trophyBronze).toBe(1);
+
+    const achievements = await Achievement.find({ gameId: existing._id }).sort({ achievementId: 1 });
+    expect(achievements).toHaveLength(3);
+    expect(achievements[0].name).toBe('Platinum Trophy');
+    expect(achievements[0].unlockedAt?.toISOString()).toBe(new Date(UNLOCK_MS).toISOString());
+    expect(achievements[1].unlockedAt?.toISOString()).toBe(new Date(UNLOCK_MS).toISOString());
+    expect(achievements[2].unlockedAt).toBeUndefined();
   });
 
   it('skips games with no unlocked trophies', async () => {

@@ -259,18 +259,21 @@ describe('buildTrophyBackups', () => {
   });
 
   it('deduplicates multiple DATs for the same game and reports errors for unparsable files', () => {
-    const { games, errors } = buildTrophyBackups([
+    const { games, errors, ignored } = buildTrophyBackups([
       { name: 'TRPTITLE.DAT', data: sampleDat() },
       { name: 'backup/TRPTITLE.DAT', data: sampleDat() },
       { name: 'broken.dat', data: Buffer.alloc(2000) },
     ]);
     expect(games).toHaveLength(1);
-    expect(errors.some((e) => /Duplicate/.test(e.error))).toBe(true);
+    expect(ignored.some((e) => /Duplicate/.test(e.reason))).toBe(true);
     expect(errors.some((e) => e.file === 'broken.dat')).toBe(true);
   });
 
-  it('reports catalogs without matching progress files', () => {
-    const { errors } = buildTrophyBackups([{ name: 'TROPHY.UCP', data: sampleUcp() }]);
-    expect(errors.some((e) => /No TRPTITLE\.DAT/.test(e.error))).toBe(true);
+  it('ignores catalogs without matching progress files', () => {
+    const { errors, ignored } = buildTrophyBackups([
+      { name: 'TROPHY.UCP', data: sampleUcp() },
+    ]);
+    expect(errors).toHaveLength(0);
+    expect(ignored.some((e) => /No trophy progress/.test(e.reason))).toBe(true);
   });
 });
