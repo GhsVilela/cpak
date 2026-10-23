@@ -596,6 +596,12 @@ export function collectTrophyFilesFromUpload(
 export interface BuiltTrophyBackupResult {
   games: TrophyBackupGame[];
   errors: Array<{ file: string; error: string }>;
+  /**
+   * Files that were valid but intentionally not imported (for example trophy
+   * catalogs for games with no progress, or duplicate progress copies). These
+   * are expected in full console backups and are not read failures.
+   */
+  ignored: Array<{ file: string; reason: string }>;
 }
 
 /**
@@ -606,6 +612,7 @@ export function buildTrophyBackups(files: TrophyBackupUploadFile[]): BuiltTrophy
   const dats: Array<{ file: string; parsed: ParsedDat }> = [];
   const ucps: Array<{ file: string; parsed: ParsedUcp }> = [];
   const errors: Array<{ file: string; error: string }> = [];
+  const ignored: Array<{ file: string; reason: string }> = [];
 
   for (const f of files) {
     try {
@@ -636,7 +643,10 @@ export function buildTrophyBackups(files: TrophyBackupUploadFile[]): BuiltTrophy
       bestByNpwr.set(dat.parsed.npwr, dat);
       continue;
     }
-    errors.push({ file: dat.file, error: `Duplicate backup for ${dat.parsed.npwr}` });
+    ignored.push({
+      file: dat.file,
+      reason: `Duplicate progress for ${dat.parsed.npwr}`,
+    });
     if (isBetterProgress(dat.parsed, previous.parsed)) {
       bestByNpwr.set(dat.parsed.npwr, dat);
     }
@@ -644,7 +654,10 @@ export function buildTrophyBackups(files: TrophyBackupUploadFile[]): BuiltTrophy
 
   for (const { file, parsed: dat } of bestByNpwr.values()) {
     if (seen.has(dat.npwr)) {
-      errors.push({ file, error: `Duplicate backup for ${dat.npwr}, skipped` });
+      ignored.push({
+        file,
+        reason: `Duplicate progress for ${dat.npwr}`,
+      });
       continue;
     }
     seen.add(dat.npwr);
@@ -688,21 +701,17 @@ export function buildTrophyBackups(files: TrophyBackupUploadFile[]): BuiltTrophy
     });
   }
 
-  // Also collect any DATs that were fully superseded but we still need to
-  // report the duplicate? The logic above already logged duplicates when
-  // replacing. For dedup cases where we kept the first, errors are added too.
-
-  // UCPs without a matching DAT still carry no progress — report them.
+  // UCPs without a matching DAT carry no progress — skip them silently.
   for (const { file, parsed: ucp } of ucps) {
     if (![...bestByNpwr.values()].some((d) => d.parsed.npwr === ucp.npwr)) {
-      errors.push({
+      ignored.push({
         file,
-        error: `No TRPTITLE.DAT found for catalog ${ucp.npwr} (${ucp.title})`,
+        reason: `No trophy progress for ${ucp.npwr}${ucp.title ? ` (${ucp.title})` : ''}`,
       });
     }
   }
 
-  return { games, errors };
+  return { games, errors, ignored };
 }
 
 function isBetterProgress(a: ParsedDat, b: ParsedDat): boolean {

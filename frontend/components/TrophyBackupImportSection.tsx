@@ -16,6 +16,7 @@ export interface TrophyBackupImportResult {
     trophiesUnlocked: number;
   }>;
   skipped: Array<{ gameId: string; reason?: string }>;
+  ignored?: Array<{ file: string; reason: string }>;
   errors: Array<{ file: string; error: string }>;
 }
 
@@ -185,16 +186,18 @@ export default function TrophyBackupImportSection({
     (sum, game) => sum + (game.trophiesUnlocked ?? 0),
     0,
   );
-  const summary = [
-    importedCount > 0
-      ? `Imported ${importedCount} game${importedCount === 1 ? '' : 's'} (${importedTrophyCount} trophies earned)`
-      : null,
-    updatedCount > 0
-      ? `Updated ${updatedCount} game${updatedCount === 1 ? '' : 's'} (${updatedTrophyCount} trophies earned)`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(' and ');
+  const hasSuccess = importedCount > 0 || updatedCount > 0;
+  const summary =
+    [
+      importedCount > 0
+        ? `Imported ${importedCount} game${importedCount === 1 ? '' : 's'} (${importedTrophyCount} trophies earned)`
+        : null,
+      updatedCount > 0
+        ? `Updated ${updatedCount} game${updatedCount === 1 ? '' : 's'} (${updatedTrophyCount} trophies earned)`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' and ') || 'No new games were imported.';
   const skipped = result?.skipped ?? [];
   const alreadyTracked = skipped.filter(
     (s) => s.reason && s.reason !== 'no-unlocked-trophies',
@@ -203,6 +206,8 @@ export default function TrophyBackupImportSection({
     (s) => s.reason === 'no-unlocked-trophies',
   ).length;
   const importErrors = result?.errors ?? [];
+  const ignored = result?.ignored ?? [];
+  const ignoredCount = ignored.length;
 
   return (
     <div className="space-y-6" data-testid="trophy-backup-section">
@@ -350,15 +355,13 @@ export default function TrophyBackupImportSection({
       {result && !busy && (
         <div
           className={`rounded border px-4 py-3 text-sm ${
-            importedCount > 0 || updatedCount > 0
+            hasSuccess
               ? 'bg-green-900/30 border-green-600 text-green-200'
               : 'bg-blue-900/30 border-blue-600 text-blue-200'
           }`}
           data-testid="trophy-backup-result"
         >
-          <div className="font-semibold">
-            {summary || 'No new games were imported.'}
-          </div>
+          <div className="font-semibold">{summary}</div>
           {(importedCount > 0 || updatedCount > 0) && (
             <ul className="mt-2 space-y-1 text-xs text-green-100/90">
               {result.imported.map((game) => (
@@ -374,6 +377,18 @@ export default function TrophyBackupImportSection({
               ))}
             </ul>
           )}
+          {ignoredCount > 0 && (
+            <div className="mt-2 text-xs text-gray-300">
+              Skipped {ignoredCount} backup file{ignoredCount === 1 ? '' : 's'} with no trophy progress in this backup.
+              <ul className="mt-1 space-y-0.5 text-gray-400 max-h-40 overflow-auto">
+                {ignored.map((item) => (
+                  <li key={item.file} className="truncate" title={item.file}>
+                    {item.file.split(/[\\/]/).pop()} — {item.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {(alreadyTracked > 0 || emptyBackups > 0) && (
             <div className="mt-2 text-xs text-gray-300">
               Skipped {alreadyTracked} already tracked
@@ -382,7 +397,14 @@ export default function TrophyBackupImportSection({
           )}
           {importErrors.length > 0 && (
             <div className="mt-2 text-xs text-yellow-200">
-              {importErrors.length} file{importErrors.length === 1 ? '' : 's'} could not be read.
+              {importErrors.length} file{importErrors.length === 1 ? '' : 's'} could not be imported:
+              <ul className="mt-1 space-y-0.5 text-yellow-100/80 max-h-40 overflow-auto">
+                {importErrors.map((err) => (
+                  <li key={`${err.file}:${err.error}`} className="truncate" title={`${err.file}: ${err.error}`}>
+                    {err.file.split(/[\\/]/).pop()} — {err.error}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

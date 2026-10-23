@@ -158,6 +158,43 @@ describe('POST /api/playstation/trophy-backup/import', () => {
     expect(achievements[2].unlockedAt).toBeUndefined();
   });
 
+  it('ignores catalogs that have no matching progress file', async () => {
+    const profile = await createPlayStationProfile();
+    const zip = buildZip([
+      { name: 'TRPTITLE.DAT', data: makeDat() },
+      { name: 'TROPHY.UCP', data: makeUcp() },
+      {
+        name: 'user/trophy2/nobackup/conf/NPWR99999_00/TROPHY.UCP',
+        data: buildTrophyUcp({
+          npwr: 'NPWR99999_00',
+          title: 'Never Played',
+          trophies: [
+            { id: 0, name: 'Unearned', detail: 'Not played yet', grade: 'bronze' },
+          ],
+        }),
+      },
+    ]);
+    const { payload, headers } = multipartBody('trophy-backup.zip', zip);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/playstation/trophy-backup/import?profileId=${profile._id}`,
+      headers,
+      payload,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.imported).toHaveLength(1);
+    expect(body.errors).toEqual([]);
+    expect(body.ignored).toEqual([
+      {
+        file: 'user/trophy2/nobackup/conf/NPWR99999_00/TROPHY.UCP',
+        reason: 'No trophy progress for NPWR99999_00 (Never Played)',
+      },
+    ]);
+  });
+
   it('skips games that already exist for the profile', async () => {
     const profile = await createPlayStationProfile();
     await Game.create({

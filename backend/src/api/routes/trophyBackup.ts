@@ -103,12 +103,13 @@ export async function importTrophyBackup(
       });
     }
 
-    const { games, errors } = buildTrophyBackups(uploads);
+    const { games, errors, ignored } = buildTrophyBackups(uploads);
 
     if (games.length === 0) {
       return reply.status(400).send({
         error: 'No parsable trophy data found in the upload',
         details: errors,
+        ignored,
       });
     }
 
@@ -189,6 +190,7 @@ export async function importTrophyBackup(
         imported: imported.length,
         updated: updated.length,
         skipped: skipped.length,
+        ignored: ignored.length,
         errors: errors.length,
       },
       '[TrophyBackup] Import finished',
@@ -209,7 +211,7 @@ export async function importTrophyBackup(
       );
     }
 
-    reply.send({ imported, updated, skipped, errors });
+    reply.send({ imported, updated, skipped, ignored, errors });
   } catch (error) {
     logger.error({ error }, '[TrophyBackup] Unexpected import error');
     reply.status(500).send({ error: 'Failed to import trophy backup' });
