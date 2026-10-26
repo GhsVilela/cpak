@@ -7,13 +7,11 @@
 [![Docker Image Size](https://img.shields.io/docker/image-size/ghsvilela/cpak/latest?label=image%20size)](https://hub.docker.com/r/ghsvilela/cpak)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+[Live Project Demo](https://ghsvilela.github.io/cpak)
+
 Achievements are more than just a game feature, they're memories. CPAK is a self-hosted, cross-platform achievement keeper for Steam, Xbox, and PlayStation that lets you preserve your gaming memories locally, forever. Remember to backup regularly to keep them safe.
 
 > **Note on Development Approach**: This project started as a self-learning journey to improve my skills in AI-assisted development, exploring how AI tools can be used effectively in real-world software projects, with the goal of bringing that knowledge and experience to my daily professional work. It follows an AGENTS.md-driven approach to guide AI agents through the project, improving AI maturity and enabling effective, consistent contributions. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
-
-## Showcase
-
-[Live Project Demo](https://ghsvilela.github.io/cpak)
 
 ## Features
 
