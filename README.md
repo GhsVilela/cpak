@@ -9,69 +9,11 @@
 
 Achievements are more than just a game feature, they're memories. CPAK is a self-hosted, cross-platform achievement keeper for Steam, Xbox, and PlayStation that lets you preserve your gaming memories locally, forever. Remember to backup regularly to keep them safe.
 
-> **Note on Development Approach**: This project started as a self-learning journey to improve my skills in AI-assisted development, exploring how AI tools can be used effectively in real-world software projects, with the goal of bringing that knowledge and experience to my daily professional work. It leverages AI-assisted "vibe coding" with [Speckit](https://github.com/github/spec-kit) for spec-driven development. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
+> **Note on Development Approach**: This project started as a self-learning journey to improve my skills in AI-assisted development, exploring how AI tools can be used effectively in real-world software projects, with the goal of bringing that knowledge and experience to my daily professional work. It follows an AGENTS.md-driven approach to guide AI agents through the project, improving AI maturity and enabling effective, consistent contributions. While AI helps accelerate development, all code is reviewed, tested, and refined with my technical knowledge and creative vision to ensure quality and alignment with the project's goals.
 
 ## Showcase
 
-### Steam
-
-<table>
-  <tr>
-    <td align="center"><strong>Grid View</strong></td>
-    <td align="center"><strong>List View</strong></td>
-    <td align="center"><strong>Hero View</strong></td>
-  </tr>
-  <tr>
-    <td><img src="images/steam/1.png" alt="Steam Grid View" width="100%"></td>
-    <td><img src="images/steam/2.png" alt="Steam List View" width="100%"></td>
-    <td><img src="images/steam/3.png" alt="Steam Hero View" width="100%"></td>
-  </tr>
-</table>
-
-### Xbox
-
-<table>
-  <tr>
-    <td align="center"><strong>Grid View</strong></td>
-    <td align="center"><strong>List View</strong></td>
-    <td align="center"><strong>Hero View</strong></td>
-  </tr>
-  <tr>
-    <td><img src="images/xbox/1.png" alt="Xbox Grid View" width="100%"></td>
-    <td><img src="images/xbox/2.png" alt="Xbox List View" width="100%"></td>
-    <td><img src="images/xbox/3.png" alt="Xbox Hero View" width="100%"></td>
-  </tr>
-</table>
-
-### PlayStation
-
-<table>
-  <tr>
-    <td align="center"><strong>Grid View</strong></td>
-    <td align="center"><strong>List View</strong></td>
-    <td align="center"><strong>Hero View</strong></td>
-  </tr>
-  <tr>
-    <td><img src="images/playstation/1.png" alt="PlayStation Grid View" width="100%"></td>
-    <td><img src="images/playstation/2.png" alt="PlayStation List View" width="100%"></td>
-    <td><img src="images/playstation/3.png" alt="PlayStation Hero View" width="100%"></td>
-  </tr>
-</table>
-
-### Configuration
-
-<table>
-  <tr>
-    <td align="center"><strong>Edit Game</strong></td>
-    <td align="center"><strong>Settings</strong></td>
-    <td align="center"><strong>Add Profile</strong></td>
-  </tr>
-  <tr>
-    <td><img src="images/configs/1.png" alt="Edit Game" width="100%"></td>
-    <td><img src="images/configs/2.png" alt="Settings" width="100%"></td>
-    <td><img src="images/configs/3.png" alt="Add Profile" width="100%"></td>
-  </tr>
-</table>
+[Live Project Demo](https://ghsvilela.github.io/cpak)
 
 ## Features
 
@@ -85,7 +27,7 @@ Achievements are more than just a game feature, they're memories. CPAK is a self
 - **Automatic Sync**: Scheduler to keep your achievements up to date
 - **Image Integration**: SteamGridDB and IGDB support for game artwork
 - **Backup and Restore**: Backup and restore all profiles, games, achievements, and images to a zip file
-- **Steam Profile Showcase**: Displays your total achievement count from your Steam profile showcase alongside tracked and untracked stats
+- **Steam Profile Showcase**: Displays your total achievement count alongside games & groups completed
 - **Xbox Gamerscore Tracking**: Shows total Gamerscore and Xbox 360 Gamerscore separately
 - **PlayStation Trophy Tracking**: Shows platinum, gold, silver, and bronze trophy counts with generation filters (PS5, PS4, PS3, PS Vita)
 
@@ -441,8 +383,8 @@ cpak/
 
 Contributions are welcome in any form, with or without AI assistance.
 
-- If you'd like to follow the spec-driven workflow used in this project, see [Speckit](https://github.com/github/spec-kit). It's a great way to keep changes aligned with documented specs and tasks, but it is entirely optional.
-- Traditional contributions (bug fixes, features, tests, docs) are just as welcome, open an issue or a pull request and we'll take it from there.
+- Follow the guidance provided in [AGENTS.md](AGENTS.md) to understand the project structure, conventions, and how to work with it effectively.
+- Traditional contributions (bug fixes, features, tests, docs) are just as welcome — open an issue or a pull request and we'll take it from there.
 - Ensure all builds and tests pass before submitting.
 - Where relevant, follow the existing code conventions in the repo.
 
