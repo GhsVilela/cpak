@@ -464,7 +464,7 @@ function XboxPageContent() {
             <h1 className="text-3xl font-bold text-[var(--xbox-accent)]">Xbox Achievements</h1>
             <div className="mt-2 h-0.5 w-16 rounded-full bg-gradient-to-r from-[var(--xbox-accent)] to-transparent" />
           </div>
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4 md:flex-nowrap">
             <ProfileSelector
               platform="xbox"
               selectedProfileId={selectedProfileId}
@@ -475,8 +475,8 @@ function XboxPageContent() {
             />
             {selectedProfileId && (
               <div className="flex flex-shrink-0 items-center gap-2">
-                <a
-                  href={syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? undefined : `/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/xbox?profileId=${selectedProfileId}`)}`}
+                <Link
+                  href={`/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/xbox?profileId=${selectedProfileId}`)}`}
                   onClick={(e) => {
                     if (syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current) {
                       e.preventDefault();
@@ -486,7 +486,7 @@ function XboxPageContent() {
                   aria-disabled={!!syncStatus?.current || !!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
                 >
                   Edit
-                </a>
+                </Link>
                 {!syncStatus?.current && (
                   <button
                     onClick={triggerSync}
