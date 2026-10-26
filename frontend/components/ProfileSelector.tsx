@@ -105,7 +105,7 @@ export default function ProfileSelector({
 
   return (
     <div className="flex items-center gap-2">
-      <label htmlFor="profile-select" className="text-sm text-gray-400">
+      <label htmlFor="profile-select" className="hidden min-[480px]:inline text-sm text-gray-400">
         Profile:
       </label>
       <select

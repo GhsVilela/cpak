@@ -416,7 +416,7 @@ function SteamPageContent() {
             <h1 className="text-3xl font-bold text-[var(--steam-accent)]">Steam Library</h1>
             <div className="mt-2 h-0.5 w-16 rounded-full bg-gradient-to-r from-[var(--steam-accent)] to-transparent" />
           </div>
-          <div className="flex flex-wrap items-center gap-4 md:flex-nowrap">
+          <div className="flex flex-wrap items-center gap-2 md:flex-nowrap md:gap-4">
             <ProfileSelector
               platform="steam"
               selectedProfileId={selectedProfileId}
