@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, within } from '@testing-library/react';
 
 const pushMock = vi.fn();
 
@@ -216,15 +216,20 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
     }, { timeout: 3000 });
   });
 
-  it('shows trophy grade breakdown in header', async () => {
+  it('shows the trophy grade breakdown with every trophy count', async () => {
     const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
     render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
     await waitFor(() => {
-      expect(
-        screen.queryByText(/grades/i) ||
-          screen.queryByText(/P:1/i) ||
-          document.body.firstChild,
-      ).toBeTruthy();
+      expect(screen.getByText('Grades')).toBeInTheDocument();
+      const counts = screen.getByTestId('trophy-counts');
+      expect(within(counts).getByLabelText('Platinum trophy')).toBeInTheDocument();
+      expect(within(counts).getByLabelText('Gold trophy')).toBeInTheDocument();
+      expect(within(counts).getByLabelText('Silver trophy')).toBeInTheDocument();
+      expect(within(counts).getByLabelText('Bronze trophy')).toBeInTheDocument();
+      expect(within(counts).getByText('1')).toBeInTheDocument();
+      expect(within(counts).getByText('8')).toBeInTheDocument();
+      expect(within(counts).getByText('7')).toBeInTheDocument();
+      expect(within(counts).getByText('20')).toBeInTheDocument();
     }, { timeout: 3000 });
   });
 

@@ -85,7 +85,7 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
   }
 
   return (
-    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 transition-colors hover:border-[var(--xbox-accent)]">
+    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
         {achievement.iconPath ? (
           <img

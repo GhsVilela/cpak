@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import GameSearchInput from './GameSearchInput';
 import ViewModeSelector, { ViewMode } from './ViewModeSelector';
 
@@ -56,11 +56,14 @@ export default function GameToolbar({
 
   const toggleClass = (on: boolean) =>
     `relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-      on ? '' : 'bg-gray-600'
+      on ? '' : 'bg-[var(--border)]'
     }`;
 
   return (
-    <div className="sticky top-0 z-20 -mx-4 mb-3 px-4 pt-2 pb-3 bg-[#0a0a0a]/95 backdrop-blur-md md:static md:z-auto md:mx-0 md:mb-0 md:px-0 md:pt-0 md:pb-0 md:bg-transparent md:backdrop-blur-none">
+    <div
+      className="sticky top-0 z-20 -mx-4 mb-3 px-4 pt-2 pb-3 bg-[#0d1117]/95 backdrop-blur-md md:static md:z-auto md:mx-0 md:mb-0 md:px-0 md:pt-0 md:pb-0 md:bg-transparent md:backdrop-blur-none"
+      style={{ '--toolbar-accent': accent } as CSSProperties}
+    >
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-wrap md:gap-4">
         {/* Search row: filter icon (mobile) + search input */}
         <div className="flex items-center gap-2 w-full md:w-auto md:flex-none">
@@ -70,7 +73,7 @@ export default function GameToolbar({
             aria-expanded={filtersOpen}
             aria-label="Toggle filters"
             title={filtersOpen ? 'Hide filters' : 'Show filters'}
-            className="md:hidden relative inline-flex items-center justify-center w-10 h-10 flex-shrink-0 rounded-lg bg-gray-800 border border-gray-700 text-gray-200 transition hover:bg-gray-700"
+            className="md:hidden relative inline-flex items-center justify-center w-10 h-10 flex-shrink-0 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-gray-200 transition hover:bg-[var(--surface-raised)]"
           >
             <svg
               className="w-5 h-5 text-gray-400"
@@ -102,7 +105,7 @@ export default function GameToolbar({
         <ViewModeSelector viewMode={viewMode} onViewModeChange={onViewModeChange} />
 
         <div className={`${filtersOpen ? 'block' : 'hidden'} md:block w-full md:w-auto`}>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-wrap md:gap-4 border-t md:border-t-0 pt-3 md:pt-0">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-wrap md:gap-4 border-t border-[var(--border)] md:border-t-0 pt-3 md:pt-0">
             {/* 100% Only toggle */}
             <div className="flex items-center gap-3">
               <button
@@ -151,7 +154,7 @@ export default function GameToolbar({
                 <select
                   value={generationFilter}
                   onChange={(e) => onGenerationFilterChange(e.target.value)}
-                  className="w-full md:w-auto px-3 py-2 md:py-1 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:ring-1 focus:ring-gray-500"
+                  className="w-full md:w-auto px-3 py-2 md:py-1 bg-[var(--surface)] border border-[var(--border)] rounded text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--toolbar-accent,#6366f1)]"
                 >
                   {generationOptions.map((f) => (
                     <option key={f.value} value={f.value}>{f.label}</option>

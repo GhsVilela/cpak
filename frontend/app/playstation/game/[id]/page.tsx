@@ -3,7 +3,8 @@
 import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
-import TrophyGradeBadge from '../../../../components/TrophyGradeBadge';
+import TrophyIcon from '../../../../components/TrophyIcon';
+import TrophyCounts from '../../../../components/TrophyCounts';
 
 interface Game {
   _id: string;
@@ -104,7 +105,7 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
             <h3 className="text-lg font-semibold text-gray-400">
               {trophy.isHidden && trophy.name === 'Hidden Trophy' ? 'Hidden Trophy' : trophy.name}
             </h3>
-            {trophy.trophyGrade && <TrophyGradeBadge grade={trophy.trophyGrade} />}
+            {trophy.trophyGrade && <TrophyIcon grade={trophy.trophyGrade} size={18} muted={locked} />}
           </div>
           {trophy.description && !trophy.isHidden && (
             <p className="mt-1 text-sm text-gray-500">{trophy.description}</p>
@@ -118,7 +119,7 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
   }
 
   return (
-    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 transition-colors hover:border-[var(--playstation-accent)]">
+    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
         {trophy.iconPath ? (
           <img
@@ -133,7 +134,7 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-lg font-semibold">{trophy.name}</h3>
-          {trophy.trophyGrade && <TrophyGradeBadge grade={trophy.trophyGrade} />}
+          {trophy.trophyGrade && <TrophyIcon grade={trophy.trophyGrade} size={18} />}
         </div>
         {trophy.description && (
           <p className="mt-1 text-sm text-gray-400">{trophy.description}</p>
@@ -283,6 +284,11 @@ export default function PlayStationGameDetailsPage({ params }: { params: Promise
   const lockedAchievements = achievements.filter((a) => !a.unlockedAt);
   const groups = groupTrophies(achievements);
   const showGroups = !!game.hasAchievementGroups && groups.length > 1;
+  const hasTrophyCounts =
+    game.trophyPlatinum != null ||
+    game.trophyGold != null ||
+    game.trophySilver != null ||
+    game.trophyBronze != null;
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -312,23 +318,18 @@ export default function PlayStationGameDetailsPage({ params }: { params: Promise
             <div className="text-xs uppercase tracking-wide text-gray-400">Completion</div>
             <div className="mt-0.5 font-semibold">{game.completionPercent}%</div>
           </div>
-          {/* Trophy grade breakdown */}
-          {(game.trophyPlatinum != null || game.trophyGold != null) && (
+          {hasTrophyCounts && (
             <div className="shrink-0 whitespace-nowrap px-5">
-              <div className="mb-1 text-xs uppercase tracking-wide text-gray-400">Grades</div>
-              <div className="flex flex-wrap items-center gap-1">
-                {(game.trophyPlatinum ?? 0) > 0 && (
-                  <span className="text-xs" style={{ color: '#a0b4c8' }}>P:{game.trophyPlatinum}</span>
-                )}
-                {(game.trophyGold ?? 0) > 0 && (
-                  <span className="text-xs" style={{ color: '#c8a800' }}>G:{game.trophyGold}</span>
-                )}
-                {(game.trophySilver ?? 0) > 0 && (
-                  <span className="text-xs" style={{ color: '#a8a8a8' }}>S:{game.trophySilver}</span>
-                )}
-                {(game.trophyBronze ?? 0) > 0 && (
-                  <span className="text-xs" style={{ color: '#cd7f32' }}>B:{game.trophyBronze}</span>
-                )}
+              <div className="text-xs uppercase tracking-wide text-gray-400">Grades</div>
+              <div className="mt-0.5">
+                <TrophyCounts
+                  platinum={game.trophyPlatinum}
+                  gold={game.trophyGold}
+                  silver={game.trophySilver}
+                  bronze={game.trophyBronze}
+                  size={14}
+                  className="text-sm font-semibold"
+                />
               </div>
             </div>
           )}
