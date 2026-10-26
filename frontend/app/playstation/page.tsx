@@ -10,6 +10,7 @@ import GameToolbar from '../../components/GameToolbar';
 import { StatsStrip, StatTile } from '../../components/StatsStrip';
 import type { ViewMode } from '../../components/ViewModeSelector';
 import Toast from '../../components/Toast';
+import TrophyIcon from '../../components/TrophyIcon';
 
 interface Game {
   _id: string;
@@ -399,7 +400,7 @@ function PlayStationPageContent() {
             <h1 className="text-3xl font-bold text-[var(--playstation-accent)]">PlayStation Trophies</h1>
             <div className="mt-2 h-0.5 w-16 rounded-full bg-gradient-to-r from-[var(--playstation-accent)] to-transparent" />
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <ProfileSelector
               platform="playstation"
               selectedProfileId={selectedProfileId}
@@ -409,9 +410,9 @@ function PlayStationPageContent() {
               reloadTrigger={reloadTrigger}
             />
             {selectedProfileId && (
-              <div className="flex items-center gap-2">
-                <Link
-                  href={`/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/playstation?profileId=${selectedProfileId}`)}`}
+              <div className="flex flex-shrink-0 items-center gap-2">
+                <a
+                  href={syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? undefined : `/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/playstation?profileId=${selectedProfileId}`)}`}
                   onClick={(e) => {
                     if (syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current) {
                       e.preventDefault();
@@ -421,7 +422,7 @@ function PlayStationPageContent() {
                   aria-disabled={!!syncStatus?.current || !!backupRestoreStatus?.backup?.current || !!backupRestoreStatus?.restore?.current}
                 >
                   Edit
-                </Link>
+                </a>
                 {!syncStatus?.current && (
                   <button
                     onClick={triggerSync}
@@ -492,7 +493,7 @@ function PlayStationPageContent() {
                   <StatTile
                     title="Platinum trophies"
                     label="Platinum"
-                    dotColor="#a0b4c8"
+                    icon={<TrophyIcon grade="platinum" size={14} />}
                     value={baseTrophySummary.totalPlatinum}
                     valueClassName="text-white"
                   />
@@ -501,7 +502,7 @@ function PlayStationPageContent() {
                   <StatTile
                     title="Gold trophies"
                     label="Gold"
-                    dotColor="#c8a800"
+                    icon={<TrophyIcon grade="gold" size={14} />}
                     value={baseTrophySummary.totalGold}
                     valueClassName="text-white"
                   />
@@ -510,7 +511,7 @@ function PlayStationPageContent() {
                   <StatTile
                     title="Silver trophies"
                     label="Silver"
-                    dotColor="#a8a8a8"
+                    icon={<TrophyIcon grade="silver" size={14} />}
                     value={baseTrophySummary.totalSilver}
                     valueClassName="text-white"
                   />
@@ -519,7 +520,7 @@ function PlayStationPageContent() {
                   <StatTile
                     title="Bronze trophies"
                     label="Bronze"
-                    dotColor="#cd7f32"
+                    icon={<TrophyIcon grade="bronze" size={14} />}
                     value={baseTrophySummary.totalBronze}
                     valueClassName="text-white"
                   />

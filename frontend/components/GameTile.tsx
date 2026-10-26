@@ -120,23 +120,6 @@ export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
             )}
           </button>
         )}
-        {/* Completion Badge */}
-        {game.completionPercent === 100 && (
-          <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1">
-            <svg
-              className="w-3 h-3"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                clipRule="evenodd"
-              />
-            </svg>
-            100%
-          </div>
-        )}
       </div>
 
       {/* Game Info */}
@@ -149,9 +132,7 @@ export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs sm:text-sm">
             <span className="text-gray-400">
-              {game.platform === 'xbox' && game.maxGamerscore !== undefined && game.maxGamerscore > 0
-                ? <>{(game.currentGamerscore ?? 0).toLocaleString()}&thinsp;/&thinsp;{game.maxGamerscore.toLocaleString()}</>
-                : <>{game.achievementsUnlocked} / {game.achievementsTotal}</>}
+              {game.achievementsUnlocked} / {game.achievementsTotal}
             </span>
             <span className={`font-semibold ${getCompletionColor(game.completionPercent)}`}>
               {game.completionPercent}%

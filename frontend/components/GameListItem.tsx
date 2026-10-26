@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { getImageUrl, handleImageError } from '../services/imageUrl';
+import TrophyCounts from './TrophyCounts';
 
 interface GameListItemProps {
   game: {
@@ -30,6 +31,11 @@ interface GameListItemProps {
 export default function GameListItem({ game, onEdit, onHide }: GameListItemProps) {
   const router = useRouter();
   const displayTitle = game.customTitle || game.title;
+  const hasTrophyCounts =
+    game.trophyPlatinum != null ||
+    game.trophyGold != null ||
+    game.trophySilver != null ||
+    game.trophyBronze != null;
 
   const handleClick = () => {
     router.push(`/${game.platform}/game/${game.gameId}?profileId=${game.profileId}`);
@@ -46,18 +52,27 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
   const renderPlatformStats = () => {
     if (game.platform === 'xbox' && game.maxGamerscore !== undefined && game.maxGamerscore > 0) {
       return (
-        <span className="text-gray-400 text-sm">
-          {(game.currentGamerscore ?? 0).toLocaleString()}&thinsp;/&thinsp;{game.maxGamerscore.toLocaleString()} G
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-400 text-sm">
+          <span>{game.achievementsUnlocked} / {game.achievementsTotal}</span>
+          <span className="text-gray-600">•</span>
+          <span>
+            {(game.currentGamerscore ?? 0).toLocaleString()}&thinsp;/&thinsp;{game.maxGamerscore.toLocaleString()} G
+          </span>
         </span>
       );
     }
-    if (game.platform === 'playstation' && (game.trophyPlatinum !== undefined || game.trophyGold !== undefined)) {
+    if (game.platform === 'playstation' && hasTrophyCounts) {
       return (
-        <span className="text-gray-400 text-sm flex items-center gap-1">
-          {game.trophyPlatinum != null && game.trophyPlatinum > 0 && <span>🏆{game.trophyPlatinum}</span>}
-          {game.trophyGold != null && <span>🥇{game.trophyGold}</span>}
-          {game.trophySilver != null && <span>🥈{game.trophySilver}</span>}
-          {game.trophyBronze != null && <span>🥉{game.trophyBronze}</span>}
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-400 text-sm">
+          <span>{game.achievementsUnlocked} / {game.achievementsTotal}</span>
+          <span className="text-gray-600">•</span>
+          <TrophyCounts
+            platinum={game.trophyPlatinum}
+            gold={game.trophyGold}
+            silver={game.trophySilver}
+            bronze={game.trophyBronze}
+            className="text-gray-400 text-sm"
+          />
         </span>
       );
     }
@@ -71,7 +86,7 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
   return (
     <div
       onClick={handleClick}
-      className="group flex items-center gap-4 p-3 bg-gray-800 rounded-lg cursor-pointer transition-all duration-200 hover:bg-gray-700 hover:shadow-md"
+      className="group flex items-center gap-x-4 p-3 bg-gray-800 rounded-lg cursor-pointer transition-all duration-200 hover:bg-gray-700 hover:shadow-md"
     >
       {/* Icon */}
       <div className="w-16 h-16 flex-shrink-0 rounded-md overflow-hidden bg-gray-900">
@@ -99,11 +114,11 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
       </div>
 
       {/* Completion */}
-      <div className="flex-shrink-0 flex items-center gap-3">
+      <div className="flex flex-shrink-0 items-center justify-end gap-3">
         {onHide && (
           <button
             onClick={(e) => { e.stopPropagation(); onHide(); }}
-            className="text-gray-500 hover:text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="hidden sm:inline-flex text-gray-500 hover:text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
             aria-label={game.isHidden ? 'Unhide game' : 'Hide game'}
             title={game.isHidden ? 'Unhide game' : 'Hide game'}
           >
@@ -122,7 +137,7 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
         {onEdit && (
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="text-gray-500 hover:text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="hidden sm:inline-flex text-gray-500 hover:text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
             aria-label="Edit game"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

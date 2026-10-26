@@ -43,14 +43,13 @@ describe('GameTile', () => {
     expect(pushMock).toHaveBeenCalled();
   });
 
-  it('shows 100% completion badge for fully completed games', () => {
+  it('does not show a separate 100% badge for fully completed games', () => {
     const completedGame = { ...mockGame, completionPercent: 100, achievementsUnlocked: 20 };
     render(<GameTile game={completedGame} />);
-    // Badge and percentage both show 100%, verify at least 2 elements
-    expect(screen.getAllByText('100%').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('100%')).toHaveLength(1);
   });
 
-  it('shows gamerscore for xbox games', () => {
+  it('shows achievements instead of gamerscore for xbox games', () => {
     const xboxGame = {
       ...mockGame,
       platform: 'xbox' as const,
@@ -58,9 +57,8 @@ describe('GameTile', () => {
       maxGamerscore: 1000,
     };
     render(<GameTile game={xboxGame} />);
-    // Should display gamerscore format instead of achievements
-    expect(screen.getByText(/500/)).toBeInTheDocument();
-    expect(screen.getByText(/1,000/)).toBeInTheDocument();
+    expect(screen.getByText('10 / 20')).toBeInTheDocument();
+    expect(screen.queryByText(/500/)).toBeNull();
   });
 
   it('renders game image when capsuleImagePath is provided', () => {
@@ -87,5 +85,19 @@ describe('GameTile', () => {
     const game = { ...mockGame, platform: 'playstation' as const };
     render(<GameTile game={game} />);
     expect(screen.getByText(mockGame.title)).toBeInTheDocument();
+  });
+
+  it('keeps achievement totals for PlayStation games', () => {
+    const game = {
+      ...mockGame,
+      platform: 'playstation' as const,
+      trophyPlatinum: 1,
+      trophyGold: 5,
+      trophySilver: 10,
+      trophyBronze: 20,
+    };
+    render(<GameTile game={game} />);
+    expect(screen.getByText('10 / 20')).toBeInTheDocument();
+    expect(screen.queryByTestId('trophy-counts')).toBeNull();
   });
 });

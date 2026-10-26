@@ -250,10 +250,33 @@ const UCP_CATALOG_LANGUAGES = [
 ];
 
 function normalizeGrade(grade: unknown): TrophyGrade {
-  const g = String(grade ?? '').toLowerCase();
-  if (g === 'platinum' || g === 'gold' || g === 'silver' || g === 'bronze') {
-    return g;
+  if (grade === null || grade === undefined) return 'bronze';
+  if (typeof grade === 'number') {
+    // Common mappings seen in trophy formats
+    if (grade === 0) return 'platinum';
+    if (grade === 1) return 'gold';
+    if (grade === 2) return 'silver';
+    if (grade === 3) return 'bronze';
+    if (grade === 4) return 'platinum';
+    if (grade === 5) return 'gold';
+    if (grade === 6) return 'silver';
+    if (grade === 7) return 'bronze';
+    if (grade === 100 || grade === 10) return 'platinum';
   }
+  const g = String(grade).toLowerCase().replace(/[^a-z]/g, '');
+  if (g === 'platinum' || g === 'plat' || g === 'p') return 'platinum';
+  if (g === 'gold' || g === 'g') return 'gold';
+  if (g === 'silver' || g === 's') return 'silver';
+  if (g === 'bronze' || g === 'b') return 'bronze';
+  // Some formats use type codes as strings
+  if (g === '0') return 'platinum';
+  if (g === '1') return 'gold';
+  if (g === '2') return 'silver';
+  if (g === '3') return 'bronze';
+  if (g === '4') return 'platinum';
+  if (g === '5') return 'gold';
+  if (g === '6') return 'silver';
+  if (g === '7') return 'bronze';
   return 'bronze';
 }
 
@@ -342,10 +365,55 @@ export function parseTrophyUcp(buf: Buffer): ParsedUcp {
   for (const t of conf.trophies as any[]) {
     const id = Number(t.id);
     const metaEntry = descriptions.get(id);
+    const gradeCandidates = [
+      t.grade,
+      t.trophyGrade,
+      t.type,
+      t.trophyType,
+      t.rank,
+      t.trophyRank,
+      t.rarity,
+      t.trophyRarity,
+      t.category,
+      (metaEntry as any)?.grade,
+      (metaEntry as any)?.trophyGrade,
+      (metaEntry as any)?.type,
+      (t as any).detail?.grade,
+    ];
+    let grade: TrophyGrade = 'bronze';
+    for (const c of gradeCandidates) {
+      const normalized = normalizeGrade(c);
+      if (normalized !== 'bronze' || grade === 'bronze') {
+        // prefer non-bronze if found
+        const isNonBronze = normalized !== 'bronze';
+        const currentIsNonBronze = grade !== 'bronze';
+        if (isNonBronze && !currentIsNonBronze) {
+          grade = normalized;
+        } else if (grade === 'bronze' && normalized !== 'bronze') {
+          grade = normalized;
+        } else if (c === t.grade) {
+          grade = normalized;
+        } else if (grade === 'bronze') {
+          grade = normalized;
+        }
+      }
+    }
+    // if still bronze but found any non-bronze candidate later? simpler: pick first non-bronze
+    if (grade === 'bronze') {
+      for (const c of gradeCandidates) {
+        const normalized = normalizeGrade(c);
+        if (normalized !== 'bronze') {
+          grade = normalized;
+          break;
+        }
+      }
+    } else {
+      // keep first non-bronze found
+    }
     trophies.set(id, {
       name: metaEntry?.name || `Trophy #${id}`,
       description: metaEntry?.detail || '',
-      grade: normalizeGrade(t.grade),
+      grade,
       hidden: !!t.hidden,
       iconPng: pngOrNone(
         buf,
@@ -596,6 +664,12 @@ export function collectTrophyFilesFromUpload(
 export interface BuiltTrophyBackupResult {
   games: TrophyBackupGame[];
   errors: Array<{ file: string; error: string }>;
+  /**
+   * Files that were valid but intentionally not imported (for example trophy
+   * catalogs for games with no progress, or duplicate progress copies). These
+   * are expected in full console backups and are not read failures.
+   */
+  ignored: Array<{ file: string; reason: string }>;
 }
 
 /**
@@ -606,6 +680,7 @@ export function buildTrophyBackups(files: TrophyBackupUploadFile[]): BuiltTrophy
   const dats: Array<{ file: string; parsed: ParsedDat }> = [];
   const ucps: Array<{ file: string; parsed: ParsedUcp }> = [];
   const errors: Array<{ file: string; error: string }> = [];
+  const ignored: Array<{ file: string; reason: string }> = [];
 
   for (const f of files) {
     try {
@@ -636,7 +711,10 @@ export function buildTrophyBackups(files: TrophyBackupUploadFile[]): BuiltTrophy
       bestByNpwr.set(dat.parsed.npwr, dat);
       continue;
     }
-    errors.push({ file: dat.file, error: `Duplicate backup for ${dat.parsed.npwr}` });
+    ignored.push({
+      file: dat.file,
+      reason: `Duplicate progress for ${dat.parsed.npwr}`,
+    });
     if (isBetterProgress(dat.parsed, previous.parsed)) {
       bestByNpwr.set(dat.parsed.npwr, dat);
     }
@@ -644,7 +722,10 @@ export function buildTrophyBackups(files: TrophyBackupUploadFile[]): BuiltTrophy
 
   for (const { file, parsed: dat } of bestByNpwr.values()) {
     if (seen.has(dat.npwr)) {
-      errors.push({ file, error: `Duplicate backup for ${dat.npwr}, skipped` });
+      ignored.push({
+        file,
+        reason: `Duplicate progress for ${dat.npwr}`,
+      });
       continue;
     }
     seen.add(dat.npwr);
@@ -688,21 +769,17 @@ export function buildTrophyBackups(files: TrophyBackupUploadFile[]): BuiltTrophy
     });
   }
 
-  // Also collect any DATs that were fully superseded but we still need to
-  // report the duplicate? The logic above already logged duplicates when
-  // replacing. For dedup cases where we kept the first, errors are added too.
-
-  // UCPs without a matching DAT still carry no progress — report them.
+  // UCPs without a matching DAT carry no progress — skip them silently.
   for (const { file, parsed: ucp } of ucps) {
     if (![...bestByNpwr.values()].some((d) => d.parsed.npwr === ucp.npwr)) {
-      errors.push({
+      ignored.push({
         file,
-        error: `No TRPTITLE.DAT found for catalog ${ucp.npwr} (${ucp.title})`,
+        reason: `No trophy progress for ${ucp.npwr}${ucp.title ? ` (${ucp.title})` : ''}`,
       });
     }
   }
 
-  return { games, errors };
+  return { games, errors, ignored };
 }
 
 function isBetterProgress(a: ParsedDat, b: ParsedDat): boolean {
