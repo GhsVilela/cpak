@@ -415,7 +415,7 @@ function SteamPageContent() {
             <h1 className="text-3xl font-bold text-[var(--steam-accent)]">Steam Library</h1>
             <div className="mt-2 h-0.5 w-16 rounded-full bg-gradient-to-r from-[var(--steam-accent)] to-transparent" />
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <ProfileSelector
               platform="steam"
               selectedProfileId={selectedProfileId}
@@ -425,7 +425,7 @@ function SteamPageContent() {
               reloadTrigger={reloadTrigger}
             />
             {selectedProfileId && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-shrink-0 items-center gap-2">
                 <a
                   href={syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? undefined : `/settings/edit/${selectedProfileId}?returnTo=${encodeURIComponent(`/steam?profileId=${selectedProfileId}`)}`}
                   className={`px-4 py-2 rounded font-medium text-sm transition whitespace-nowrap ${syncStatus?.current || backupRestoreStatus?.backup?.current || backupRestoreStatus?.restore?.current ? 'bg-gray-600 text-gray-300 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}

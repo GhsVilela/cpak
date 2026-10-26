@@ -44,10 +44,11 @@ describe('GameHeroCard', () => {
     expect(img.src).toContain('/api/icons/steam/12345/game_hero.jpg');
   });
 
-  it('shows 100% completion badge', () => {
+  it('does not show a separate completion badge at 100%', () => {
     const completedGame = { ...mockGame, completionPercent: 100, achievementsUnlocked: 20 };
     render(<GameHeroCard game={completedGame} />);
-    expect(screen.getAllByText('100%').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('100%')).toHaveLength(1);
+    expect(screen.queryByText('Perfect Game')).toBeNull();
   });
 
   it('displays customTitle when available', () => {
@@ -61,5 +62,51 @@ describe('GameHeroCard', () => {
     render(<GameHeroCard game={mockGame} />);
     await user.click(screen.getByText('Half-Life 3'));
     expect(pushMock).toHaveBeenCalledWith('/steam/game/12345?profileId=profile-1');
+  });
+
+  it('shows achievements and gamerscore for Xbox games', () => {
+    const game = {
+      ...mockGame,
+      platform: 'xbox' as const,
+      currentGamerscore: 500,
+      maxGamerscore: 1000,
+    };
+    render(<GameHeroCard game={game} />);
+    expect(screen.getByText('10 / 20')).toBeInTheDocument();
+    expect(screen.getByText(/500/)).toBeInTheDocument();
+    expect(screen.getByText(/1,000/)).toBeInTheDocument();
+  });
+
+  it('shows PlayStation trophy counts alongside achievement totals', () => {
+    const game = {
+      ...mockGame,
+      platform: 'playstation' as const,
+      trophyPlatinum: 1,
+      trophyGold: 5,
+      trophySilver: 10,
+      trophyBronze: 20,
+    };
+    render(<GameHeroCard game={game} />);
+    expect(screen.getByText('10 / 20')).toBeInTheDocument();
+    expect(screen.getByLabelText('Platinum trophy')).toBeInTheDocument();
+    expect(screen.getByLabelText('Bronze trophy')).toBeInTheDocument();
+    expect(screen.getByText('20')).toBeInTheDocument();
+  });
+
+  it('shows zeroed gold, silver and bronze counts but hides unearned platinum', () => {
+    const game = {
+      ...mockGame,
+      platform: 'playstation' as const,
+      trophyPlatinum: 0,
+      trophyGold: 0,
+      trophySilver: 0,
+      trophyBronze: 0,
+    };
+    render(<GameHeroCard game={game} />);
+    expect(screen.queryByLabelText('Platinum trophy')).toBeNull();
+    expect(screen.getByLabelText('Gold trophy')).toBeInTheDocument();
+    expect(screen.getByLabelText('Silver trophy')).toBeInTheDocument();
+    expect(screen.getByLabelText('Bronze trophy')).toBeInTheDocument();
+    expect(screen.getAllByText('0')).toHaveLength(3);
   });
 });

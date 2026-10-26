@@ -6,6 +6,7 @@ interface StatTileProps {
   label: string;
   value?: ReactNode;
   dotColor?: string;
+  icon?: ReactNode;
   title?: string;
   spanFull?: boolean;
   valueClassName?: string;
@@ -16,6 +17,7 @@ export function StatTile({
   label,
   value,
   dotColor,
+  icon,
   title,
   spanFull = false,
   valueClassName = '',
@@ -29,11 +31,13 @@ export function StatTile({
       }`}
     >
       <span className="text-xs text-gray-400 md:text-sm">
-        {dotColor && (
+        {icon ? (
+          <span className="mr-1.5 inline-flex items-center align-middle">{icon}</span>
+        ) : dotColor ? (
           <span className="mr-1.5" style={{ color: dotColor }}>
             ●
           </span>
-        )}
+        ) : null}
         {label}
         <span className="hidden md:inline">:</span>
       </span>

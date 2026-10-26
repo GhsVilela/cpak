@@ -57,10 +57,44 @@ describe('GameListItem', () => {
     expect(pushMock).toHaveBeenCalledWith('/steam/game/12345?profileId=profile-1');
   });
 
-  it('shows gamerscore for Xbox games', () => {
+  it('shows achievements and gamerscore for Xbox games', () => {
     const xboxGame = { ...mockGame, platform: 'xbox' as const, currentGamerscore: 500, maxGamerscore: 1000 };
     render(<GameListItem game={xboxGame} />);
+    expect(screen.getByText('10 / 20')).toBeInTheDocument();
     expect(screen.getByText(/500/)).toBeInTheDocument();
     expect(screen.getByText(/1,000/)).toBeInTheDocument();
+  });
+
+  it('shows PlayStation trophy counts alongside achievement totals', () => {
+    const psGame = {
+      ...mockGame,
+      platform: 'playstation' as const,
+      trophyPlatinum: 1,
+      trophyGold: 5,
+      trophySilver: 10,
+      trophyBronze: 20,
+    };
+    render(<GameListItem game={psGame} />);
+    expect(screen.getByText('10 / 20')).toBeInTheDocument();
+    expect(screen.getByLabelText('Platinum trophy')).toBeInTheDocument();
+    expect(screen.getByLabelText('Silver trophy')).toBeInTheDocument();
+    expect(screen.getByText('20')).toBeInTheDocument();
+  });
+
+  it('shows zeroed gold, silver and bronze trophies but hides unearned platinum', () => {
+    const psGame = {
+      ...mockGame,
+      platform: 'playstation' as const,
+      trophyPlatinum: 0,
+      trophyGold: 0,
+      trophySilver: 0,
+      trophyBronze: 0,
+    };
+    render(<GameListItem game={psGame} />);
+    expect(screen.queryByLabelText('Platinum trophy')).toBeNull();
+    expect(screen.getByLabelText('Gold trophy')).toBeInTheDocument();
+    expect(screen.getByLabelText('Silver trophy')).toBeInTheDocument();
+    expect(screen.getByLabelText('Bronze trophy')).toBeInTheDocument();
+    expect(screen.getAllByText('0')).toHaveLength(3);
   });
 });

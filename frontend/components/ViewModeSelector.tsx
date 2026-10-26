@@ -41,15 +41,15 @@ export default function ViewModeSelector({ viewMode, onViewModeChange }: ViewMod
   ];
 
   return (
-    <div className="flex items-center w-full md:w-auto gap-1 bg-gray-800 rounded-lg p-1">
+    <div className="flex items-center w-full md:w-auto gap-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg p-1">
       {modes.map((mode) => (
         <button
           key={mode.value}
           onClick={() => onViewModeChange(mode.value)}
           className={`flex-1 md:flex-none flex items-center justify-center md:justify-start gap-1.5 px-3 py-2.5 md:py-1.5 rounded-md text-sm font-medium transition-colors ${
             viewMode === mode.value
-              ? 'bg-gray-600 text-white'
-              : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+              ? 'bg-[var(--surface-raised)] text-white shadow-sm'
+              : 'text-gray-400 hover:text-gray-200 hover:bg-[var(--surface-muted)]'
           }`}
           title={mode.label}
           aria-pressed={viewMode === mode.value}
