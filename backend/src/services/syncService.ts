@@ -355,6 +355,7 @@ class SyncService {
             groupId: achievement.groupId,
             groupName: achievement.groupName,
             groupOrder: achievement.groupOrder,
+            globalPercent: achievement.globalPercent,
           };
 
           if (icons?.iconPath) {
@@ -531,14 +532,40 @@ class SyncService {
 
     const titles = await adapter.getTitleHistory(xuid, xstsToken, userHash);
 
-    // Enrich devices from TitleHub — the only source that returns the full devices array,
-    // which correctly classifies Play Anywhere games as both PC and XboxSeries.
-    const titleHubDevicesMap = await adapter.getTitleHubDevices(xuid, xstsToken, userHash);
+    // Enrich from TitleHub — the only source that returns the full devices array,
+    // and the source of Mythic status/base-game counts and aggregate summary.
+    const titleHubData = await adapter.getTitleHubData(xuid, xstsToken, userHash);
     for (const title of titles) {
-      const hubDevices = titleHubDevicesMap.get(title.titleId);
+      const hubDevices = titleHubData.devicesMap.get(title.titleId);
       if (hubDevices && hubDevices.length > 0) {
         title.devices = hubDevices;
       }
+
+      const mythicMeta = titleHubData.titleMeta.get(title.titleId);
+      if (mythicMeta) {
+        if (mythicMeta.isMythic !== undefined) title.isMythic = mythicMeta.isMythic;
+        if (mythicMeta.baseGameCount !== undefined) {
+          title.baseGameCount = mythicMeta.baseGameCount;
+          title.hasAchievementGroups = mythicMeta.baseGameCount > 0;
+        }
+        if (mythicMeta.baseGameCompleted !== undefined) {
+          title.baseGameCompleted = mythicMeta.baseGameCompleted;
+        }
+      }
+    }
+
+    if (titleHubData.achievementSummary) {
+      await Profile.findByIdAndUpdate(profile._id, {
+        $set: { xboxAchievementSummary: titleHubData.achievementSummary },
+      });
+      logger.info(
+        {
+          profileId: profile.profileId,
+          mythicsUnlocked: titleHubData.achievementSummary.mythicsUnlocked,
+          totalAchievementsUnlocked: titleHubData.achievementSummary.totalAchievementsUnlocked,
+        },
+        'Stored Xbox achievement summary from TitleHub',
+      );
     }
 
     const totalAchievements = titles.reduce((sum, t) => sum + t.totalAchievements, 0);
@@ -588,6 +615,11 @@ class SyncService {
           devices: title.devices,
           currentGamerscore: title.currentGamerscore ?? 0,
           maxGamerscore: title.maxGamerscore ?? 0,
+          ...(title.isMythic !== undefined && { isMythic: title.isMythic }),
+          ...(title.baseGameCount !== undefined && {
+            baseGameAchievementsTotal: title.baseGameCount,
+            hasAchievementGroups: title.baseGameCount > 0,
+          }),
           ...(title.lastPlayed !== undefined && { lastPlayed: new Date(title.lastPlayed) }),
           lastSyncedAt: new Date(),
         };

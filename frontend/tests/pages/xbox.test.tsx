@@ -81,6 +81,7 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('renders without crashing', async () => {
@@ -186,5 +187,62 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Search games...')).toBeInTheDocument();
     });
+  });
+
+  it('shows the Mythic achievement total alongside Gamerscore', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.startsWith('/profiles')) return Promise.resolve([mockXboxProfile]);
+      if (path.includes('device=Xbox360')) {
+        return Promise.resolve({
+          data: mockXboxGames,
+          pagination: {
+            total: 2,
+            limit: 1,
+            offset: 0,
+            hasMore: false,
+            totalCurrentGamerscore: 400,
+          },
+        });
+      }
+      if (path.includes('/games')) {
+        return Promise.resolve({
+          data: mockXboxGames,
+          pagination: {
+            total: 2,
+            limit: 1,
+            offset: 0,
+            hasMore: false,
+            totalCurrentGamerscore: 3400,
+            mythicAchievementsUnlocked: 12,
+          },
+        });
+      }
+      return Promise.resolve({ data: [], pagination: { total: 0, limit: 100, offset: 0, hasMore: false } });
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/sync/status')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            current: null,
+            lastCompleted: { completedAt: new Date().toISOString(), status: 'success' },
+          }),
+        });
+      }
+      if (url.includes('/api/backup/status')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ backup: null, restore: null }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    }));
+
+    const { default: XboxPage } = await import('../../app/xbox/page');
+    render(<XboxPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Mythic')).toBeInTheDocument();
+    });
+    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getByText('400')).toBeInTheDocument();
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
   gameFindMock, gameCountDocumentsMock, gameFindOneMock, gameFindByIdMock, gameAggregateMock,
-  achievementAggregateMock,
+  achievementAggregateMock, achievementCountDocumentsMock,
   profileFindByIdMock, sharpMockFn, fsMkdirSyncMock, fsWriteFileSyncMock,
 } = vi.hoisted(() => {
   const sharpChain: any = {};
@@ -17,6 +17,7 @@ const {
     gameFindByIdMock: vi.fn(),
     gameAggregateMock: vi.fn(),
     achievementAggregateMock: vi.fn(),
+    achievementCountDocumentsMock: vi.fn(),
     profileFindByIdMock: vi.fn(),
     sharpMockFn: vi.fn(() => sharpChain),
     fsMkdirSyncMock: vi.fn(),
@@ -39,7 +40,10 @@ vi.mock('../../../src/models/profile.js', () => ({
 }));
 
 vi.mock('../../../src/models/achievement.js', () => ({
-  Achievement: { aggregate: achievementAggregateMock },
+  Achievement: {
+    aggregate: achievementAggregateMock,
+    countDocuments: achievementCountDocumentsMock,
+  },
 }));
 
 vi.mock('../../../src/utils/logger.js', () => ({

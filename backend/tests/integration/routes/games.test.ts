@@ -456,6 +456,100 @@ describe('GET /api/games platform aggregations', () => {
     expect(body.pagination).not.toHaveProperty('completedGroups');
   });
 
+  it('includes completed games, average completion and rare achievements for steam + profileId', async () => {
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-rarity-test',
+      displayName: 'Steam Rarity Test',
+      credentials: {},
+    });
+    const games = await Game.create([
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'rar1',
+        title: 'Completed Game',
+        achievementsTotal: 2,
+        achievementsUnlocked: 2,
+        completionPercent: 100,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'rar2',
+        title: 'Half Game',
+        achievementsTotal: 2,
+        achievementsUnlocked: 1,
+        completionPercent: 50,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'rar3',
+        title: 'Unplayed Game',
+        achievementsTotal: 2,
+        achievementsUnlocked: 0,
+        completionPercent: 0,
+        lastSyncedAt: new Date(),
+      },
+    ]);
+    await Achievement.create([
+      { platform: 'steam', profileId: profile._id, gameId: games[0]._id, achievementId: 'r1', name: 'Rare Unlocked', unlockedAt: new Date(), globalPercent: 4.2 },
+      { platform: 'steam', profileId: profile._id, gameId: games[0]._id, achievementId: 'r2', name: 'Common Unlocked', unlockedAt: new Date(), globalPercent: 35 },
+      { platform: 'steam', profileId: profile._id, gameId: games[1]._id, achievementId: 'r3', name: 'Rare Locked', globalPercent: 2.5 },
+      { platform: 'steam', profileId: profile._id, gameId: games[2]._id, achievementId: 'r4', name: 'Rare Unlocked 2', unlockedAt: new Date(), globalPercent: 9.9 },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=steam&profileId=${profile._id}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.pagination.completedGamesTotal).toBe(1);
+    // Steam excludes games with zero unlocked achievements and averages the
+    // exact per-game percentages: (100 + 50) / 2 = 75.
+    expect(body.pagination.averageCompletionPercent).toBe(75);
+    expect(body.pagination.rareAchievementsTotal).toBe(2);
+  });
+
+  it('includes the Xbox Mythic total from the profile achievement summary', async () => {
+    const profile = await Profile.create({
+      platform: 'xbox',
+      profileId: 'xbox-mythic-test',
+      displayName: 'Xbox Mythic Test',
+      credentials: {},
+      xboxAchievementSummary: {
+        mythicsUnlocked: 42,
+        totalAchievementsUnlocked: 9000,
+        totalRareAchievementsUnlocked: 300,
+      },
+    });
+    await Game.create({
+      platform: 'xbox',
+      profileId: profile._id,
+      gameId: 'myth1',
+      title: 'Mythic Game',
+      achievementsTotal: 10,
+      achievementsUnlocked: 10,
+      completionPercent: 100,
+      currentGamerscore: 1000,
+      maxGamerscore: 1000,
+      isMythic: true,
+      lastSyncedAt: new Date(),
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=xbox&profileId=${profile._id}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.pagination.mythicAchievementsUnlocked).toBe(42);
+  });
+
   it('includes gamerscore totals for xbox + profileId', async () => {
     const profile = await Profile.create({
       platform: 'xbox',

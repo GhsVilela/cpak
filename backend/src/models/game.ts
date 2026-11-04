@@ -36,6 +36,12 @@ export interface IGame extends Document {
   trophyGold?: number | null;
   /** PlayStation-specific: count of earned platinum trophies (0 or 1) */
   trophyPlatinum?: number | null;
+  /** Xbox-specific: true when Xbox has awarded this game Mythic status */
+  isMythic?: boolean;
+  /** Xbox-specific: number of achievements in the original/base game group */
+  baseGameAchievementsTotal?: number;
+  /** Xbox-specific: number of base game achievements the user has unlocked */
+  baseGameAchievementsUnlocked?: number;
   /**
    * True when the title's achievements/trophies are split into multiple sets
    * (base game plus DLC/updates). Only set when the platform/developer exposes
@@ -74,6 +80,9 @@ const GameSchema = new Schema<IGame>(
     trophySilver: { type: Number, default: null },
     trophyGold: { type: Number, default: null },
     trophyPlatinum: { type: Number, default: null },
+    isMythic: { type: Boolean, default: false },
+    baseGameAchievementsTotal: { type: Number },
+    baseGameAchievementsUnlocked: { type: Number },
     hasAchievementGroups: { type: Boolean },
     lastSyncedAt: { type: Date, default: Date.now },
   },

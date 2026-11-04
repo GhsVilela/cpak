@@ -26,19 +26,19 @@ export function StatTile({
   return (
     <div
       title={title}
-      className={`flex flex-col justify-center gap-0.5 bg-gray-800/60 rounded-lg px-3 py-2 md:block md:bg-transparent md:rounded-none md:px-5 md:py-0 ${
+      className={`flex flex-col justify-center gap-0.5 bg-gray-800/60 rounded-lg px-3 py-2 md:flex-row md:items-center md:gap-0 md:bg-transparent md:rounded-none md:px-5 md:py-0 ${
         spanFull ? 'col-span-2' : ''
       }`}
     >
-      <span className="text-xs text-gray-400 md:text-sm">
+      <span className="inline-flex items-center gap-1.5 text-xs text-gray-400 md:text-sm">
         {icon ? (
-          <span className="mr-1.5 inline-flex items-center align-middle">{icon}</span>
+          <span className="inline-flex shrink-0 items-center justify-center">{icon}</span>
         ) : dotColor ? (
-          <span className="mr-1.5" style={{ color: dotColor }}>
+          <span className="shrink-0 leading-none" style={{ color: dotColor }}>
             ●
           </span>
         ) : null}
-        {label}
+        <span>{label}</span>
         <span className="hidden md:inline">:</span>
       </span>
       {value !== undefined && (

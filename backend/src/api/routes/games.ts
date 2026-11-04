@@ -55,11 +55,13 @@ export async function getGames(
     }
 
     // Filter by profileId
+    let profileDoc: any = null;
     if (profileId) {
       const profile = await Profile.findById(profileId);
       if (!profile) {
         return reply.status(404).send({ error: 'Profile not found' });
       }
+      profileDoc = profile;
       filter.profileId = profile._id;
     }
 
@@ -124,6 +126,7 @@ export async function getGames(
     // For Xbox profiles, aggregate total gamerscore across all games (not just current page)
     let totalCurrentGamerscore: number | undefined;
     let totalMaxGamerscore: number | undefined;
+    let mythicAchievementsUnlocked: number | undefined;
     if (filter.platform === 'xbox' && filter.profileId) {
       const gsAgg = await Game.aggregate([
         { $match: filter },
@@ -139,6 +142,19 @@ export async function getGames(
         totalCurrentGamerscore = gsAgg[0].totalCurrentGamerscore;
         totalMaxGamerscore = gsAgg[0].totalMaxGamerscore;
       }
+
+      // Prefer Xbox's own Mythic total from the TitleHub achievement summary.
+      // Fall back to counting games flagged as Mythic when the profile has not
+      // been synced since Mythic support was added.
+      const summaryMythics = profileDoc?.xboxAchievementSummary?.mythicsUnlocked;
+      mythicAchievementsUnlocked =
+        typeof summaryMythics === 'number'
+          ? summaryMythics
+          : await Game.countDocuments({
+              profileId: filter.profileId,
+              platform: 'xbox',
+              isMythic: true,
+            });
     }
 
     // For Steam profiles, aggregate total achievements unlocked across all games
@@ -153,12 +169,16 @@ export async function getGames(
       }
     }
 
-    // For Steam profiles, count completed achievement groups — the unit of
-    // completion. A non-split game has a single group (its base achievements),
-    // so it counts once; a game with separate DLC/update groups counts once
-    // per fully-completed group.
-    let completedTotal: number | undefined;
+    // Steam profile statistics. Steam separates "games completed" from
+    // "achievement sets completed", so expose them independently.
+    let averageCompletionPercent: number | undefined;
+    let completedGamesTotal: number | undefined;
+    let completedGroupsTotal: number | undefined;
+    let rareAchievementsTotal: number | undefined;
     if (filter.platform === 'steam' && filter.profileId) {
+      // Count completed achievement groups — the unit of completion. A non-split
+      // game has a single group (its base achievements), so it counts once; a
+      // game with separate DLC/update groups counts once per completed group.
       const groupAgg = await Achievement.aggregate([
         {
           $match: {
@@ -177,7 +197,46 @@ export async function getGames(
         { $match: { $expr: { $eq: ['$unlocked', '$total'] } } },
         { $count: 'count' },
       ]);
-      completedTotal = groupAgg.length > 0 ? groupAgg[0].count : 0;
+      completedGroupsTotal = groupAgg.length > 0 ? groupAgg[0].count : 0;
+
+      const [completedGames, rarityAgg, avgAgg] = await Promise.all([
+        Game.countDocuments({ ...filter, completionPercent: 100 }),
+        Achievement.countDocuments({
+          profileId: filter.profileId,
+          platform: 'steam',
+          unlockedAt: { $exists: true, $ne: null },
+          globalPercent: { $lt: 10 },
+        }),
+        // Steam's average game completion rate averages each game's exact
+        // unlocked/total fraction. Games with zero unlocked achievements are
+        // not eligible and must not drag the average down.
+        Game.aggregate([
+          {
+            $match: {
+              ...filter,
+              achievementsUnlocked: { $gt: 0 },
+              achievementsTotal: { $gt: 0 },
+            },
+          },
+          {
+            $project: {
+              percentage: {
+                $multiply: [
+                  { $divide: ['$achievementsUnlocked', '$achievementsTotal'] },
+                  100,
+                ],
+              },
+            },
+          },
+          { $group: { _id: null, average: { $avg: '$percentage' } } },
+        ]),
+      ]);
+      completedGamesTotal = completedGames;
+      rareAchievementsTotal = rarityAgg;
+      if (avgAgg.length > 0 && typeof avgAgg[0].average === 'number') {
+        // Keep more precision in the API; Steam floors the value for display.
+        averageCompletionPercent = Math.round(avgAgg[0].average * 100) / 100;
+      }
     }
 
     // For PlayStation profiles, aggregate trophy summary across all games
@@ -229,7 +288,15 @@ export async function getGames(
         ...(totalCurrentGamerscore !== undefined && { totalCurrentGamerscore }),
         ...(totalMaxGamerscore !== undefined && { totalMaxGamerscore }),
         ...(totalAchievementsUnlocked !== undefined && { totalAchievementsUnlocked }),
-        ...(completedTotal !== undefined && { completedTotal }),
+        ...(averageCompletionPercent !== undefined && { averageCompletionPercent }),
+        ...(completedGamesTotal !== undefined && { completedGamesTotal }),
+        ...(completedGroupsTotal !== undefined && {
+          completedGroupsTotal,
+          // Backwards-compatible alias for older clients.
+          completedTotal: completedGroupsTotal,
+        }),
+        ...(rareAchievementsTotal !== undefined && { rareAchievementsTotal }),
+        ...(mythicAchievementsUnlocked !== undefined && { mythicAchievementsUnlocked }),
         ...(trophySummary !== undefined && { trophySummary }),
       }
     });

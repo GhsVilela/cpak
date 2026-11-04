@@ -365,6 +365,14 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
           groups: [],
         },
       },
+      GetGlobalAchievementPercentages: {
+        achievementpercentages: {
+          achievements: [
+            { name: 'ACH_BASE', percent: '4.2' },
+            { name: 'ACH_DLC', percent: '42.0' },
+          ],
+        },
+      },
     });
 
     const result = await adapter.syncGamesAndAchievements('steamid123');
@@ -387,6 +395,7 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
       groupName: 'Base Game',
       groupOrder: 0,
       unlocked: true,
+      globalPercent: 4.2,
       icon: 'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/500/b.png',
       iconGray: 'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/500/bg.png',
     });
@@ -398,6 +407,7 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
       groupName: 'Update 1',
       groupOrder: 1,
       unlocked: false,
+      globalPercent: 42,
     });
   });
 

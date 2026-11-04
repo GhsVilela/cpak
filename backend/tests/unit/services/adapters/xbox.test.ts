@@ -352,10 +352,96 @@ describe('XboxAdapter', () => {
     it('returns empty array when title is privacy-blocked (403)', async () => {
       const privacyError = new Error('Forbidden');
       (privacyError as any).statusCode = 403;
-      getXSAPI().mockRejectedValueOnce(privacyError);
+      getXSAPI().mockRejectedValue({
+        response: { status: 403 },
+        statusCode: 403,
+        message: 'Forbidden',
+      });
 
       const result = await adapter.getAchievements('user-xuid', 'private-title', 'xsts-token', 'user-hash');
       expect(result.achievements).toEqual([]);
+    });
+
+    it('maps BaseGame and DLC/Game Update achievement groups from contract 6', async () => {
+      getXSAPI().mockResolvedValueOnce({
+        data: {
+          achievements: [
+            {
+              id: 'base-1',
+              name: 'Base Achievement',
+              description: '',
+              lockedDescription: '',
+              progressState: 'Achieved',
+              progression: { timeUnlocked: '2024-01-15T10:00:00.0000000Z' },
+              mediaAssets: [],
+              isSecret: false,
+              productId: 'p1',
+              achievementType: 'Persistent',
+              participationType: 'Individual',
+              rewards: [],
+              groupIds: ['group-base'],
+            },
+            {
+              id: 'dlc-1',
+              name: 'DLC Achievement',
+              description: '',
+              lockedDescription: '',
+              progressState: 'NotStarted',
+              progression: { timeUnlocked: '0001-01-01T00:00:00.0000000Z' },
+              mediaAssets: [],
+              isSecret: false,
+              productId: 'p1',
+              achievementType: 'Persistent',
+              participationType: 'Individual',
+              rewards: [],
+              groupIds: ['group-dlc'],
+            },
+          ],
+          completion: [
+            {
+              titleId: 'title-1',
+              groups: {
+                'group-base': {
+                  groupType: 'BaseGame',
+                  achievementIds: ['base-1'],
+                  unlockedAchievementIds: ['base-1'],
+                  isComplete: true,
+                },
+                'group-dlc': {
+                  groupType: 'AddOn',
+                  achievementIds: ['dlc-1'],
+                  unlockedAchievementIds: [],
+                  isComplete: false,
+                },
+              },
+            },
+          ],
+          pagingInfo: { continuationToken: null },
+        },
+      });
+
+      const { achievements } = await adapter.getAchievements(
+        'user-xuid',
+        'title-1',
+        'xsts-token',
+        'user-hash',
+        'XboxSeries',
+        { baseGameCount: 1 },
+      );
+
+      expect(achievements).toHaveLength(2);
+      expect(achievements[0]).toMatchObject({
+        achievementId: 'base-1',
+        groupId: 'base',
+        groupName: 'Base Game',
+        groupOrder: 0,
+      });
+      expect(achievements[1]).toMatchObject({
+        achievementId: 'dlc-1',
+        groupId: 'addon',
+        groupName: 'DLC / Update',
+        groupOrder: 1,
+      });
     });
   });
 
@@ -647,6 +733,52 @@ describe('XboxAdapter', () => {
   // -------------------------------------------------------------------------
 
   describe('getTitleHubDevices', () => {
+    it('returns Mythic metadata and the aggregate achievement summary', async () => {
+      getXSAPI().mockResolvedValue({
+        data: {
+          achievementSummary: {
+            mythicsUnlocked: 42,
+            totalAchievementsUnlocked: 9000,
+            totalRareAchievementsUnlocked: 300,
+          },
+          titles: [
+            {
+              titleId: '12345',
+              devices: ['PC', 'XboxSeries'],
+              isMythic: true,
+              baseGameCount: 50,
+              baseGameCompleted: true,
+            },
+            {
+              titleId: '67890',
+              devices: ['Xbox360'],
+              isMythic: false,
+              baseGameCount: 20,
+              baseGameCompleted: false,
+            },
+          ],
+        },
+      } as any);
+
+      const result = await adapter.getTitleHubData('xuid', 'token', 'hash');
+      expect(result.devicesMap.get('12345')).toEqual(['PC', 'XboxSeries']);
+      expect(result.titleMeta.get('12345')).toEqual({
+        isMythic: true,
+        baseGameCount: 50,
+        baseGameCompleted: true,
+      });
+      expect(result.titleMeta.get('67890')).toEqual({
+        isMythic: false,
+        baseGameCount: 20,
+        baseGameCompleted: false,
+      });
+      expect(result.achievementSummary).toEqual({
+        mythicsUnlocked: 42,
+        totalAchievementsUnlocked: 9000,
+        totalRareAchievementsUnlocked: 300,
+      });
+    });
+
     it('returns empty map when API returns no titles', async () => {
       getXSAPI().mockResolvedValue({ data: { titles: [] } } as any);
 

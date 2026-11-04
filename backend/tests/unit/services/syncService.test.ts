@@ -43,7 +43,11 @@ vi.mock('../../../src/services/adapters/xbox.js', () => ({
       xuid: 'test-xuid-123',
     }),
     getTitleHistory: vi.fn().mockResolvedValue([]),
-    getTitleHubDevices: vi.fn().mockResolvedValue(new Map()),
+    getTitleHubData: vi.fn().mockResolvedValue({
+      devicesMap: new Map(),
+      titleMeta: new Map(),
+      achievementSummary: undefined,
+    }),
     downloadGameImages: vi.fn().mockResolvedValue(new Map()),
     syncAchievements: vi.fn().mockResolvedValue(0),
   })),

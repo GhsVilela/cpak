@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
+import MythicIcon from '../../../../components/MythicIcon';
 
 interface Game {
   _id: string;
@@ -18,6 +19,11 @@ interface Game {
   maxGamerscore?: number;
   lastPlayed?: string;
   playTimeMinutes?: number;
+  /** Mythic achievement support / status (Xbox, Oct 2026 update). */
+  isMythic?: boolean;
+  baseGameAchievementsTotal?: number;
+  baseGameAchievementsUnlocked?: number;
+  hasAchievementGroups?: boolean;
 }
 
 interface Achievement {
@@ -30,6 +36,9 @@ interface Achievement {
   iconPath?: string;
   iconGrayPath?: string;
   gamerscore?: number;
+  groupId?: string;
+  groupName?: string;
+  groupOrder?: number;
 }
 
 function formatLastPlayed(iso: string): string {
@@ -119,6 +128,126 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
   );
 }
 
+interface AchievementGroup {
+  id: string;
+  name: string;
+  order: number;
+  items: Achievement[];
+}
+
+function groupAchievements(achievements: Achievement[]): AchievementGroup[] {
+  const map = new Map<string, AchievementGroup>();
+  for (const achievement of achievements) {
+    const id = achievement.groupId ?? '__default__';
+    if (!map.has(id)) {
+      map.set(id, {
+        id,
+        // Keep existing synced data readable: older rows used the longer label.
+        name: achievement.groupName === 'DLC / Game Update'
+          ? 'DLC / Update'
+          : achievement.groupName ?? 'Base Game',
+        order: achievement.groupOrder ?? 0,
+        items: [],
+      });
+    }
+    map.get(id)!.items.push(achievement);
+  }
+  return Array.from(map.values()).sort((a, b) => a.order - b.order);
+}
+
+function isBaseGameGroup(group: AchievementGroup): boolean {
+  return group.id === 'base' || /base game/i.test(group.name);
+}
+
+function AchievementGroupSection({
+  group,
+  mythicEarned = false,
+}: {
+  group: AchievementGroup;
+  mythicEarned?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const groupUnlocked = group.items.filter((a) => a.unlockedAt);
+  const groupLocked = group.items.filter((a) => !a.unlockedAt);
+  const percent = group.items.length > 0 ? Math.round((groupUnlocked.length / group.items.length) * 100) : 0;
+  const baseGame = isBaseGameGroup(group);
+  const totalGamerscore = group.items.reduce((total, achievement) => total + (achievement.gamerscore ?? 0), 0);
+  const unlockedGamerscore = groupUnlocked.reduce((total, achievement) => total + (achievement.gamerscore ?? 0), 0);
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] transition-colors">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-[var(--surface-raised)]"
+      >
+        <span className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center justify-between gap-4">
+            <span className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="truncate text-lg font-semibold text-[var(--xbox-accent)]">{group.name}</span>
+              {baseGame && (
+                <MythicIcon
+                  size={14}
+                  muted={!mythicEarned}
+                  title={mythicEarned ? 'Mythic achievement earned' : 'Required for the Mythic achievement'}
+                />
+              )}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              <span
+                className="rounded border border-gray-500 bg-gray-700 px-2 py-0.5 text-xs font-bold text-white"
+                title="Gamerscore unlocked in this category"
+              >
+                {unlockedGamerscore.toLocaleString()} / {totalGamerscore.toLocaleString()} G
+              </span>
+              <span className="text-sm text-gray-400">
+                {groupUnlocked.length} / {group.items.length}
+              </span>
+            </span>
+          </span>
+          <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-[var(--border-muted)]">
+            <span
+              className="block h-full rounded-full bg-[var(--xbox-accent)] transition-all"
+              style={{ width: `${percent}%` }}
+            />
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="space-y-4 border-t border-[var(--border-muted)] px-4 pb-4 pt-4">
+          {groupUnlocked.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Unlocked ({groupUnlocked.length})
+              </h3>
+              <div className="space-y-2">
+                {groupUnlocked.map((achievement) => (
+                  <AchievementCard key={achievement._id} achievement={achievement} />
+                ))}
+              </div>
+            </div>
+          )}
+          {groupLocked.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Locked ({groupLocked.length})
+              </h3>
+              <div className="space-y-2">
+                {groupLocked.map((achievement) => (
+                  <AchievementCard key={achievement._id} achievement={achievement} locked />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Make this page dynamic (not static)
 export const dynamic = 'force-dynamic';
 
@@ -193,6 +322,12 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
 
   const unlockedAchievements = achievements.filter((a) => a.unlockedAt);
   const lockedAchievements = achievements.filter((a) => !a.unlockedAt);
+  const groups = groupAchievements(achievements);
+  const supportsMythic =
+    !!game.isMythic ||
+    (game.baseGameAchievementsTotal ?? 0) > 0 ||
+    !!game.hasAchievementGroups;
+  const showGroups = groups.length > 0 && (supportsMythic || groups.length > 1);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -230,6 +365,23 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
             <div className="text-xs uppercase tracking-wide text-gray-400">Completion</div>
             <div className="mt-0.5 font-semibold">{game.completionPercent}%</div>
           </div>
+          {supportsMythic && (
+            <div className="shrink-0 whitespace-nowrap px-5">
+              <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-gray-400">
+                <MythicIcon size={12} muted={!game.isMythic} />
+                Mythic
+              </div>
+              <div className="mt-0.5 flex items-center gap-1.5 font-semibold">
+                {game.isMythic ? (
+                  <span className="text-[var(--xbox-accent)]">Earned</span>
+                ) : (
+                  <span>
+                    {game.baseGameAchievementsUnlocked ?? 0} / {game.baseGameAchievementsTotal ?? achievements.length}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
           {game.lastPlayed && (
             <div className="shrink-0 whitespace-nowrap px-5">
               <div className="text-xs uppercase tracking-wide text-gray-400">Last Played</div>
@@ -259,34 +411,43 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
-      {/* Achievements list */}
+      {/* Achievements list. Mythic-enabled games are split into Base Game and
+          DLC/Game Update groups; other games keep the flat unlocked/locked list. */}
       <div className="space-y-6">
-        {/* Unlocked achievements */}
-        {unlockedAchievements.length > 0 && (
-          <div>
-            <h2 className="mb-4 text-xl font-semibold text-[var(--xbox-accent)]">
-              Unlocked ({unlockedAchievements.length})
-            </h2>
-            <div className="space-y-2">
-              {unlockedAchievements.map((achievement) => (
-                <AchievementCard key={achievement._id} achievement={achievement} />
-              ))}
-            </div>
-          </div>
-        )}
+        {showGroups ? (
+          groups.map((group) => (
+            <AchievementGroupSection key={group.id} group={group} mythicEarned={!!game.isMythic} />
+          ))
+        ) : (
+          <>
+            {/* Unlocked achievements */}
+            {unlockedAchievements.length > 0 && (
+              <div>
+                <h2 className="mb-4 text-xl font-semibold text-[var(--xbox-accent)]">
+                  Unlocked ({unlockedAchievements.length})
+                </h2>
+                <div className="space-y-2">
+                  {unlockedAchievements.map((achievement) => (
+                    <AchievementCard key={achievement._id} achievement={achievement} />
+                  ))}
+                </div>
+              </div>
+            )}
 
-        {/* Locked achievements */}
-        {lockedAchievements.length > 0 && (
-          <div>
-            <h2 className="mb-4 text-xl font-semibold text-gray-400">
-              Locked ({lockedAchievements.length})
-            </h2>
-            <div className="space-y-2">
-              {lockedAchievements.map((achievement) => (
-                <AchievementCard key={achievement._id} achievement={achievement} locked />
-              ))}
-            </div>
-          </div>
+            {/* Locked achievements */}
+            {lockedAchievements.length > 0 && (
+              <div>
+                <h2 className="mb-4 text-xl font-semibold text-gray-400">
+                  Locked ({lockedAchievements.length})
+                </h2>
+                <div className="space-y-2">
+                  {lockedAchievements.map((achievement) => (
+                    <AchievementCard key={achievement._id} achievement={achievement} locked />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Empty state */}
