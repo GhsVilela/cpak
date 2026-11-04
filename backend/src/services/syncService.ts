@@ -543,7 +543,11 @@ class SyncService {
 
       const mythicMeta = titleHubData.titleMeta.get(title.titleId);
       if (mythicMeta) {
-        if (mythicMeta.isMythic !== undefined) title.isMythic = mythicMeta.isMythic;
+        // `baseGameCompleted` is the authoritative earned flag. `isMythic`
+        // only identifies Mythic-capable titles on newer responses, so only
+        // fall back to it when completion is not available.
+        const mythicEarned = mythicMeta.baseGameCompleted ?? mythicMeta.isMythic;
+        if (mythicEarned !== undefined) title.isMythic = mythicEarned;
         if (mythicMeta.baseGameCount !== undefined) {
           title.baseGameCount = mythicMeta.baseGameCount;
           title.hasAchievementGroups = mythicMeta.baseGameCount > 0;

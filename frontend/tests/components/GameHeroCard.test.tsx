@@ -77,6 +77,30 @@ describe('GameHeroCard', () => {
     expect(screen.getByText(/1,000/)).toBeInTheDocument();
   });
 
+  it('shows the Mythic badge for Xbox games with the Mythic unlocked', () => {
+    const game = {
+      ...mockGame,
+      platform: 'xbox' as const,
+      currentGamerscore: 1000,
+      maxGamerscore: 1000,
+      isMythic: true,
+    };
+    render(<GameHeroCard game={game} />);
+    expect(screen.getByRole('img', { name: 'Mythic achievement earned' })).toBeInTheDocument();
+  });
+
+  it('does not show the Mythic badge when the Mythic is locked', () => {
+    const game = {
+      ...mockGame,
+      platform: 'xbox' as const,
+      currentGamerscore: 500,
+      maxGamerscore: 1000,
+      isMythic: false,
+    };
+    render(<GameHeroCard game={game} />);
+    expect(screen.queryByRole('img', { name: /Mythic achievement/ })).toBeNull();
+  });
+
   it('shows PlayStation trophy counts alongside achievement totals', () => {
     const game = {
       ...mockGame,

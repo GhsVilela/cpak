@@ -972,7 +972,10 @@ export class XboxAdapter {
         // GS4 all-earned-achievements endpoint scan (meaning the user genuinely has
         // at least one unlocked achievement for this title per that authoritative source).
         inEarnedScan: earnedScanSet.has(String(title.titleId)),
-        isMythic: title.isMythic,
+        // `baseGameCompleted` is the authoritative Mythic-earned flag. `isMythic`
+        // marks a title as Mythic-capable on some responses, so only use it as a
+        // fallback when the newer field is unavailable.
+        isMythic: title.baseGameCompleted ?? title.isMythic,
         baseGameCount: title.baseGameCount,
         baseGameCompleted: title.baseGameCompleted,
         hasAchievementGroups:
@@ -999,21 +1002,31 @@ export class XboxAdapter {
     const devicesMap = new Map<string, string[]>();
     const titleMeta = new Map<string, XboxTitleHubMeta>();
     let achievementSummary: XboxAchievementSummary | undefined;
-    const baseUrl = `https://titlehub.xboxlive.com/users/xuid(${xuid})/titles/titlehistory/decoration/detail`;
+    let earnedMythicsFromTitles = 0;
+    // Mythic fields are returned with the `achievement` decoration. Keep `detail`
+    // for devices and request both so the summary/per-title flags are present.
+    const baseUrl = `https://titlehub.xboxlive.com/users/xuid(${xuid})/titles/titlehistory/decoration/detail,achievement`;
 
-    type TitleHubTitle = {
-      titleId: string | number;
-      devices?: string[];
-      /** Mythic fields (TitleHub contract 2, added with the Oct 2026 Xbox update). */
+    /**
+     * TitleHub places the Mythic metadata either on the title itself or inside
+     * its `achievement` block, depending on the response version. Accept both.
+     */
+    type TitleHubAchievement = {
       isMythic?: boolean;
       baseGameCount?: number;
       baseGameCompleted?: boolean;
       achievementSummary?: XboxAchievementSummary;
     };
+    type TitleHubTitle = TitleHubAchievement & {
+      titleId: string | number;
+      devices?: string[];
+      achievement?: TitleHubAchievement;
+    };
     type TitleHubResponse = {
       titles?: TitleHubTitle[];
       pagingInfo?: { continuationToken?: string };
       achievementSummary?: XboxAchievementSummary;
+      achievementsSummary?: XboxAchievementSummary;
     };
 
     try {
@@ -1043,8 +1056,10 @@ export class XboxAdapter {
 
         // The summary may be returned at the top level; some responses also
         // echo it per title. Prefer the first complete summary we see.
-        if (!achievementSummary && result.achievementSummary) {
-          achievementSummary = normalizeAchievementSummary(result.achievementSummary);
+        if (!achievementSummary) {
+          achievementSummary =
+            normalizeAchievementSummary(result.achievementSummary) ??
+            normalizeAchievementSummary(result.achievementsSummary);
         }
 
         if (!result.titles) break;
@@ -1056,14 +1071,41 @@ export class XboxAdapter {
             devicesMap.set(titleId, title.devices);
           }
 
+          const achievementBlock =
+            title.achievement && typeof title.achievement === 'object'
+              ? title.achievement
+              : undefined;
+          // Prefer the nested achievement block, then fall back to top-level
+          // fields for responses that expose them directly on the title.
+          const sources = [achievementBlock, title].filter(
+            (source): source is TitleHubAchievement => !!source,
+          );
+
+          const readBoolean = (key: 'isMythic' | 'baseGameCompleted') =>
+            sources.find((source) => typeof source[key] === 'boolean')?.[key];
+          const readNumber = (key: 'baseGameCount') =>
+            toFiniteNumber(sources.find((source) => source[key] !== undefined)?.[key]);
+
           const meta: XboxTitleHubMeta = {};
-          if (typeof title.isMythic === 'boolean') meta.isMythic = title.isMythic;
-          const baseGameCount = toFiniteNumber(title.baseGameCount);
+          const isMythic = readBoolean('isMythic');
+          const baseGameCount = readNumber('baseGameCount');
+          const baseGameCompleted = readBoolean('baseGameCompleted');
+
+          if (isMythic !== undefined) meta.isMythic = isMythic;
           if (baseGameCount !== undefined) meta.baseGameCount = baseGameCount;
-          if (typeof title.baseGameCompleted === 'boolean') meta.baseGameCompleted = title.baseGameCompleted;
-          if (!achievementSummary && title.achievementSummary) {
-            achievementSummary = normalizeAchievementSummary(title.achievementSummary);
+          if (baseGameCompleted !== undefined) meta.baseGameCompleted = baseGameCompleted;
+
+          if ((baseGameCompleted ?? isMythic) === true) {
+            earnedMythicsFromTitles++;
           }
+
+          if (!achievementSummary) {
+            const nestedSummary = sources
+              .map((source) => normalizeAchievementSummary(source.achievementSummary))
+              .find((summary) => summary !== undefined);
+            if (nestedSummary) achievementSummary = nestedSummary;
+          }
+
           if (Object.keys(meta).length > 0) {
             titleMeta.set(titleId, meta);
           }
@@ -1072,11 +1114,18 @@ export class XboxAdapter {
         continuationToken = result.pagingInfo?.continuationToken ?? null;
       } while (continuationToken);
 
+      // Older/partial responses may omit the aggregate summary. Derive the
+      // Mythic count from the per-title flags so the profile still shows it.
+      if (!achievementSummary && earnedMythicsFromTitles > 0) {
+        achievementSummary = { mythicsUnlocked: earnedMythicsFromTitles };
+      }
+
       logger.info(
         {
           xuid,
           titlesWithDevices: devicesMap.size,
           titlesWithMythicMeta: titleMeta.size,
+          earnedMythicsFromTitles,
           mythicsUnlocked: achievementSummary?.mythicsUnlocked,
         },
         'TitleHub data fetched',
@@ -2790,9 +2839,17 @@ export class XboxAdapter {
 
           const baseGameAchievements = achievements.filter((a) => a.groupId === 'base');
           if (baseGameAchievements.length > 0) {
+            const baseGameUnlocked = baseGameAchievements.filter((a) => a.isUnlocked).length;
             gsUpdate.baseGameAchievementsTotal = baseGameAchievements.length;
-            gsUpdate.baseGameAchievementsUnlocked = baseGameAchievements.filter((a) => a.isUnlocked).length;
+            gsUpdate.baseGameAchievementsUnlocked = baseGameUnlocked;
             gsUpdate.hasAchievementGroups = true;
+            // The BaseGame group is the source of truth for Mythic status.
+            // Mark the game as earned as soon as the group is complete, even
+            // when TitleHub's flags are missing or stale. Mythic is permanent,
+            // so an incomplete group never clears an existing earned flag.
+            if (baseGameUnlocked === baseGameAchievements.length) {
+              gsUpdate.isMythic = true;
+            }
           }
           await Game.findByIdAndUpdate(gameMongoId, { $set: gsUpdate });
 

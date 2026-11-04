@@ -25,6 +25,8 @@ interface Game {
   heroImagePath?: string;
   profileId: string;
   devices?: string[];
+  /** True when the game's Mythic achievement has been earned. */
+  isMythic?: boolean;
   isHidden?: boolean;
 }
 
