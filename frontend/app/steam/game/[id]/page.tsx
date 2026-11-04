@@ -31,6 +31,8 @@ interface Achievement {
   groupId?: string;
   groupName?: string;
   groupOrder?: number;
+  /** Global unlock percentage (0–100). Below 10 is rare on Steam. */
+  globalPercent?: number;
 }
 
 // Make this page dynamic (not static)
@@ -79,6 +81,20 @@ function groupAchievements(achievements: Achievement[]): AchievementGroup[] {
   return Array.from(map.values()).sort((a, b) => a.order - b.order);
 }
 
+function GlobalPercent({ achievement, muted = false }: { achievement: Achievement; muted?: boolean }) {
+  if (achievement.globalPercent === undefined || achievement.globalPercent === null) return null;
+  const rare = achievement.globalPercent < 10;
+
+  return (
+    <p className={`mt-1 text-xs ${muted ? 'text-gray-600' : 'text-gray-500'}`}>
+      <span className={rare ? 'font-semibold text-amber-400' : ''}>
+        {achievement.globalPercent.toFixed(1)}%
+      </span>{' '}
+      of players unlocked this{rare ? ' · Rare' : ''}
+    </p>
+  );
+}
+
 function AchievementCard({ achievement, locked = false }: { achievement: Achievement; locked?: boolean }) {
   if (locked) {
     return (
@@ -99,6 +115,7 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
           {achievement.description && (
             <p className="mt-1 text-sm text-gray-500">{achievement.description}</p>
           )}
+          <GlobalPercent achievement={achievement} muted />
         </div>
       </div>
     );
@@ -122,6 +139,7 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
         {achievement.description && (
           <p className="mt-1 text-sm text-gray-400">{achievement.description}</p>
         )}
+        <GlobalPercent achievement={achievement} />
         {achievement.unlockedAt && (
           <p className="mt-2 text-xs text-gray-500">
             Unlocked: {new Date(achievement.unlockedAt).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}

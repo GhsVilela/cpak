@@ -25,9 +25,9 @@ Achievements are more than just a game feature, they're memories. CPAK is a self
 - **Automatic Sync**: Scheduler to keep your achievements up to date
 - **Image Integration**: SteamGridDB and IGDB support for game artwork
 - **Backup and Restore**: Backup and restore all profiles, games, achievements, and images to a zip file
-- **Steam Profile Showcase**: Displays your total achievement count alongside games & groups completed
-- **Xbox Gamerscore Tracking**: Shows total Gamerscore and Xbox 360 Gamerscore separately
-- **PlayStation Trophy Tracking**: Shows platinum, gold, silver, and bronze trophy counts with generation filters (PS5, PS4, PS3, PS Vita)
+- **Steam Profile Showcase**: Displays total unlocked achievements, rare achievements, completed games, completed achievement sets, and average game completion rate
+- **Xbox Gamerscore & Mythic Tracking**: Shows total Gamerscore, Xbox 360 Gamerscore, and Mythic achievements separately, with Mythic-aware Base Game and DLC/Update achievement groups
+- **PlayStation Trophy Tracking**: Shows platinum, gold, silver, and bronze trophy totals with generation filters (PS5, PS4, PS3, PS Vita), per-category unlocked trophy breakdowns, and a Platinum indicator on base game groups
 
 ## Quick Start
 
@@ -340,6 +340,7 @@ cpak/
 
 ### Games
 - `GET /api/games` - List games (supports `?platform=&profileId=&onlyCompleted=&excludeHidden=&limit=&offset=&sortBy=&sortOrder=&device=&search=`)
+  - Pagination metadata includes platform aggregates: `totalAchievementsUnlocked`, `averageCompletionPercent`, `completedGamesTotal`, `completedGroupsTotal`, `rareAchievementsTotal`, `mythicAchievementsUnlocked` and `trophySummary`.
 - `GET /api/games/:id` - Get specific game
 - `PATCH /api/games/:id` - Update game (custom title)
 - `PATCH /api/games/:id/images/:imageType` - Upload custom game image (icon, hero, capsule)

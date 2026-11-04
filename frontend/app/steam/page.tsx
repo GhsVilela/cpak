@@ -36,6 +36,15 @@ interface GamesResponse {
     offset: number;
     hasMore: boolean;
     totalAchievementsUnlocked?: number;
+    /** Achievement sets (base game or DLC/update) fully completed. */
+    completedGroupsTotal?: number;
+    /** Games where every tracked achievement is unlocked. */
+    completedGamesTotal?: number;
+    /** Average completion percentage across tracked games. */
+    averageCompletionPercent?: number;
+    /** Unlocked achievements owned by fewer than 10% of Steam players. */
+    rareAchievementsTotal?: number;
+    /** Legacy alias for completedGroupsTotal. */
     completedTotal?: number;
   };
 }
@@ -87,8 +96,14 @@ function SteamPageContent() {
   // Persistent tracked achievement count — unfiltered, only refreshed on profile/sync change
   const [baseTrackedAchievements, setBaseTrackedAchievements] = useState<number | undefined>(undefined);
 
-  // Completed achievement groups (unit of completion) — unfiltered base
-  const [baseCompletedTotal, setBaseCompletedTotal] = useState<number | undefined>(undefined);
+  // Completed achievement groups (base game + DLC/update sets) — unfiltered base
+  const [baseCompletedGroups, setBaseCompletedGroups] = useState<number | undefined>(undefined);
+  // Games where every achievement is unlocked — unfiltered base
+  const [baseCompletedGames, setBaseCompletedGames] = useState<number | undefined>(undefined);
+  // Average completion percentage across the library — unfiltered base
+  const [baseAverageCompletion, setBaseAverageCompletion] = useState<number | undefined>(undefined);
+  // Unlocked rare achievements (< 10% global unlock rate) — unfiltered base
+  const [baseRareAchievements, setBaseRareAchievements] = useState<number | undefined>(undefined);
 
   // View mode — persisted per-platform in localStorage
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -189,11 +204,20 @@ function SteamPageContent() {
         offset: '0',
       });
       const response = await apiClient.get<GamesResponse>(`/games?${params.toString()}`);
-      const { totalAchievementsUnlocked, completedTotal } = response.pagination;
+      const {
+        totalAchievementsUnlocked,
+        completedGroupsTotal,
+        completedGamesTotal,
+        averageCompletionPercent,
+        rareAchievementsTotal,
+        completedTotal,
+      } = response.pagination;
       setBaseTrackedAchievements(totalAchievementsUnlocked);
-      if (completedTotal !== undefined) {
-        setBaseCompletedTotal(completedTotal);
-      }
+      const groups = completedGroupsTotal ?? completedTotal;
+      if (groups !== undefined) setBaseCompletedGroups(groups);
+      if (completedGamesTotal !== undefined) setBaseCompletedGames(completedGamesTotal);
+      if (averageCompletionPercent !== undefined) setBaseAverageCompletion(averageCompletionPercent);
+      if (rareAchievementsTotal !== undefined) setBaseRareAchievements(rareAchievementsTotal);
     } catch {
       // ignore — not critical
     }
@@ -486,19 +510,54 @@ function SteamPageContent() {
                 valueClassName="text-[var(--steam-accent)]"
               />
             )}
-            {baseCompletedTotal !== undefined && (
+            {baseRareAchievements !== undefined && (
               <StatTile
-                title="Completed achievement groups across your library — a normal game counts once, games with separate DLC/update groups count once per completed group."
-                label="Games & Groups Completed"
+                title="Unlocked achievements owned by fewer than 10% of Steam players — Steam's rare achievement threshold."
+                label="Rare Achievements"
                 value={
-                  <span className="text-[var(--steam-accent)]">{baseCompletedTotal.toLocaleString()}</span>
+                  <span className="text-[var(--steam-accent)]">{baseRareAchievements.toLocaleString()}</span>
+                }
+              />
+            )}
+            {baseCompletedGames !== undefined && (
+              <StatTile
+                title="Games where every tracked achievement — base game and DLC/updates — is unlocked."
+                label="Completed Games"
+                value={
+                  <span className="text-[var(--steam-accent)]">{baseCompletedGames.toLocaleString()}</span>
+                }
+              />
+            )}
+            {baseCompletedGroups !== undefined && (
+              <StatTile
+                title="Achievement sets fully completed across your library. A base game set and each DLC/update set count separately."
+                label="Completed Sets"
+                value={
+                  <span className="text-[var(--steam-accent)]">{baseCompletedGroups.toLocaleString()}</span>
+                }
+              />
+            )}
+            {baseAverageCompletion !== undefined && (
+              <StatTile
+                title={`Steam's average game completion rate across eligible games, rounded down for display. Exact average: ${baseAverageCompletion.toFixed(2)}%`}
+                label="Avg Completion"
+                value={
+                  <span className="text-[var(--steam-accent)]">{Math.floor(baseAverageCompletion)}%</span>
                 }
               />
             )}
             <StatTile
               label="Last Sync"
               bold={false}
-              spanFull={baseTrackedAchievements === undefined}
+              spanFull={
+                [
+                  baseTrackedAchievements,
+                  baseCompletedGames,
+                  baseCompletedGroups,
+                  baseAverageCompletion,
+                  baseRareAchievements,
+                ].filter((value) => value !== undefined).length % 2 === 0
+              }
               value={
                 <>
                   {formatRelativeTime(syncStatus.lastCompleted.completedAt)}

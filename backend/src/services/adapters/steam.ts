@@ -107,6 +107,8 @@ interface SteamMappedAchievement {
   groupId?: string;
   groupName?: string;
   groupOrder?: number;
+  /** Global unlock percentage (0–100). Below 10 is considered rare by Steam. */
+  globalPercent?: number;
 }
 
 export class SteamAdapter {
@@ -271,6 +273,47 @@ export class SteamAdapter {
     }
   }
 
+  /**
+   * Fetch global achievement unlock percentages for an app.
+   * This is the data Steam uses to mark rare achievements (< 10% of players).
+   * Public endpoint — no API key required. Returns an empty map on failure so
+   * a rarity lookup can never break a library sync.
+   */
+  async getGlobalAchievementPercentages(appId: number): Promise<Map<string, number>> {
+    const url = `${this.baseUrl}/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=${appId}`;
+
+    try {
+      return await rateLimiter.executeWithRetry(
+        'steam',
+        async () => {
+          const response = await fetch(url);
+          if (response.status === 429 || response.status >= 500) {
+            throw new Error(`Steam API ${response.status} for global achievement percentages appId=${appId}`);
+          }
+          if (!response.ok) return new Map<string, number>();
+
+          const data = await response.json() as any;
+          const list = data?.achievementpercentages?.achievements;
+          const percentages = new Map<string, number>();
+          if (Array.isArray(list)) {
+            for (const item of list) {
+              const name = typeof item?.name === 'string' ? item.name : undefined;
+              const percent = Number(item?.percent);
+              if (name && Number.isFinite(percent)) {
+                percentages.set(name, percent);
+              }
+            }
+          }
+          return percentages;
+        },
+        `globalach:${appId}`,
+      );
+    } catch (error) {
+      logger.debug({ error: String(error), appId }, 'Failed to fetch global achievement percentages');
+      return new Map();
+    }
+  }
+
   async getGameSchema(appId: number): Promise<SteamGameSchema | null> {
     const url = `${this.baseUrl}/ISteamUserStats/GetSchemaForGame/v2/?key=${this.apiKey}&appid=${appId}`;
     
@@ -423,7 +466,12 @@ export class SteamAdapter {
       };
     }
 
-    const userSet = await this.getUserAchievements(steamId, appId);
+    // Fetch per-user unlock state and global rarity in parallel. Rarity is
+    // supplementary: a failure returns an empty map and never blocks the sync.
+    const [userSet, globalPercentages] = await Promise.all([
+      this.getUserAchievements(steamId, appId),
+      this.getGlobalAchievementPercentages(appId),
+    ]);
 
     const userMap = new Map<number, { unlocked: boolean; unlockTime?: number }>();
     for (const ua of userSet?.achievements ?? []) {
@@ -461,6 +509,7 @@ export class SteamAdapter {
         groupId: String(gid),
         groupName: group?.name ?? 'Base Game',
         groupOrder: group?.order ?? 0,
+        globalPercent: globalPercentages.get(a.internal_name as string),
       };
     });
 
@@ -582,6 +631,7 @@ export class SteamAdapter {
       groupId?: string;
       groupName?: string;
       groupOrder?: number;
+      globalPercent?: number;
     }>;
     adaptiveStats?: {
       finalBatchSize: number;
@@ -685,6 +735,7 @@ export class SteamAdapter {
         groupId?: string;
         groupName?: string;
         groupOrder?: number;
+        globalPercent?: number;
       }>;
     } = { games: [], achievements: [] };
 
@@ -777,7 +828,7 @@ export class SteamAdapter {
 
                 // ---- Legacy path (no achievement-set support) ----
                 // Fetch achievements and schema with performance monitoring and adaptive concurrency
-                const [playerAchievements, gameSchema] = await Promise.all([
+                const [playerAchievements, gameSchema, globalPercentages] = await Promise.all([
                   concurrencyController.execute(async () => 
                     performanceMonitor.measureApiCall(
                       `steam.getPlayerAchievements:${game.appid}`,
@@ -788,6 +839,12 @@ export class SteamAdapter {
                     performanceMonitor.measureApiCall(
                       `steam.getGameSchema:${game.appid}`,
                       async () => this.getGameSchema(game.appid)
+                    )
+                  ),
+                  concurrencyController.execute(async () =>
+                    performanceMonitor.measureApiCall(
+                      `steam.getGlobalAchievementPercentages:${game.appid}`,
+                      async () => this.getGlobalAchievementPercentages(game.appid)
                     )
                   ),
                 ]);
@@ -857,6 +914,7 @@ export class SteamAdapter {
                     unlockTime: undefined,
                     icon: schemaAch.icon,
                     iconGray: schemaAch.icongray,
+                    globalPercent: globalPercentages.get(schemaAch.name),
                   }));
                 } else {
                   achievementsData = playerAchievements.map((achievement) => {
@@ -870,6 +928,7 @@ export class SteamAdapter {
                       unlockTime: achievement.unlocktime ? new Date(achievement.unlocktime * 1000) : undefined,
                       icon: metadata?.icon,
                       iconGray: metadata?.icongray,
+                      globalPercent: globalPercentages.get(achievement.apiname),
                     };
                   });
                 }

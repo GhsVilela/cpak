@@ -89,6 +89,14 @@ export interface XboxTitleHistory {
    * 0 unlocked (stale/cached data), we preserve the game rather than deleting it.
    */
   inEarnedScan?: boolean;
+  /** True when Xbox has awarded the game Mythic status. */
+  isMythic?: boolean;
+  /** Number of achievements in the original/base game group (null/undefined when unsupported). */
+  baseGameCount?: number;
+  /** True when every base game achievement has been unlocked. */
+  baseGameCompleted?: boolean;
+  /** True when Xbox exposes achievement groups (base game + add-ons) for this title. */
+  hasAchievementGroups?: boolean;
 }
 
 export interface XboxAchievement {
@@ -112,6 +120,108 @@ export interface XboxAchievement {
   rarityCategory?: string;
   /** Gamerscore value for this individual achievement */
   gamerscore?: number;
+  /** Achievement group identifier ('base' for the original game, 'addon' for DLC/updates). */
+  groupId?: string;
+  /** Human-readable group name shown on the game page. */
+  groupName?: string;
+  /** Display order of the group (base game first). */
+  groupOrder?: number;
+}
+
+/** Per-title Mythic metadata returned by the TitleHub API. */
+export interface XboxTitleHubMeta {
+  isMythic?: boolean;
+  baseGameCount?: number;
+  baseGameCompleted?: boolean;
+}
+
+/** Aggregate Mythic / achievement stats returned by the TitleHub API. */
+export interface XboxAchievementSummary {
+  mythicsUnlocked?: number;
+  totalAchievementsUnlocked?: number;
+  totalRareAchievementsUnlocked?: number;
+}
+
+export interface XboxTitleHubData {
+  devicesMap: Map<string, string[]>;
+  titleMeta: Map<string, XboxTitleHubMeta>;
+  achievementSummary?: XboxAchievementSummary;
+}
+
+interface XboxAchievementGroup {
+  groupType?: string;
+  groupName?: string;
+  achievementIds?: string[];
+  unlockedAchievementIds?: string[];
+  isComplete?: boolean;
+  completedTime?: string | null;
+  gamerscore?: number;
+}
+
+/**
+ * Normalise the `groups` payload returned by the achievements service.
+ * The service has been observed returning either an object keyed by group id
+ * or an array of group objects with an `id` field.
+ */
+function normalizeAchievementGroups(input: unknown): Record<string, XboxAchievementGroup> | undefined {
+  if (!input) return undefined;
+
+  if (Array.isArray(input)) {
+    const map: Record<string, XboxAchievementGroup> = {};
+    input.forEach((group, index) => {
+      if (!group || typeof group !== 'object') return;
+      const value = group as XboxAchievementGroup & { id?: string; groupId?: string };
+      const id = String(value.groupId ?? value.id ?? value.groupType ?? index);
+      map[id] = value;
+    });
+    return Object.keys(map).length > 0 ? map : undefined;
+  }
+
+  if (typeof input === 'object') {
+    const map = input as Record<string, XboxAchievementGroup>;
+    return Object.keys(map).length > 0 ? map : undefined;
+  }
+
+  return undefined;
+}
+
+/**
+ * Pull group metadata out of an achievements-service response. Contract 6
+ * returns a `completion` array whose first entry holds a `groups` map; older
+ * responses may expose `groups` directly.
+ */
+function extractAchievementGroups(payload: any): Record<string, XboxAchievementGroup> | undefined {
+  if (!payload) return undefined;
+
+  if (Array.isArray(payload.completion)) {
+    for (const entry of payload.completion) {
+      const groups = normalizeAchievementGroups(entry?.groups);
+      if (groups) return groups;
+    }
+  } else if (payload.completion && typeof payload.completion === 'object') {
+    const groups =
+      normalizeAchievementGroups(payload.completion.groups) ??
+      normalizeAchievementGroups(payload.completion);
+    if (groups) return groups;
+  }
+
+  return normalizeAchievementGroups(payload.groups);
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeAchievementSummary(input: any): XboxAchievementSummary | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const summary: XboxAchievementSummary = {
+    mythicsUnlocked: toFiniteNumber(input.mythicsUnlocked),
+    totalAchievementsUnlocked: toFiniteNumber(input.totalAchievementsUnlocked),
+    totalRareAchievementsUnlocked: toFiniteNumber(input.totalRareAchievementsUnlocked),
+  };
+  return Object.values(summary).some((value) => value !== undefined) ? summary : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +475,10 @@ export class XboxAdapter {
       largeBoxArt?: string;
       /** v1: actual last played timestamp; absent in v2 (v2 uses lastUnlock) */
       lastPlayed?: string;
+      /** Mythic metadata (may be present on newer responses). */
+      isMythic?: boolean;
+      baseGameCount?: number;
+      baseGameCompleted?: boolean;
     };
     type TitleHistoryResponse = {
       titles: RawTitle[];
@@ -858,6 +972,13 @@ export class XboxAdapter {
         // GS4 all-earned-achievements endpoint scan (meaning the user genuinely has
         // at least one unlocked achievement for this title per that authoritative source).
         inEarnedScan: earnedScanSet.has(String(title.titleId)),
+        isMythic: title.isMythic,
+        baseGameCount: title.baseGameCount,
+        baseGameCompleted: title.baseGameCompleted,
+        hasAchievementGroups:
+          typeof title.baseGameCount === 'number' && title.baseGameCount > 0
+            ? true
+            : undefined,
       });
     }
 
@@ -870,18 +991,29 @@ export class XboxAdapter {
    * Returns a Map of titleId → devices[] (e.g. ["PC", "XboxSeries"] for Play Anywhere games).
    * This is the only API that exposes multi-platform classification for a title.
    */
-  async getTitleHubDevices(
+  async getTitleHubData(
     xuid: string,
     xstsToken: string,
     userHash: string,
-  ): Promise<Map<string, string[]>> {
+  ): Promise<XboxTitleHubData> {
     const devicesMap = new Map<string, string[]>();
+    const titleMeta = new Map<string, XboxTitleHubMeta>();
+    let achievementSummary: XboxAchievementSummary | undefined;
     const baseUrl = `https://titlehub.xboxlive.com/users/xuid(${xuid})/titles/titlehistory/decoration/detail`;
 
-    type TitleHubTitle = { titleId: string | number; devices?: string[] };
+    type TitleHubTitle = {
+      titleId: string | number;
+      devices?: string[];
+      /** Mythic fields (TitleHub contract 2, added with the Oct 2026 Xbox update). */
+      isMythic?: boolean;
+      baseGameCount?: number;
+      baseGameCompleted?: boolean;
+      achievementSummary?: XboxAchievementSummary;
+    };
     type TitleHubResponse = {
       titles?: TitleHubTitle[];
       pagingInfo?: { continuationToken?: string };
+      achievementSummary?: XboxAchievementSummary;
     };
 
     try {
@@ -900,30 +1032,72 @@ export class XboxAdapter {
               });
               return response.data;
             } catch (error) {
-              logger.warn({ error, xuid }, 'TitleHub devices fetch failed');
+              logger.warn({ error, xuid }, 'TitleHub data fetch failed');
               return undefined;
             }
           },
-          `titlehub-devices:${xuid}:${continuationToken ?? '0'}`,
+          `titlehub-data:${xuid}:${continuationToken ?? '0'}`,
         );
 
-        if (!result?.titles) break;
+        if (!result) break;
+
+        // The summary may be returned at the top level; some responses also
+        // echo it per title. Prefer the first complete summary we see.
+        if (!achievementSummary && result.achievementSummary) {
+          achievementSummary = normalizeAchievementSummary(result.achievementSummary);
+        }
+
+        if (!result.titles) break;
 
         for (const title of result.titles) {
+          const titleId = String(title.titleId);
+
           if (title.devices && title.devices.length > 0) {
-            devicesMap.set(String(title.titleId), title.devices);
+            devicesMap.set(titleId, title.devices);
+          }
+
+          const meta: XboxTitleHubMeta = {};
+          if (typeof title.isMythic === 'boolean') meta.isMythic = title.isMythic;
+          const baseGameCount = toFiniteNumber(title.baseGameCount);
+          if (baseGameCount !== undefined) meta.baseGameCount = baseGameCount;
+          if (typeof title.baseGameCompleted === 'boolean') meta.baseGameCompleted = title.baseGameCompleted;
+          if (!achievementSummary && title.achievementSummary) {
+            achievementSummary = normalizeAchievementSummary(title.achievementSummary);
+          }
+          if (Object.keys(meta).length > 0) {
+            titleMeta.set(titleId, meta);
           }
         }
 
         continuationToken = result.pagingInfo?.continuationToken ?? null;
       } while (continuationToken);
 
-      logger.info({ xuid, titlesWithDevices: devicesMap.size }, 'TitleHub devices fetched');
+      logger.info(
+        {
+          xuid,
+          titlesWithDevices: devicesMap.size,
+          titlesWithMythicMeta: titleMeta.size,
+          mythicsUnlocked: achievementSummary?.mythicsUnlocked,
+        },
+        'TitleHub data fetched',
+      );
     } catch (error) {
-      logger.warn({ error, xuid }, 'TitleHub devices fetch failed (outer)');
+      logger.warn({ error, xuid }, 'TitleHub data fetch failed (outer)');
     }
 
-    return devicesMap;
+    return { devicesMap, titleMeta, achievementSummary };
+  }
+
+  /**
+   * Backwards-compatible helper used by tests and callers that only need the
+   * device/platform classification map.
+   */
+  async getTitleHubDevices(
+    xuid: string,
+    xstsToken: string,
+    userHash: string,
+  ): Promise<Map<string, string[]>> {
+    return (await this.getTitleHubData(xuid, xstsToken, userHash)).devicesMap;
   }
 
   /**
@@ -937,12 +1111,14 @@ export class XboxAdapter {
     userHash: string,
     /** Pass the raw platform string from XboxTitleHistory to select the right schema version */
     platform?: string,
+    /** Optional title metadata (Mythic/base-game counts) used for achievement grouping. */
+    title?: Pick<XboxTitleHistory, 'isMythic' | 'baseGameCount' | 'baseGameCompleted'>,
   ): Promise<{ achievements: XboxAchievement[]; totalInCatalog: number; storeProductId?: string }> {
     // Xbox 360 titles use the GS4 achievement system (contract version 1).
-    // Xbox One and later use GS5 (contract version 2).
+    // Xbox One and later use GS5 (contract version 2+).
     // Using v2 for a 360 title returns an error → the title gets silently skipped.
     const isXbox360 = !!platform && platform.toLowerCase().includes('360');
-    const contractVersion = isXbox360 ? '1' : '2';
+    const contractVersion = isXbox360 ? '1' : '6';
     logger.info({ xuid, titleId, platform, isXbox360, contractVersion }, 'Fetching Xbox achievements');
 
     const allAchievements: XboxAchievement[] = [];
@@ -965,6 +1141,8 @@ export class XboxAdapter {
       participationType: string;
       rewards: Array<{ name?: string; description?: string; value?: string; type: string; valueType: string }>;
       rarityCurrentCategory?: string;
+      /** Contract 6+: achievement group ids this achievement belongs to. */
+      groupIds?: string[];
     };
 
     // GS4 (contract v1) – Xbox 360 legacy format
@@ -1016,6 +1194,53 @@ export class XboxAdapter {
         continuationToken?: string;
         totalRecords?: number;
       };
+      /** Contract 6+: per-title achievement groups. */
+      completion?: Array<{ titleId?: string | number; groups?: Record<string, XboxAchievementGroup> }>;
+      groups?: Record<string, XboxAchievementGroup> | XboxAchievementGroup[];
+    };
+
+    /**
+     * Apply BaseGame/add-on grouping to mapped achievements. Falls back to the
+     * TitleHub `baseGameCount` when the achievements service did not return a
+     * BaseGame group (e.g. older 360 responses).
+     */
+    const applyAchievementGroups = (
+      achievements: XboxAchievement[],
+      groups: Record<string, XboxAchievementGroup> | undefined,
+      fallbackBaseCount?: number,
+    ): void => {
+      if (groups) {
+        const baseEntry = Object.entries(groups).find(([id, group]) => {
+          const type = (group.groupType ?? '').toLowerCase().replace(/[^a-z]/g, '');
+          const key = id.toLowerCase().replace(/[^a-z]/g, '');
+          return type === 'basegame' || key === 'basegame';
+        });
+
+        if (baseEntry) {
+          const [baseId, baseGroup] = baseEntry;
+          const baseIds = new Set((baseGroup.achievementIds ?? []).map(String));
+
+          for (const achievement of achievements) {
+            const groupIds = ((achievement as any).groupIds as string[] | undefined)?.map(String) ?? [];
+            const isBaseGame = baseIds.has(achievement.achievementId) || groupIds.includes(baseId);
+            achievement.groupId = isBaseGame ? 'base' : 'addon';
+            achievement.groupName = isBaseGame ? 'Base Game' : 'DLC / Update';
+            achievement.groupOrder = isBaseGame ? 0 : 1;
+          }
+          return;
+        }
+      }
+
+      // Fallback for responses that don't include group metadata yet. The
+      // achievement catalog is normally ordered with the original list first.
+      if (typeof fallbackBaseCount === 'number' && fallbackBaseCount > 0) {
+        achievements.forEach((achievement, index) => {
+          const isBaseGame = index < fallbackBaseCount;
+          achievement.groupId = isBaseGame ? 'base' : 'addon';
+          achievement.groupName = isBaseGame ? 'Base Game' : 'DLC / Update';
+          achievement.groupOrder = isBaseGame ? 0 : 1;
+        });
+      }
     };
 
     // Helper: fetch all pages from a GS4 endpoint and return raw GS4 achievements.
@@ -1147,36 +1372,71 @@ export class XboxAdapter {
       }
 
       logger.debug({ titleId, total: allAchievements.length }, 'GS4 achievements mapped (icons via image.xboxlive.com public CDN)');
+
+      // Xbox 360 titles also participate in Mythic achievements. Contract 6
+      // returns the BaseGame group even for legacy titles, so try it when the
+      // TitleHub data says the game has an original achievement group.
+      let groups: Record<string, XboxAchievementGroup> | undefined;
+      if (typeof title?.baseGameCount === 'number' && title.baseGameCount > 0) {
+        groups = await this.getAchievementGroupData(xuid, titleId, xstsToken, userHash);
+      }
+      applyAchievementGroups(allAchievements, groups, title?.baseGameCount);
     } else {
-      // GS5 (contract v2) — single endpoint returns full catalog with per-user progress states.
+      // GS5 (contract 6) — single endpoint returns the full catalog with per-user
+      // progress states and (for Mythic-enabled titles) achievement groups.
+      // Fall back to contract 2 when the server rejects the newer contract.
       const gs5BaseUrl = `https://achievements.xboxlive.com/users/xuid(${xuid})/achievements?titleId=${titleId}&maxItems=100`;
       let continuationToken: string | null = null;
+      let gs5ContractVersion: '6' | '2' = '6';
+      let usedLegacyContract = false;
+      let groups: Record<string, XboxAchievementGroup> | undefined;
+
       do {
         const url: string = continuationToken
           ? `${gs5BaseUrl}&continuationToken=${encodeURIComponent(continuationToken)}`
           : gs5BaseUrl;
 
-        const result: AchievementResponse | null = await rateLimiter.executeWithRetry<AchievementResponse | null>(
-          'xbox',
-          async (): Promise<AchievementResponse | null> => {
-            try {
-              const response = await XSAPIClient.get<AchievementResponse>(url, {
-                options: { XSTSToken: xstsToken, userHash, contractVersion },
-              });
-              return response.data;
-            } catch (error) {
-              logger.warn({ error, xuid, titleId, contractVersion }, 'Failed to fetch achievements for Xbox title');
-              if ((error as any)?.statusCode === 403 || (error as any)?.status === 403) {
-                logger.warn({ xuid, titleId }, 'Xbox achievements blocked by privacy settings, skipping title');
-                return null;
-              }
-              throw error;
+        let result: AchievementResponse | null = null;
+        for (;;) {
+          try {
+            result = await rateLimiter.executeWithRetry<AchievementResponse | null>(
+              'xbox',
+              async (): Promise<AchievementResponse | null> => {
+                const response = await XSAPIClient.get<AchievementResponse>(url, {
+                  options: { XSTSToken: xstsToken, userHash, contractVersion: gs5ContractVersion },
+                });
+                return response.data;
+              },
+              `achievements:${xuid}:${titleId}:${gs5ContractVersion}:${continuationToken ?? '0'}`,
+            );
+            break;
+          } catch (error) {
+            const status = (error as any)?.statusCode ?? (error as any)?.status;
+            if (status === 403) {
+              logger.warn({ xuid, titleId }, 'Xbox achievements blocked by privacy settings, skipping title');
+              return { achievements: [], totalInCatalog: 0, storeProductId };
             }
-          },
-          `achievements:${xuid}:${titleId}:${continuationToken ?? '0'}`,
-        );
+
+            if (gs5ContractVersion === '6' && !usedLegacyContract) {
+              logger.info(
+                { xuid, titleId, error: (error as any)?.message ?? String(error) },
+                'Contract 6 achievements unavailable — retrying with contract 2',
+              );
+              gs5ContractVersion = '2';
+              usedLegacyContract = true;
+              continue;
+            }
+
+            logger.warn({ error, xuid, titleId, contractVersion: gs5ContractVersion }, 'Failed to fetch achievements for Xbox title');
+            throw error;
+          }
+        }
 
         if (!result) break;
+
+        if (!groups) {
+          groups = extractAchievementGroups(result);
+        }
 
         for (const raw of result.achievements ?? []) {
           const ach = raw as GS5Achievement;
@@ -1204,11 +1464,21 @@ export class XboxAdapter {
             gamerscore: ach.rewards?.find((r) => r.type === 'Gamerscore')
               ? (parseInt(ach.rewards.find((r) => r.type === 'Gamerscore')!.value ?? '0', 10) || undefined)
               : undefined,
-          });
+            groupIds: ach.groupIds,
+          } as XboxAchievement);
         }
 
         continuationToken = result?.pagingInfo?.continuationToken ?? null;
       } while (continuationToken !== null);
+
+      // Contract 6 sometimes only returns the completion/group block when the
+      // request asks for `possibleOnly=true`. Fetch it explicitly when the game
+      // is known to have a base game group.
+      if (!groups && typeof title?.baseGameCount === 'number' && title.baseGameCount > 0) {
+        groups = await this.getAchievementGroupData(xuid, titleId, xstsToken, userHash);
+      }
+
+      applyAchievementGroups(allAchievements, groups, title?.baseGameCount);
     }
 
     const totalInCatalog = allAchievements.length;
@@ -1221,6 +1491,41 @@ export class XboxAdapter {
       totalInCatalog,
       storeProductId,
     };
+  }
+
+  /**
+   * Fetch achievement-group metadata for a single title using contract 6.
+   * Used for legacy (Xbox 360) titles whose main catalog is fetched through
+   * the contract 1 GS4 endpoints but which still have a BaseGame group.
+   */
+  private async getAchievementGroupData(
+    xuid: string,
+    titleId: string,
+    xstsToken: string,
+    userHash: string,
+  ): Promise<Record<string, XboxAchievementGroup> | undefined> {
+    const url = `https://achievements.xboxlive.com/users/xuid(${xuid})/achievements?titleId=${titleId}&possibleOnly=true&maxItems=100`;
+
+    try {
+      const result = await rateLimiter.executeWithRetry<any>(
+        'xbox',
+        async () => {
+          const response = await XSAPIClient.get<any>(url, {
+            options: { XSTSToken: xstsToken, userHash, contractVersion: '6' },
+          });
+          return response.data;
+        },
+        `achievement-groups:${xuid}:${titleId}`,
+      );
+
+      return extractAchievementGroups(result);
+    } catch (error) {
+      logger.debug(
+        { xuid, titleId, error: (error as any)?.message ?? String(error) },
+        'Achievement group metadata unavailable for title',
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -2408,7 +2713,7 @@ export class XboxAdapter {
           let achievementsTotalInCatalog: number;
           let achievementStoreProductId: string | undefined;
           try {
-            const result = await this.getAchievements(xuid, title.titleId, xstsToken, userHash, title.platform);
+            const result = await this.getAchievements(xuid, title.titleId, xstsToken, userHash, title.platform, title);
             achievements = result.achievements;
             achievementsTotalInCatalog = result.totalInCatalog;
             achievementStoreProductId = result.storeProductId;
@@ -2481,6 +2786,13 @@ export class XboxAdapter {
           if (maxGS > 0) {
             gsUpdate.maxGamerscore = maxGS;
             gsUpdate.currentGamerscore = currentGS;
+          }
+
+          const baseGameAchievements = achievements.filter((a) => a.groupId === 'base');
+          if (baseGameAchievements.length > 0) {
+            gsUpdate.baseGameAchievementsTotal = baseGameAchievements.length;
+            gsUpdate.baseGameAchievementsUnlocked = baseGameAchievements.filter((a) => a.isUnlocked).length;
+            gsUpdate.hasAchievementGroups = true;
           }
           await Game.findByIdAndUpdate(gameMongoId, { $set: gsUpdate });
 
@@ -2609,6 +2921,9 @@ export class XboxAdapter {
               description: ach.description,
               unlockedAt: ach.unlockedAt ?? (ach.isUnlocked ? new Date(0) : undefined),
               isSecret: ach.isSecret,
+              groupId: ach.groupId,
+              groupName: ach.groupName,
+              groupOrder: ach.groupOrder,
             };
             if (ach.gamerscore !== undefined) updateFields.gamerscore = ach.gamerscore;
             if (iconPath) {

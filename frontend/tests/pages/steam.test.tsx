@@ -60,7 +60,10 @@ beforeEach(() => {
           offset: 0,
           hasMore: false,
           totalAchievementsUnlocked: 570,
-          completedTotal: 3,
+          completedGroupsTotal: 3,
+          completedGamesTotal: 2,
+          averageCompletionPercent: 64.5,
+          rareAchievementsTotal: 8,
         },
       });
     }
@@ -100,7 +103,7 @@ describe('Steam page — app/steam/page.tsx', () => {
     });
   });
 
-  it('shows Games & Groups Completed from the unfiltered games aggregation', async () => {
+  it('shows completed games, completed groups, average completion and rare achievements', async () => {
     getMock.mockImplementation((path: string) => {
       if (path.startsWith('/profiles')) {
         return Promise.resolve([
@@ -116,7 +119,10 @@ describe('Steam page — app/steam/page.tsx', () => {
             offset: 0,
             hasMore: false,
             totalAchievementsUnlocked: 570,
-            completedTotal: 34,
+            completedGamesTotal: 12,
+            completedGroupsTotal: 34,
+            averageCompletionPercent: 42.5,
+            rareAchievementsTotal: 7,
           },
         });
       }
@@ -141,9 +147,15 @@ describe('Steam page — app/steam/page.tsx', () => {
     const { default: SteamPage } = await import('../../app/steam/page');
     render(<SteamPage />);
     await waitFor(() => {
-      expect(screen.getByText('Games & Groups Completed')).toBeInTheDocument();
+      expect(screen.getByText('Completed Games')).toBeInTheDocument();
     });
+    expect(screen.getByText('Completed Sets')).toBeInTheDocument();
+    expect(screen.getByText('Avg Completion')).toBeInTheDocument();
+    expect(screen.getByText('Rare Achievements')).toBeInTheDocument();
+    expect(screen.getByText('12')).toBeInTheDocument();
     expect(screen.getByText('34')).toBeInTheDocument();
+    expect(screen.getByText('42%')).toBeInTheDocument();
+    expect(screen.getByText('7')).toBeInTheDocument();
   });
 
   it('shows empty state when no games returned', async () => {
