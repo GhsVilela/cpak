@@ -365,23 +365,6 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
             <div className="text-xs uppercase tracking-wide text-gray-400">Completion</div>
             <div className="mt-0.5 font-semibold">{game.completionPercent}%</div>
           </div>
-          {supportsMythic && (
-            <div className="shrink-0 whitespace-nowrap px-5">
-              <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-gray-400">
-                <MythicIcon size={12} muted={!game.isMythic} />
-                Mythic
-              </div>
-              <div className="mt-0.5 flex items-center gap-1.5 font-semibold">
-                {game.isMythic ? (
-                  <span className="text-[var(--xbox-accent)]">Earned</span>
-                ) : (
-                  <span>
-                    {game.baseGameAchievementsUnlocked ?? 0} / {game.baseGameAchievementsTotal ?? achievements.length}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
           {game.lastPlayed && (
             <div className="shrink-0 whitespace-nowrap px-5">
               <div className="text-xs uppercase tracking-wide text-gray-400">Last Played</div>
