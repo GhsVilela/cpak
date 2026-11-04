@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { getImageUrl, handleImageError } from '../services/imageUrl';
 import TrophyCounts from './TrophyCounts';
+import MythicIcon from './MythicIcon';
 
 interface GameListItemProps {
   game: {
@@ -22,6 +23,8 @@ interface GameListItemProps {
     trophySilver?: number;
     trophyGold?: number;
     trophyPlatinum?: number;
+    /** Xbox: true when the game's Mythic achievement has been earned. */
+    isMythic?: boolean;
     isHidden?: boolean;
   };
   onEdit?: () => void;
@@ -110,6 +113,9 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
         <h3 className="font-medium text-sm sm:text-base truncate">{displayTitle}</h3>
         <div className="flex items-center gap-3 mt-1">
           {renderPlatformStats()}
+          {game.platform === 'xbox' && game.isMythic && (
+            <MythicIcon size={14} className="shrink-0" title="Mythic achievement earned" />
+          )}
         </div>
       </div>
 

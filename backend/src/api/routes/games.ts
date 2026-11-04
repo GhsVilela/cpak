@@ -144,17 +144,19 @@ export async function getGames(
       }
 
       // Prefer Xbox's own Mythic total from the TitleHub achievement summary.
-      // Fall back to counting games flagged as Mythic when the profile has not
-      // been synced since Mythic support was added.
+      // Fall back to counting games flagged as Mythic when the summary is
+      // missing or stale (e.g. the profile was synced before Mythic support,
+      // or the summary reported 0 while tracked games are already Mythic).
       const summaryMythics = profileDoc?.xboxAchievementSummary?.mythicsUnlocked;
-      mythicAchievementsUnlocked =
-        typeof summaryMythics === 'number'
-          ? summaryMythics
-          : await Game.countDocuments({
-              profileId: filter.profileId,
-              platform: 'xbox',
-              isMythic: true,
-            });
+      if (typeof summaryMythics === 'number' && summaryMythics > 0) {
+        mythicAchievementsUnlocked = summaryMythics;
+      } else {
+        mythicAchievementsUnlocked = await Game.countDocuments({
+          profileId: filter.profileId,
+          platform: 'xbox',
+          isMythic: true,
+        });
+      }
     }
 
     // For Steam profiles, aggregate total achievements unlocked across all games

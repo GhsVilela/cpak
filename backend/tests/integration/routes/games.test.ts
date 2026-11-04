@@ -550,6 +550,38 @@ describe('GET /api/games platform aggregations', () => {
     expect(body.pagination.mythicAchievementsUnlocked).toBe(42);
   });
 
+  it('falls back to tracked Mythic games when the stored summary is zero', async () => {
+    const profile = await Profile.create({
+      platform: 'xbox',
+      profileId: 'xbox-mythic-zero-test',
+      displayName: 'Xbox Mythic Zero Test',
+      credentials: {},
+      xboxAchievementSummary: {
+        mythicsUnlocked: 0,
+      },
+    });
+    await Game.create({
+      platform: 'xbox',
+      profileId: profile._id,
+      gameId: 'myth-zero',
+      title: 'Completed Base Game',
+      achievementsTotal: 40,
+      achievementsUnlocked: 40,
+      completionPercent: 100,
+      baseGameAchievementsTotal: 40,
+      baseGameAchievementsUnlocked: 40,
+      isMythic: true,
+      lastSyncedAt: new Date(),
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=xbox&profileId=${profile._id}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().pagination.mythicAchievementsUnlocked).toBe(1);
+  });
+
   it('includes gamerscore totals for xbox + profileId', async () => {
     const profile = await Profile.create({
       platform: 'xbox',

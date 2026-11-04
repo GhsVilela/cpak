@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { getImageUrl, handleImageError } from '../services/imageUrl';
 import TrophyCounts from './TrophyCounts';
+import MythicIcon from './MythicIcon';
 
 interface GameHeroCardProps {
   game: {
@@ -22,6 +23,8 @@ interface GameHeroCardProps {
     trophySilver?: number;
     trophyGold?: number;
     trophyPlatinum?: number;
+    /** Xbox: true when the game's Mythic achievement has been earned. */
+    isMythic?: boolean;
     isHidden?: boolean;
   };
   onEdit?: () => void;
@@ -156,6 +159,9 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
               <span className="text-gray-200 text-sm font-medium drop-shadow">
                 {renderProgressLabel()}
               </span>
+              {game.platform === 'xbox' && game.isMythic && (
+                <MythicIcon size={14} className="shrink-0 drop-shadow" title="Mythic achievement earned" />
+              )}
             </div>
           </div>
         </div>
