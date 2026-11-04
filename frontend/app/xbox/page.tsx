@@ -10,6 +10,7 @@ import GameToolbar from '../../components/GameToolbar';
 import { StatsStrip, StatTile } from '../../components/StatsStrip';
 import type { ViewMode } from '../../components/ViewModeSelector';
 import Toast from '../../components/Toast';
+import MythicIcon from '../../components/MythicIcon';
 
 interface Game {
   _id: string;
@@ -37,6 +38,8 @@ interface GamesResponse {
     hasMore: boolean;
     totalCurrentGamerscore?: number;
     totalMaxGamerscore?: number;
+    /** Xbox's own Mythic achievement total for the profile. */
+    mythicAchievementsUnlocked?: number;
   };
 }
 
@@ -105,6 +108,7 @@ function XboxPageContent() {
   // Persistent gamerscore values — unfiltered, only refreshed on profile/sync change
   const [baseGamerscore, setBaseGamerscore] = useState<number | undefined>(undefined);
   const [xbox360Gamerscore, setXbox360Gamerscore] = useState<number | undefined>(undefined);
+  const [mythicAchievements, setMythicAchievements] = useState<number | undefined>(undefined);
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(
     searchParams.get('profileId') || undefined
   );
@@ -249,6 +253,7 @@ function XboxPageContent() {
       ]);
       setBaseGamerscore(allRes.pagination.totalCurrentGamerscore);
       setXbox360Gamerscore(x360Res.pagination.totalCurrentGamerscore);
+      setMythicAchievements(allRes.pagination.mythicAchievementsUnlocked);
     } catch {
       // ignore — not critical
     }
@@ -547,6 +552,15 @@ function XboxPageContent() {
         {/* Last Sync Info */}
         {selectedProfileId && !syncStatus?.current && syncStatus?.lastCompleted && (
           <StatsStrip className="mb-4">
+            {mythicAchievements !== undefined && (
+              <StatTile
+                title="Mythic achievements earned by completing every original/base game achievement. DLC and title-update achievements are not required."
+                label="Mythic"
+                icon={<MythicIcon size={14} />}
+                value={mythicAchievements.toLocaleString()}
+                valueClassName="text-[var(--xbox-accent)]"
+              />
+            )}
             {baseGamerscore !== undefined && baseGamerscore > 0 && (
               <>
                 <StatTile
@@ -569,11 +583,11 @@ function XboxPageContent() {
               label="Last Sync"
               bold={false}
               spanFull={
-                (baseGamerscore !== undefined && baseGamerscore > 0
-                  ? xbox360Gamerscore !== undefined && xbox360Gamerscore > 0
-                    ? 2
-                    : 1
-                  : 0) % 2 === 0
+                [
+                  baseGamerscore !== undefined && baseGamerscore > 0 ? 1 : 0,
+                  xbox360Gamerscore !== undefined && xbox360Gamerscore > 0 ? 1 : 0,
+                  mythicAchievements !== undefined ? 1 : 0,
+                ].reduce((total, value) => total + value, 0) % 2 === 0
               }
               value={
                 <>

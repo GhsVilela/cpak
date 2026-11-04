@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 
 const pushMock = vi.fn();
 const { apiGetMock } = vi.hoisted(() => ({ apiGetMock: vi.fn() }));
@@ -180,7 +180,7 @@ describe('Xbox Game detail page — app/xbox/game/[id]/page.tsx (T021)', () => {
     expect(screen.getByText('25G')).toBeInTheDocument();
   });
 
-  it('does not render achievement set accordions (Xbox has no DLC separation)', async () => {
+  it('keeps the flat list for games without Mythic achievement groups', async () => {
     await renderPage();
     await waitFor(() => {
       expect(screen.getByText(/First Blood/i)).toBeInTheDocument();
@@ -188,6 +188,81 @@ describe('Xbox Game detail page — app/xbox/game/[id]/page.tsx (T021)', () => {
 
     expect(document.querySelectorAll('[aria-expanded]')).toHaveLength(0);
     expect(screen.queryByText(/Base Game/i)).toBeNull();
+  });
+
+  it('separates Base Game and DLC/Game Update achievements for Mythic games', async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({
+          ...baseGame,
+          isMythic: false,
+          hasAchievementGroups: true,
+          baseGameAchievementsTotal: 2,
+          baseGameAchievementsUnlocked: 1,
+        });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          {
+            _id: 'base-1',
+            achievementId: 'base-1',
+            name: 'Base Achievement',
+            description: 'Part of the original list',
+            unlockedAt: '2024-01-15T12:00:00Z',
+            gamerscore: 50,
+            groupId: 'base',
+            groupName: 'Base Game',
+            groupOrder: 0,
+          },
+          {
+            _id: 'base-2',
+            achievementId: 'base-2',
+            name: 'Base Locked',
+            description: 'Still needed for Mythic',
+            gamerscore: 25,
+            groupId: 'base',
+            groupName: 'Base Game',
+            groupOrder: 0,
+          },
+          {
+            _id: 'dlc-1',
+            achievementId: 'dlc-1',
+            name: 'DLC Achievement',
+            description: 'Not needed for Mythic',
+            unlockedAt: '2024-02-01T12:00:00Z',
+            gamerscore: 100,
+            groupId: 'addon',
+            groupName: 'DLC / Update',
+            groupOrder: 1,
+          },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+
+    await renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('Base Game')).toBeInTheDocument();
+      expect(screen.getByText('DLC / Update')).toBeInTheDocument();
+    });
+
+    // Each group shows its own total Gamerscore.
+    const baseGroupButton = screen.getByText('Base Game').closest('button');
+    const dlcGroupButton = screen.getByText('DLC / Update').closest('button');
+    expect(baseGroupButton).not.toBeNull();
+    expect(dlcGroupButton).not.toBeNull();
+    expect(within(baseGroupButton!).getByText('50 / 75 G')).toBeInTheDocument();
+    expect(within(dlcGroupButton!).getByText('100 / 100 G')).toBeInTheDocument();
+
+    // Group contents stay collapsed until the user opens the group.
+    expect(screen.queryByText('Base Achievement')).toBeNull();
+    expect(screen.queryByText('DLC Achievement')).toBeNull();
+
+    fireEvent.click(screen.getByText('Base Game'));
+    await waitFor(() => {
+      expect(screen.getByText('Base Achievement')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('DLC Achievement')).toBeNull();
   });
 
   it('scrolls to the top when the page opens', async () => {

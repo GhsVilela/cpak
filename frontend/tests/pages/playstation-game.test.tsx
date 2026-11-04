@@ -314,4 +314,83 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
     });
     expect(screen.queryByText('DLC Trophy')).toBeNull();
   });
+
+  it('shows the Platinum badge on the base game and trophy counts on every group', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({ ...mockGame, hasAchievementGroups: true });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          { _id: 'p1', achievementId: '0', name: 'Platinum Trophy', trophyGrade: 'platinum', unlockedAt: '2026-01-01T00:00:00Z', groupId: 'default', groupName: 'Base Game', groupOrder: 0 },
+          { _id: 'p2', achievementId: '1', name: 'Base Gold', trophyGrade: 'gold', unlockedAt: null, groupId: 'default', groupName: 'Base Game', groupOrder: 0 },
+          { _id: 'p3', achievementId: '100', name: 'DLC Silver', trophyGrade: 'silver', unlockedAt: '2026-02-01T00:00:00Z', groupId: '001', groupName: 'New Game+', groupOrder: 1 },
+          { _id: 'p4', achievementId: '101', name: 'DLC Bronze', trophyGrade: 'bronze', unlockedAt: null, groupId: '001', groupName: 'New Game+', groupOrder: 1 },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Base Game')).toBeInTheDocument();
+      expect(screen.getByText('New Game+')).toBeInTheDocument();
+    });
+
+    const baseGroupButton = screen.getByText('Base Game').closest('button');
+    const dlcGroupButton = screen.getByText('New Game+').closest('button');
+    expect(baseGroupButton).not.toBeNull();
+    expect(dlcGroupButton).not.toBeNull();
+
+    // Base game shows the Platinum trophy icon and its unlocked per-group breakdown.
+    expect(within(baseGroupButton!).getByLabelText('Platinum trophy earned')).toBeInTheDocument();
+    expect(within(baseGroupButton!).getByTestId('trophy-counts')).toBeInTheDocument();
+    expect(within(baseGroupButton!).getAllByLabelText('Platinum trophy').length).toBeGreaterThan(0);
+    expect(within(baseGroupButton!).getByTitle('1 platinum trophy')).toBeInTheDocument();
+    expect(within(baseGroupButton!).getByTitle('0 gold trophies')).toBeInTheDocument();
+
+    // DLC groups get their own unlocked breakdown without a Platinum badge.
+    expect(within(dlcGroupButton!).getByTestId('trophy-counts')).toBeInTheDocument();
+    expect(within(dlcGroupButton!).queryByLabelText('Platinum trophy')).toBeNull();
+    expect(within(dlcGroupButton!).getByLabelText('Silver trophy')).toBeInTheDocument();
+    expect(within(dlcGroupButton!).getByLabelText('Bronze trophy')).toBeInTheDocument();
+    expect(within(dlcGroupButton!).getByTitle('1 silver trophy')).toBeInTheDocument();
+    expect(within(dlcGroupButton!).getByTitle('0 bronze trophies')).toBeInTheDocument();
+  });
+
+  it('shows the unlocked Platinum trophy before achievements unlocked at the same time', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({ ...mockGame, hasAchievementGroups: true });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          { _id: 's1', achievementId: '1', name: 'Finale', trophyGrade: 'gold', unlockedAt: '2026-01-01T00:00:00Z', groupId: 'default', groupName: 'Base Game', groupOrder: 0 },
+          { _id: 's2', achievementId: '0', name: 'Platinum Trophy', trophyGrade: 'platinum', unlockedAt: '2026-01-01T00:00:00Z', groupId: 'default', groupName: 'Base Game', groupOrder: 0 },
+          { _id: 's3', achievementId: '100', name: 'DLC Trophy', trophyGrade: 'silver', unlockedAt: null, groupId: '001', groupName: 'New Game+', groupOrder: 1 },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    const { fireEvent } = await import('@testing-library/react');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Base Game')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Base Game'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Platinum Trophy')).toBeInTheDocument();
+    });
+
+    const platinum = screen.getByText('Platinum Trophy');
+    const finale = screen.getByText('Finale');
+    expect(platinum.compareDocumentPosition(finale) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

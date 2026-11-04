@@ -17,6 +17,15 @@ export interface IProfile extends Document {
   isDefault?: boolean;
   /** Whether the user has manually edited the display name. */
   displayNameEdited?: boolean;
+  /**
+   * Xbox-specific aggregate achievement stats returned by the TitleHub API.
+   * `mythicsUnlocked` is Xbox's own Mythic count for the profile.
+   */
+  xboxAchievementSummary?: {
+    mythicsUnlocked?: number;
+    totalAchievementsUnlocked?: number;
+    totalRareAchievementsUnlocked?: number;
+  };
   createdAt: Date;
   updatedAt: Date;
   getDecryptedCredentials(): any;
@@ -34,6 +43,11 @@ const ProfileSchema = new Schema<IProfile>(
     credentials: { type: Schema.Types.Mixed, default: {} },
     isDefault: { type: Boolean, default: false },
     displayNameEdited: { type: Boolean, default: false },
+    xboxAchievementSummary: {
+      mythicsUnlocked: { type: Number },
+      totalAchievementsUnlocked: { type: Number },
+      totalRareAchievementsUnlocked: { type: Number },
+    },
   },
   { timestamps: true }
 );

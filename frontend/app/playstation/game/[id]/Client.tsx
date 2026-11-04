@@ -68,6 +68,14 @@ interface TrophyGroup {
   items: Achievement[];
 }
 
+function sortPlatinumFirst(achievements: Achievement[]): Achievement[] {
+  return [...achievements].sort((a, b) => {
+    const aPriority = a.trophyGrade === 'platinum' ? 0 : 1;
+    const bPriority = b.trophyGrade === 'platinum' ? 0 : 1;
+    return aPriority - bPriority;
+  });
+}
+
 function groupTrophies(achievements: Achievement[]): TrophyGroup[] {
   const map = new Map<string, TrophyGroup>();
   for (const achievement of achievements) {
@@ -152,9 +160,18 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
 
 function TrophyGroupSection({ group }: { group: TrophyGroup }) {
   const [open, setOpen] = useState(false);
-  const groupUnlocked = group.items.filter((a) => a.unlockedAt);
+  const groupUnlocked = sortPlatinumFirst(group.items.filter((a) => a.unlockedAt));
   const groupLocked = group.items.filter((a) => !a.unlockedAt);
   const percent = group.items.length > 0 ? Math.round((groupUnlocked.length / group.items.length) * 100) : 0;
+  const unlockedTotals = groupUnlocked.reduce(
+    (acc, trophy) => {
+      if (trophy.trophyGrade) acc[trophy.trophyGrade] += 1;
+      return acc;
+    },
+    { bronze: 0, silver: 0, gold: 0, platinum: 0 },
+  );
+  const platinumTrophy = group.items.find((trophy) => trophy.trophyGrade === 'platinum');
+  const baseGame = group.id === 'default' || group.id === '__default__' || /base game/i.test(group.name);
 
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] transition-colors">
@@ -167,9 +184,35 @@ function TrophyGroupSection({ group }: { group: TrophyGroup }) {
         <span className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-4">
-            <span className="truncate text-lg font-semibold text-[var(--playstation-accent)]">{group.name}</span>
-            <span className="shrink-0 text-sm text-gray-400">
-              {groupUnlocked.length} / {group.items.length}
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-lg font-semibold text-[var(--playstation-accent)]">{group.name}</span>
+              {baseGame && platinumTrophy && (
+                <TrophyIcon
+                  grade="platinum"
+                  size={14}
+                  className="shrink-0"
+                  muted={!platinumTrophy.unlockedAt}
+                  title={platinumTrophy.unlockedAt ? 'Platinum trophy earned' : 'Complete the base game to unlock the Platinum trophy'}
+                />
+              )}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              <span
+                className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-0.5"
+                title="Trophies unlocked in this category"
+              >
+                <TrophyCounts
+                  platinum={unlockedTotals.platinum}
+                  gold={unlockedTotals.gold}
+                  silver={unlockedTotals.silver}
+                  bronze={unlockedTotals.bronze}
+                  size={12}
+                  className="text-[11px] font-semibold text-gray-300"
+                />
+              </span>
+              <span className="text-sm text-gray-400">
+                {groupUnlocked.length} / {group.items.length}
+              </span>
             </span>
           </span>
           <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-[var(--border-muted)]">
@@ -279,7 +322,7 @@ export default function PlayStationGameDetailsPage({ params }: { params: Promise
     );
   }
 
-  const unlockedAchievements = achievements.filter((a) => a.unlockedAt);
+  const unlockedAchievements = sortPlatinumFirst(achievements.filter((a) => a.unlockedAt));
   const lockedAchievements = achievements.filter((a) => !a.unlockedAt);
   const groups = groupTrophies(achievements);
   const showGroups = !!game.hasAchievementGroups && groups.length > 1;
