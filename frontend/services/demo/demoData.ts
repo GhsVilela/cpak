@@ -42,6 +42,10 @@ export interface DemoGame {
   trophyGold?: number | null;
   trophyPlatinum?: number | null;
   hasAchievementGroups?: boolean;
+  /** Xbox-specific Mythic support metadata. */
+  isMythic?: boolean;
+  baseGameAchievementsTotal?: number;
+  baseGameAchievementsUnlocked?: number;
   lastSyncedAt: string;
   createdAt: string;
   updatedAt: string;
@@ -67,6 +71,8 @@ export interface DemoAchievement {
   groupId?: string;
   groupName?: string;
   groupOrder?: number;
+  /** Steam-specific global unlock percentage (0–100). */
+  globalPercent?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -149,14 +155,23 @@ function makeGame(
 }
 
 export const demoGames: DemoGame[] = [
-  // Steam profile 1
-  makeGame('steam_001', 'demo_steam_1', 'steam', 'Celestial Odyssey', 50, 50),
-  makeGame('steam_002', 'demo_steam_1', 'steam', 'Mystic Realms', 40, 30),
+  // Steam profile 1 — includes split base/DLC groups and rare achievements.
+  makeGame('steam_001', 'demo_steam_1', 'steam', 'Celestial Odyssey', 50, 50, {
+    hasAchievementGroups: true,
+    baseGameAchievementsTotal: 40,
+  }),
+  makeGame('steam_002', 'demo_steam_1', 'steam', 'Mystic Realms', 40, 30, {
+    hasAchievementGroups: true,
+    baseGameAchievementsTotal: 30,
+  }),
   makeGame('steam_003', 'demo_steam_1', 'steam', 'Neon Racer 2087', 30, 15),
   makeGame('steam_004', 'demo_steam_1', 'steam', 'Dungeon Depths', 60, 20),
   makeGame('steam_005', 'demo_steam_1', 'steam', 'Skyward Explorers', 25, 0),
   makeGame('steam_006', 'demo_steam_1', 'steam', 'Puzzle Masters', 80, 60),
-  makeGame('steam_007', 'demo_steam_1', 'steam', 'Shadow Tactics', 45, 45),
+  makeGame('steam_007', 'demo_steam_1', 'steam', 'Shadow Tactics', 45, 45, {
+    hasAchievementGroups: true,
+    baseGameAchievementsTotal: 35,
+  }),
   makeGame('steam_008', 'demo_steam_1', 'steam', 'Oceanic Adventures', 35, 12),
   // Steam profile 2
   makeGame('steam_101', 'demo_steam_2', 'steam', 'Cozy Garden Simulator', 20, 18),
@@ -166,26 +181,46 @@ export const demoGames: DemoGame[] = [
     devices: ['XboxSeries', 'PC'],
     currentGamerscore: 1000,
     maxGamerscore: 1000,
+    hasAchievementGroups: true,
+    isMythic: true,
+    baseGameAchievementsTotal: 35,
+    baseGameAchievementsUnlocked: 35,
   }),
   makeGame('xbox_002', 'demo_xbox_1', 'xbox', 'Racing Legends', 30, 22, {
     devices: ['Xbox360'],
     currentGamerscore: 550,
     maxGamerscore: 750,
+    hasAchievementGroups: true,
+    isMythic: false,
+    baseGameAchievementsTotal: 24,
+    baseGameAchievementsUnlocked: 22,
   }),
   makeGame('xbox_003', 'demo_xbox_1', 'xbox', 'Desert Survival', 50, 10, {
     devices: ['XboxOne', 'PC'],
     currentGamerscore: 250,
     maxGamerscore: 1250,
+    hasAchievementGroups: true,
+    isMythic: false,
+    baseGameAchievementsTotal: 40,
+    baseGameAchievementsUnlocked: 10,
   }),
   makeGame('xbox_004', 'demo_xbox_1', 'xbox', 'Action Heroes', 35, 35, {
     devices: ['XboxOne'],
     currentGamerscore: 875,
     maxGamerscore: 875,
+    hasAchievementGroups: true,
+    isMythic: true,
+    baseGameAchievementsTotal: 30,
+    baseGameAchievementsUnlocked: 30,
   }),
   makeGame('xbox_005', 'demo_xbox_1', 'xbox', 'Sci-Fi Conquest', 45, 18, {
     devices: ['XboxSeries', 'PC'],
     currentGamerscore: 450,
     maxGamerscore: 1125,
+    hasAchievementGroups: true,
+    isMythic: false,
+    baseGameAchievementsTotal: 35,
+    baseGameAchievementsUnlocked: 18,
   }),
   // PlayStation
   makeGame('psn_001', 'demo_psn_1', 'playstation', 'Mythic Quest', 48, 48, {
@@ -194,6 +229,7 @@ export const demoGames: DemoGame[] = [
     trophyGold: 5,
     trophyPlatinum: 1,
     hasAchievementGroups: true,
+    baseGameAchievementsTotal: 36,
   }),
   makeGame('psn_002', 'demo_psn_1', 'playstation', 'Urban Ninja', 42, 28, {
     trophyBronze: 18,
@@ -201,6 +237,7 @@ export const demoGames: DemoGame[] = [
     trophyGold: 2,
     trophyPlatinum: 0,
     hasAchievementGroups: true,
+    baseGameAchievementsTotal: 32,
   }),
   makeGame('psn_003', 'demo_psn_1', 'playstation', "Dragon's Legacy", 56, 15, {
     trophyBronze: 10,
@@ -208,6 +245,7 @@ export const demoGames: DemoGame[] = [
     trophyGold: 1,
     trophyPlatinum: 0,
     hasAchievementGroups: true,
+    baseGameAchievementsTotal: 40,
   }),
   makeGame('psn_004', 'demo_psn_1', 'playstation', 'Racing Royale', 39, 39, {
     trophyBronze: 26,
@@ -215,6 +253,7 @@ export const demoGames: DemoGame[] = [
     trophyGold: 3,
     trophyPlatinum: 1,
     hasAchievementGroups: true,
+    baseGameAchievementsTotal: 30,
   }),
 ];
 
@@ -222,18 +261,34 @@ function generateAchievements(game: DemoGame): DemoAchievement[] {
   const achievements: DemoAchievement[] = [];
   const total = game.achievementsTotal;
   const unlocked = game.achievementsUnlocked;
+  const baseCount = Math.min(game.baseGameAchievementsTotal ?? total, total);
+  const hasGroups = !!game.hasAchievementGroups && baseCount < total;
+
   for (let i = 0; i < total; i++) {
-    const isUnlocked = i < unlocked;
+    const isBaseGame = i < baseCount;
+    const localIndex = isBaseGame ? i : i - baseCount;
+    // Platinum sits at the end of the base list: it only unlocks when the
+    // whole base game is complete, which makes incomplete demos realistic.
+    const isPlatinum = game.platform === 'playstation' && isBaseGame && i === baseCount - 1;
     const trophyGrade =
       game.platform === 'playstation'
-        ? i === 0 && unlocked > 0
+        ? isPlatinum
           ? 'platinum'
-          : i < 5
+          : localIndex < 2
             ? 'gold'
-            : i < 15
+            : localIndex < 7
               ? 'silver'
               : 'bronze'
         : null;
+    const isUnlocked = i < unlocked;
+    // Steam rarity: every sixth achievement is below Steam's 10% rare cutoff.
+    const globalPercent =
+      game.platform === 'steam'
+        ? i % 6 === 0
+          ? 3.5 + (i % 5)
+          : 20 + (i % 70)
+        : undefined;
+
     achievements.push({
       _id: `ach_${game._id}_${i}`,
       platform: game.platform,
@@ -250,9 +305,10 @@ function generateAchievements(game: DemoGame): DemoAchievement[] {
       gamerscore: game.platform === 'xbox' ? (i % 5 === 0 ? 100 : i % 3 === 0 ? 50 : 25) : undefined,
       trophyGrade,
       isHidden: false,
-      groupId: 'default',
-      groupName: 'Base Game',
-      groupOrder: 0,
+      groupId: hasGroups ? (isBaseGame ? 'base' : 'addon') : 'base',
+      groupName: hasGroups ? (isBaseGame ? 'Base Game' : 'DLC / Update') : 'Base Game',
+      groupOrder: hasGroups && !isBaseGame ? 1 : 0,
+      globalPercent,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -261,6 +317,33 @@ function generateAchievements(game: DemoGame): DemoAchievement[] {
 }
 
 export const demoAchievements: DemoAchievement[] = demoGames.flatMap(generateAchievements);
+
+// Keep the aggregate fields on the game records consistent with the generated
+// achievements, so library stats and game-page badges tell the same story.
+for (const game of demoGames) {
+  const gameAchievements = demoAchievements.filter((achievement) => achievement.gameId === game._id);
+  const unlockedAchievements = gameAchievements.filter((achievement) => achievement.unlockedAt);
+
+  if (game.platform === 'xbox') {
+    game.maxGamerscore = gameAchievements.reduce((sum, achievement) => sum + (achievement.gamerscore ?? 0), 0);
+    game.currentGamerscore = unlockedAchievements.reduce(
+      (sum, achievement) => sum + (achievement.gamerscore ?? 0),
+      0
+    );
+    if (game.isMythic) {
+      const baseAchievements = gameAchievements.filter((achievement) => achievement.groupId === 'base');
+      game.baseGameAchievementsTotal = baseAchievements.length;
+      game.baseGameAchievementsUnlocked = baseAchievements.filter((achievement) => achievement.unlockedAt).length;
+    }
+  }
+
+  if (game.platform === 'playstation') {
+    game.trophyPlatinum = unlockedAchievements.filter((achievement) => achievement.trophyGrade === 'platinum').length;
+    game.trophyGold = unlockedAchievements.filter((achievement) => achievement.trophyGrade === 'gold').length;
+    game.trophySilver = unlockedAchievements.filter((achievement) => achievement.trophyGrade === 'silver').length;
+    game.trophyBronze = unlockedAchievements.filter((achievement) => achievement.trophyGrade === 'bronze').length;
+  }
+}
 
 /**
  * Mirrors the backend's /api/sync/status: `current` is only set while a sync

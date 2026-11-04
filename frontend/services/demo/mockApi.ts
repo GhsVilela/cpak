@@ -186,11 +186,58 @@ function buildPagination(
     hasMore: offset + page.length < allGames.length,
   };
   if (platform === 'steam' && profileId) {
+    const gameIds = new Set(allGames.map((g) => g._id));
+    const gameAchievements = demoAchievements.filter(
+      (achievement) =>
+        achievement.platform === 'steam' && gameIds.has(String(achievement.gameId))
+    );
+
     pagination.totalAchievementsUnlocked = allGames.reduce(
       (sum, g) => sum + (g.achievementsUnlocked ?? 0),
       0
     );
-    pagination.completedTotal = allGames.filter((g) => g.completionPercent === 100).length;
+
+    // Match the backend: games with no unlocked achievements are not eligible
+    // for Steam's average game completion rate.
+    const eligibleGames = allGames.filter(
+      (g) => (g.achievementsUnlocked ?? 0) > 0 && (g.achievementsTotal ?? 0) > 0
+    );
+    if (eligibleGames.length > 0) {
+      const average =
+        eligibleGames.reduce(
+          (sum, g) => sum + ((g.achievementsUnlocked ?? 0) / g.achievementsTotal) * 100,
+          0
+        ) / eligibleGames.length;
+      pagination.averageCompletionPercent = Math.round(average * 100) / 100;
+    }
+
+    pagination.completedGamesTotal = allGames.filter(
+      (g) => g.completionPercent === 100
+    ).length;
+
+    // Count fully unlocked achievement groups (base game and DLC/update sets).
+    const groups = new Map<string, { total: number; unlocked: number }>();
+    for (const achievement of gameAchievements) {
+      if (!achievement.groupId) continue;
+      const key = `${achievement.gameId}:${achievement.groupId}`;
+      const group = groups.get(key) ?? { total: 0, unlocked: 0 };
+      group.total += 1;
+      if (achievement.unlockedAt) group.unlocked += 1;
+      groups.set(key, group);
+    }
+    const completedGroups = [...groups.values()].filter(
+      (group) => group.total > 0 && group.unlocked === group.total
+    ).length;
+    pagination.completedGroupsTotal = completedGroups;
+    // Backwards-compatible alias used by older clients.
+    pagination.completedTotal = completedGroups;
+
+    pagination.rareAchievementsTotal = gameAchievements.filter(
+      (achievement) =>
+        !!achievement.unlockedAt &&
+        achievement.globalPercent !== undefined &&
+        achievement.globalPercent < 10
+    ).length;
   }
 
   if (platform === 'xbox' && profileId) {
@@ -199,6 +246,7 @@ function buildPagination(
       0
     );
     pagination.totalMaxGamerscore = allGames.reduce((sum, g) => sum + (g.maxGamerscore ?? 0), 0);
+    pagination.mythicAchievementsUnlocked = allGames.filter((g) => g.isMythic).length;
   }
 
   if (platform === 'playstation' && profileId) {

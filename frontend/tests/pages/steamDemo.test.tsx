@@ -58,7 +58,11 @@ describe('Steam page — demo mode end to end', () => {
     // and the aggregated status shown instead.
     expect(screen.queryByText(/Sync in progress/)).toBeNull();
     expect(screen.getByText('Achievements Unlocked')).toBeTruthy();
-    expect(screen.getByText('Games & Groups Completed')).toBeTruthy();
+    expect(screen.getByText('Rare Achievements')).toBeTruthy();
+    expect(screen.getByText('Completed Games')).toBeTruthy();
+    expect(screen.getByText('Completed Sets')).toBeTruthy();
+    expect(screen.getByText('Avg Completion')).toBeTruthy();
+    expect(screen.getByText('66%')).toBeTruthy();
     expect(screen.getByText('Last Sync')).toBeTruthy();
   });
 

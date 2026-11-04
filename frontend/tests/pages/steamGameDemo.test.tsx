@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 
 const pushMock = vi.fn();
 
@@ -47,7 +47,17 @@ describe('Steam game detail page — demo mode end to end', () => {
       { timeout: 10000 }
     );
 
-    // The achievement list is rendered from the mock API.
+    // This demo game has separate base-game and DLC/update groups.
+    await waitFor(
+      () => {
+        expect(screen.getByText('Base Game')).toBeTruthy();
+        expect(screen.getByText('DLC / Update')).toBeTruthy();
+      },
+      { timeout: 10000 }
+    );
+
+    // The achievement list is rendered from the mock API once expanded.
+    fireEvent.click(screen.getByText('Base Game'));
     await waitFor(
       () => {
         expect(screen.getByText('Celestial Odyssey - Challenge 1')).toBeTruthy();
@@ -55,6 +65,7 @@ describe('Steam game detail page — demo mode end to end', () => {
       { timeout: 10000 }
     );
 
+    expect(screen.getAllByText(/of players unlocked this/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/API error/)).toBeNull();
   });
 });

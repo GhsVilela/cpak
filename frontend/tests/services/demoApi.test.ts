@@ -40,6 +40,10 @@ describe('Demo mode API', () => {
     });
     expect(response.pagination.total).toBe(response.data.length);
     expect(response.pagination.totalAchievementsUnlocked).toBeGreaterThan(0);
+    expect(response.pagination.completedGamesTotal).toBeGreaterThan(0);
+    expect(response.pagination.completedGroupsTotal).toBeGreaterThan(0);
+    expect(response.pagination.averageCompletionPercent).toBeGreaterThan(0);
+    expect(response.pagination.rareAchievementsTotal).toBeGreaterThan(0);
   });
 
   it('exposes the game fields the UI renders', async () => {
@@ -73,6 +77,7 @@ describe('Demo mode API', () => {
   it('filters games by platform and search term', async () => {
     const xbox = await apiClient.get('/games?platform=xbox&profileId=demo_xbox_1');
     expect(xbox.data.every((g: any) => g.platform === 'xbox')).toBe(true);
+    expect(xbox.pagination.mythicAchievementsUnlocked).toBeGreaterThan(0);
 
     const search = await apiClient.get(
       '/games?platform=steam&profileId=demo_steam_1&search=celestial'
