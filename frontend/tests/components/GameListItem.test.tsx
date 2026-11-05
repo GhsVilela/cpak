@@ -75,6 +75,7 @@ describe('GameListItem', () => {
     };
     render(<GameListItem game={xboxGame} />);
     expect(screen.getByRole('img', { name: 'Mythic achievement earned' })).toBeInTheDocument();
+    expect(screen.getAllByText('•')).toHaveLength(2);
   });
 
   it('does not show the Mythic badge when the Mythic is locked', () => {

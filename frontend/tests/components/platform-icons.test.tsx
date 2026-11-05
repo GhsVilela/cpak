@@ -6,18 +6,24 @@ import TrophyIcon from '../../components/TrophyIcon';
 describe('MythicIcon', () => {
   it('fills the badge with green when the Mythic is earned', () => {
     const { container } = render(<MythicIcon />);
-    const star = container.querySelector('svg path');
+    const star = container.querySelector('svg > path');
     expect(star).not.toBeNull();
     expect(star!.getAttribute('fill')).toContain('url(#');
-    expect(star!.getAttribute('stroke')).toBe('#7fba00');
+    expect(star!.getAttribute('stroke')).toBe('#d9ff8a');
+    expect(container.querySelector('[data-mythic-lock]')).toBeNull();
   });
 
-  it('draws only a green outline when the Mythic is locked', () => {
+  it('keeps the same filled badge in grayscale with a lock when the Mythic is locked', () => {
     const { container } = render(<MythicIcon muted />);
-    const star = container.querySelector('svg path');
+    const wreath = container.querySelector('svg g');
+    const star = container.querySelector('svg > path');
+    expect(wreath).not.toBeNull();
+    expect(wreath!.getAttribute('fill')).toContain('url(#');
+    expect(wreath!.getAttribute('stroke')).toBe('#6b7280');
     expect(star).not.toBeNull();
-    expect(star!.getAttribute('fill')).toBe('none');
-    expect(star!.getAttribute('stroke')).toBe('#7fba00');
+    expect(star!.getAttribute('fill')).toContain('url(#');
+    expect(star!.getAttribute('stroke')).toBe('#d1d5db');
+    expect(container.querySelector('[data-mythic-lock]')).not.toBeNull();
   });
 });
 
