@@ -35,11 +35,16 @@ describe('TrophyIcon', () => {
     expect(cup!.getAttribute('fill')).toContain('url(#');
   });
 
-  it('draws only a blue outline when the platinum trophy is locked', () => {
-    const { container } = render(<TrophyIcon grade="platinum" muted />);
+  it.each([
+    ['bronze', '#e0a06a'],
+    ['silver', '#f2f4f7'],
+    ['gold', '#ffe27a'],
+    ['platinum', '#7cc4ff'],
+  ] as const)('draws only a %s outline when the trophy is locked', (grade, color) => {
+    const { container } = render(<TrophyIcon grade={grade} muted />);
     const cup = container.querySelector('svg path');
     expect(cup).not.toBeNull();
     expect(cup!.getAttribute('fill')).toBe('none');
-    expect(cup!.getAttribute('stroke')).toBe('#7cc4ff');
+    expect(cup!.getAttribute('stroke')).toBe(color);
   });
 });
