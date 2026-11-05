@@ -77,7 +77,7 @@ describe('GameHeroCard', () => {
     expect(screen.getByText(/1,000/)).toBeInTheDocument();
   });
 
-  it('shows the Mythic badge for Xbox games with the Mythic unlocked', () => {
+  it('shows the Mythic text badge for Xbox games with the Mythic unlocked', () => {
     const game = {
       ...mockGame,
       platform: 'xbox' as const,
@@ -86,8 +86,9 @@ describe('GameHeroCard', () => {
       isMythic: true,
     };
     render(<GameHeroCard game={game} />);
-    expect(screen.getByRole('img', { name: 'Mythic achievement earned' })).toBeInTheDocument();
-    expect(screen.getAllByText('•')).toHaveLength(2);
+    expect(screen.getByText('Mythic')).toBeInTheDocument();
+    expect(screen.getByLabelText('Mythic achievement earned')).toBeInTheDocument();
+    expect(screen.getAllByText('•')).toHaveLength(1);
   });
 
   it('does not show the Mythic badge when the Mythic is locked', () => {
@@ -99,7 +100,8 @@ describe('GameHeroCard', () => {
       isMythic: false,
     };
     render(<GameHeroCard game={game} />);
-    expect(screen.queryByRole('img', { name: /Mythic achievement/ })).toBeNull();
+    expect(screen.queryByText('Mythic')).toBeNull();
+    expect(screen.queryByLabelText(/Mythic achievement/)).toBeNull();
   });
 
   it('shows PlayStation trophy counts alongside achievement totals', () => {

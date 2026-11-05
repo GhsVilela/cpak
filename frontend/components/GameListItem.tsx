@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import TrophyCounts from './TrophyCounts';
-import MythicIcon from './MythicIcon';
+import MythicBadge from './MythicBadge';
 
 interface GameListItemProps {
   game: {
@@ -110,13 +110,8 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
       <div className="flex-1 min-w-0">
         <h3 className="font-medium text-sm sm:text-base truncate">{displayTitle}</h3>
         <div className="flex items-center gap-3 mt-1">
+          {game.platform === 'xbox' && game.isMythic && <MythicBadge />}
           {renderPlatformStats()}
-          {game.platform === 'xbox' && game.isMythic && (
-            <>
-              <span className="text-gray-600">•</span>
-              <MythicIcon size={16} className="shrink-0" title="Mythic achievement earned" />
-            </>
-          )}
         </div>
       </div>
 

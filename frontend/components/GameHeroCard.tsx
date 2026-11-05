@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import TrophyCounts from './TrophyCounts';
-import MythicIcon from './MythicIcon';
+import MythicBadge from './MythicBadge';
 
 interface GameHeroCardProps {
   game: {
@@ -148,6 +148,7 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
               }}
             />
             <div className="relative flex flex-wrap items-center gap-x-4 gap-y-1">
+              {game.platform === 'xbox' && game.isMythic && <MythicBadge />}
               {/* Completion badge */}
               <span
                 className={`${getCompletionColor(game.completionPercent)} px-2 py-0.5 rounded-full text-xs font-semibold text-white shadow-md`}
@@ -157,12 +158,6 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
               <span className="text-gray-200 text-sm font-medium drop-shadow">
                 {renderProgressLabel()}
               </span>
-              {game.platform === 'xbox' && game.isMythic && (
-                <>
-                  <span className="text-gray-400">•</span>
-                  <MythicIcon size={16} className="shrink-0 drop-shadow" title="Mythic achievement earned" />
-                </>
-              )}
             </div>
           </div>
         </div>
