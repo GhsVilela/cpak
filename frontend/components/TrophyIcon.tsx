@@ -42,12 +42,6 @@ const GRADIENTS: Record<
   },
 };
 
-const MUTED_GRADIENT = {
-  from: '#9ca3af',
-  to: '#4b5563',
-  edge: '#d1d5db',
-};
-
 export default function TrophyIcon({
   grade,
   size = 16,
@@ -63,7 +57,12 @@ export default function TrophyIcon({
   const palette = GRADIENTS[grade];
   if (!palette) return null;
 
-  const colors = muted ? MUTED_GRADIENT : palette;
+  // Locked trophies keep their grade colour but use an outline-only style, so
+  // bronze, silver, gold and platinum remain identifiable while locked.
+  const outlined = muted;
+  const fill = outlined ? 'none' : `url(#${gradientId})`;
+  const edge = outlined ? palette.from : palette.edge;
+  const accentStroke = outlined ? palette.from : `url(#${gradientId})`;
   const accessibleTitle =
     title ?? `${muted ? 'Locked' : ''} ${palette.label} trophy`.trim();
 
@@ -88,24 +87,24 @@ export default function TrophyIcon({
           y2="21"
           gradientUnits="userSpaceOnUse"
         >
-          <stop offset="0" stopColor={colors.from} />
-          <stop offset="1" stopColor={colors.to} />
+          <stop offset="0" stopColor={palette.from} />
+          <stop offset="1" stopColor={palette.to} />
         </linearGradient>
       </defs>
 
       {/* Cup body */}
       <path
         d="M6.5 3.5h11v4.25a5.5 5.5 0 0 1-11 0V3.5Z"
-        fill={`url(#${gradientId})`}
-        stroke={colors.edge}
-        strokeWidth="0.6"
+        fill={fill}
+        stroke={edge}
+        strokeWidth={outlined ? 1.1 : 0.6}
         strokeLinejoin="round"
       />
 
       {/* Bowl highlight */}
       <path
         d="M6.5 4.6h11"
-        stroke={colors.edge}
+        stroke={edge}
         strokeOpacity="0.55"
         strokeWidth="0.8"
         strokeLinecap="round"
@@ -114,14 +113,14 @@ export default function TrophyIcon({
       {/* Handles */}
       <path
         d="M6.5 5.3H4.7v1.35a3.8 3.8 0 0 0 3.1 3.73"
-        stroke={`url(#${gradientId})`}
+        stroke={accentStroke}
         strokeWidth="1.35"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
         d="M17.5 5.3h1.8v1.35a3.8 3.8 0 0 1-3.1 3.73"
-        stroke={`url(#${gradientId})`}
+        stroke={accentStroke}
         strokeWidth="1.35"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -130,22 +129,24 @@ export default function TrophyIcon({
       {/* Stem */}
       <path
         d="M11.2 13.25h1.6v3.1h-1.6z"
-        fill={`url(#${gradientId})`}
+        fill={fill}
+        stroke={outlined ? edge : 'none'}
+        strokeWidth="0.6"
       />
 
       {/* Base */}
       <path
         d="M10.1 16.35h3.8l.5 1.15H9.6l.5-1.15Z"
-        fill={`url(#${gradientId})`}
-        stroke={colors.edge}
-        strokeWidth="0.45"
+        fill={fill}
+        stroke={edge}
+        strokeWidth={outlined ? 0.9 : 0.45}
         strokeLinejoin="round"
       />
       <path
         d="M8.2 19h7.6l.85 2H7.35l.85-2Z"
-        fill={`url(#${gradientId})`}
-        stroke={colors.edge}
-        strokeWidth="0.5"
+        fill={fill}
+        stroke={edge}
+        strokeWidth={outlined ? 1 : 0.5}
         strokeLinejoin="round"
       />
     </svg>

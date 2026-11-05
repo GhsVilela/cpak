@@ -27,6 +27,8 @@ interface Game {
   trophySilver?: number;
   trophyGold?: number;
   trophyPlatinum?: number;
+  /** Xbox: true when the game's Mythic achievement has been earned. */
+  isMythic?: boolean;
   isHidden?: boolean;
 }
 

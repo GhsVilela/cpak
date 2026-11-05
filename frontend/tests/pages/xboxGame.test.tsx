@@ -265,6 +265,41 @@ describe('Xbox Game detail page — app/xbox/game/[id]/page.tsx (T021)', () => {
     expect(screen.queryByText('DLC Achievement')).toBeNull();
   });
 
+  it('does not show a Mythic progress stat in the game header', async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({
+          ...baseGame,
+          isMythic: false,
+          hasAchievementGroups: true,
+          baseGameAchievementsTotal: 2,
+          baseGameAchievementsUnlocked: 1,
+        });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          {
+            _id: 'base-1',
+            achievementId: 'base-1',
+            name: 'Base Achievement',
+            unlockedAt: '2024-01-15T12:00:00Z',
+            groupId: 'base',
+            groupName: 'Base Game',
+            groupOrder: 0,
+          },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+
+    await renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/Halo Infinite/i)).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('Mythic')).toBeNull();
+  });
+
   it('scrolls to the top when the page opens', async () => {
     const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
     await renderPage();

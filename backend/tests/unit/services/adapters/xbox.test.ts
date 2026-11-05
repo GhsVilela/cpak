@@ -779,6 +779,47 @@ describe('XboxAdapter', () => {
       });
     });
 
+    it('reads Mythic metadata from the nested achievement block and derives the summary', async () => {
+      getXSAPI().mockResolvedValue({
+        data: {
+          titles: [
+            {
+              titleId: '111',
+              devices: ['XboxSeries'],
+              achievement: {
+                isMythic: true,
+                baseGameCount: 40,
+                baseGameCompleted: true,
+              },
+            },
+            {
+              titleId: '222',
+              devices: ['XboxOne'],
+              achievement: {
+                isMythic: false,
+                baseGameCount: 25,
+                baseGameCompleted: false,
+              },
+            },
+          ],
+        },
+      } as any);
+
+      const result = await adapter.getTitleHubData('xuid', 'token', 'hash');
+      expect(result.titleMeta.get('111')).toEqual({
+        isMythic: true,
+        baseGameCount: 40,
+        baseGameCompleted: true,
+      });
+      expect(result.titleMeta.get('222')).toEqual({
+        isMythic: false,
+        baseGameCount: 25,
+        baseGameCompleted: false,
+      });
+      // No aggregate block in this response — derive the count from titles.
+      expect(result.achievementSummary).toEqual({ mythicsUnlocked: 1 });
+    });
+
     it('returns empty map when API returns no titles', async () => {
       getXSAPI().mockResolvedValue({ data: { titles: [] } } as any);
 
