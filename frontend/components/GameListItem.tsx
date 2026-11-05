@@ -114,7 +114,10 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
         <div className="flex items-center gap-3 mt-1">
           {renderPlatformStats()}
           {game.platform === 'xbox' && game.isMythic && (
-            <MythicIcon size={14} className="shrink-0" title="Mythic achievement earned" />
+            <>
+              <span className="text-gray-600">•</span>
+              <MythicIcon size={16} className="shrink-0" title="Mythic achievement earned" />
+            </>
           )}
         </div>
       </div>

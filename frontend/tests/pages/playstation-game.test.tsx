@@ -315,6 +315,31 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
     expect(screen.queryByText('DLC Trophy')).toBeNull();
   });
 
+  it('keeps long category names on one truncated line', async () => {
+    const longGroupName = 'The Complete Collection — Expansion Pack II: Lost Chapters';
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({ ...mockGame, hasAchievementGroups: true });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          { _id: 'long-1', achievementId: '0', name: 'Base Trophy', trophyGrade: 'bronze', unlockedAt: '2026-01-01T00:00:00Z', groupId: 'default', groupName: 'Base Game', groupOrder: 0 },
+          { _id: 'long-2', achievementId: '100', name: 'DLC Trophy', trophyGrade: 'silver', unlockedAt: null, groupId: '001', groupName: longGroupName, groupOrder: 1 },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+
+    const name = await screen.findByText(longGroupName);
+    expect(name).toBeInTheDocument();
+    expect(name).toHaveAttribute('title', longGroupName);
+    expect(name.className).toContain('truncate');
+    expect(name.className).not.toContain('break-words');
+  });
+
   it('shows the Platinum badge on the base game and trophy counts on every group', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path.includes('/games/')) {

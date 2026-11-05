@@ -160,7 +160,10 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
                 {renderProgressLabel()}
               </span>
               {game.platform === 'xbox' && game.isMythic && (
-                <MythicIcon size={14} className="shrink-0 drop-shadow" title="Mythic achievement earned" />
+                <>
+                  <span className="text-gray-400">•</span>
+                  <MythicIcon size={16} className="shrink-0 drop-shadow" title="Mythic achievement earned" />
+                </>
               )}
             </div>
           </div>

@@ -190,7 +190,7 @@ function AchievementGroupSection({
               <span className="truncate text-lg font-semibold text-[var(--xbox-accent)]">{group.name}</span>
               {baseGame && (
                 <MythicIcon
-                  size={14}
+                  size={16}
                   muted={!mythicEarned}
                   title={mythicEarned ? 'Mythic achievement earned' : 'Required for the Mythic achievement'}
                 />

@@ -166,7 +166,12 @@ function AchievementGroupSection({ group }: { group: AchievementGroup }) {
         <span className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-4">
-            <span className="truncate text-lg font-semibold text-[var(--steam-accent)]">{group.name}</span>
+            <span
+              className="min-w-0 flex-1 truncate text-lg font-semibold text-[var(--steam-accent)]"
+              title={group.name}
+            >
+              {group.name}
+            </span>
             <span className="shrink-0 text-sm text-gray-400">
               {groupUnlocked.length} / {group.items.length}
             </span>
