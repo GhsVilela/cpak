@@ -370,7 +370,9 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
     expect(dlcGroupButton).not.toBeNull();
 
     // Base game shows the Platinum trophy icon and its unlocked per-group breakdown.
-    expect(within(baseGroupButton!).getByLabelText('Platinum trophy earned')).toBeInTheDocument();
+    const platinumIcon = within(baseGroupButton!).getByLabelText('Platinum trophy earned');
+    expect(platinumIcon).toBeInTheDocument();
+    expect(platinumIcon.parentElement).toHaveClass('rounded-full');
     expect(within(baseGroupButton!).getByTestId('trophy-counts')).toBeInTheDocument();
     expect(within(baseGroupButton!).getAllByLabelText('Platinum trophy').length).toBeGreaterThan(0);
     expect(within(baseGroupButton!).getByTitle('1 platinum trophy')).toBeInTheDocument();

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 
 const pushMock = vi.fn();
 const { apiGetMock } = vi.hoisted(() => ({ apiGetMock: vi.fn() }));
@@ -79,6 +79,85 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
     });
   });
 
+  it('shows the completion icon on the base group when Steam has no explicit base id', async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({
+          ...baseGame,
+          hasAchievementGroups: true,
+          achievementsTotal: 4,
+          achievementsUnlocked: 4,
+        });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          { _id: 'g1', achievementId: 'G1', name: 'General A', groupId: '1', groupName: 'General', groupOrder: 0, unlockedAt: '2026-01-01T00:00:00Z' },
+          { _id: 'g2', achievementId: 'G2', name: 'General B', groupId: '1', groupName: 'General', groupOrder: 0, unlockedAt: '2026-01-01T00:00:00Z' },
+          { _id: 'g3', achievementId: 'G3', name: 'Extra A', groupId: '2', groupName: 'Extra', groupOrder: 1, unlockedAt: '2026-01-01T00:00:00Z' },
+          { _id: 'g4', achievementId: 'G4', name: 'Extra B', groupId: '2', groupName: 'Extra', groupOrder: 1, unlockedAt: '2026-01-01T00:00:00Z' },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+
+    const { default: GameDetailsPage } = await import(
+      // @ts-ignore
+      '../../app/steam/game/[id]/page'
+    );
+    render(<GameDetailsPage params={Promise.resolve({ id: '12345' })} />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('General')).toBeTruthy();
+      expect(screen.queryByText('Extra')).toBeTruthy();
+    });
+    const generalGroup = screen.getByText('General').closest('button');
+    const extraGroup = screen.getByText('Extra').closest('button');
+    expect(generalGroup).not.toBeNull();
+    expect(extraGroup).not.toBeNull();
+    expect(within(generalGroup!).getByRole('img', { name: 'Completed game' })).toBeInTheDocument();
+    expect(within(extraGroup!).queryByRole('img', { name: 'Completed game' })).toBeNull();
+  });
+
+  it('greys out the completion icon on a base group that is still locked', async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({
+          ...baseGame,
+          hasAchievementGroups: true,
+          achievementsTotal: 4,
+          achievementsUnlocked: 2,
+        });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          { _id: 'b1', achievementId: 'BASE_1', name: 'Base One', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: '2026-01-01T00:00:00Z' },
+          { _id: 'b2', achievementId: 'BASE_2', name: 'Base Two', groupId: '0', groupName: 'Base Game', groupOrder: 0 },
+          { _id: 'u1', achievementId: 'DLC_1', name: 'Update One', groupId: '1', groupName: 'Woolhaven', groupOrder: 1, unlockedAt: '2026-01-01T00:00:00Z' },
+          { _id: 'u2', achievementId: 'DLC_2', name: 'Update Two', groupId: '1', groupName: 'Woolhaven', groupOrder: 1 },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+
+    const { default: GameDetailsPage } = await import(
+      // @ts-ignore
+      '../../app/steam/game/[id]/page'
+    );
+    render(<GameDetailsPage params={Promise.resolve({ id: '12345' })} />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Base Game')).toBeTruthy();
+      expect(screen.queryByText('Woolhaven')).toBeTruthy();
+    });
+    const baseGroup = screen.getByText('Base Game').closest('button');
+    const updateGroup = screen.getByText('Woolhaven').closest('button');
+    expect(baseGroup).not.toBeNull();
+    expect(updateGroup).not.toBeNull();
+    expect(within(baseGroup!).getByRole('img', { name: 'Base game not completed' })).toBeInTheDocument();
+    expect(within(baseGroup!).queryByRole('img', { name: 'Completed game' })).toBeNull();
+    expect(within(updateGroup!).queryByRole('img', { name: 'Base game not completed' })).toBeNull();
+  });
+
   it('renders achievement sets collapsed by default and expands on click', async () => {
     apiGetMock.mockImplementation((path: string) => {
       if (path.includes('/games/')) {
@@ -107,6 +186,14 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
     });
     expect(screen.queryByText('Base Achievement')).toBeNull();
     expect(screen.queryByText('Update Achievement')).toBeNull();
+
+    // A completed base game shows the Steam completion icon; DLC sets do not.
+    const baseGroupButton = screen.getByText('Base Game').closest('button');
+    const dlcGroupButton = screen.getByText('Update 1').closest('button');
+    expect(baseGroupButton).not.toBeNull();
+    expect(dlcGroupButton).not.toBeNull();
+    expect(within(baseGroupButton!).getByRole('img', { name: 'Completed game' })).toBeInTheDocument();
+    expect(within(dlcGroupButton!).queryByRole('img', { name: 'Completed game' })).toBeNull();
 
     fireEvent.click(screen.getByText('Base Game'));
     await waitFor(() => {

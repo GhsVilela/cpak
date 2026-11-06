@@ -4,6 +4,7 @@ import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
 import TrophyIcon from '../../../../components/TrophyIcon';
+import PlatinumBadge from '../../../../components/PlatinumBadge';
 import TrophyCounts from '../../../../components/TrophyCounts';
 
 interface Game {
@@ -182,41 +183,33 @@ function TrophyGroupSection({ group }: { group: TrophyGroup }) {
       >
         <span className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
         <span className="min-w-0 flex-1">
-          <span className="flex items-center justify-between gap-4">
-            <span className="flex min-w-0 flex-1 items-center gap-2">
-              <span
-                className="min-w-0 truncate text-lg font-semibold text-[var(--playstation-accent)]"
-                title={group.name}
-              >
-                {group.name}
-              </span>
-              {baseGame && platinumTrophy && (
-                <TrophyIcon
-                  grade="platinum"
-                  size={14}
-                  className="shrink-0"
-                  muted={!platinumTrophy.unlockedAt}
-                  title={platinumTrophy.unlockedAt ? 'Platinum trophy earned' : 'Complete the base game to unlock the Platinum trophy'}
-                />
-              )}
+          <span className="flex min-w-0 flex-wrap items-center gap-2">
+            <span
+              className="min-w-0 truncate text-lg font-semibold text-[var(--playstation-accent)]"
+              title={group.name}
+            >
+              {group.name}
             </span>
-            <span className="flex shrink-0 items-center gap-2">
-              <span
-                className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-0.5"
-                title="Trophies unlocked in this category"
-              >
-                <TrophyCounts
-                  platinum={unlockedTotals.platinum}
-                  gold={unlockedTotals.gold}
-                  silver={unlockedTotals.silver}
-                  bronze={unlockedTotals.bronze}
-                  size={12}
-                  className="text-[11px] font-semibold text-gray-300"
-                />
-              </span>
-              <span className="text-sm text-gray-400">
-                {groupUnlocked.length} / {group.items.length}
-              </span>
+            {baseGame && platinumTrophy && (
+              <PlatinumBadge muted={!platinumTrophy.unlockedAt} />
+            )}
+          </span>
+          <span className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <span
+              className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-0.5"
+              title="Trophies unlocked in this category"
+            >
+              <TrophyCounts
+                platinum={unlockedTotals.platinum}
+                gold={unlockedTotals.gold}
+                silver={unlockedTotals.silver}
+                bronze={unlockedTotals.bronze}
+                size={12}
+                className="text-[11px] font-semibold text-gray-300"
+              />
+            </span>
+            <span className="text-sm text-gray-400">
+              {groupUnlocked.length} / {group.items.length}
             </span>
           </span>
           <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-[var(--border-muted)]">

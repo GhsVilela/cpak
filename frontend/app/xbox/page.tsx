@@ -96,6 +96,7 @@ function XboxPageContent() {
   const [error, setError] = useState('');
   const [noProfiles, setNoProfiles] = useState(false);
   const [onlyCompleted, setOnlyCompleted] = useState(false);
+  const [onlyMythic, setOnlyMythic] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
@@ -187,18 +188,22 @@ function XboxPageContent() {
   useEffect(() => {
     if (selectedProfileId) {
       const savedOnlyCompleted = localStorage.getItem(`xbox_onlyCompleted_${selectedProfileId}`) === 'true';
+      const savedOnlyMythic =
+        !savedOnlyCompleted &&
+        localStorage.getItem(`xbox_onlyMythic_${selectedProfileId}`) === 'true';
       const savedShowHidden = localStorage.getItem(`xbox_showHidden_${selectedProfileId}`) === 'true';
       const savedSortBy = localStorage.getItem(`xbox_sortBy_${selectedProfileId}`) || 'completionPercent';
       const savedSortOrder = (localStorage.getItem(`xbox_sortOrder_${selectedProfileId}`) || 'desc') as 'asc' | 'desc';
       const savedPerPage = Number(localStorage.getItem(`xbox_perPage_${selectedProfileId}`)) || 100;
       const savedGenFilter = localStorage.getItem(`xbox_generationFilter_${selectedProfileId}`) || '';
       setOnlyCompleted(savedOnlyCompleted);
+      setOnlyMythic(savedOnlyMythic);
       setShowHidden(savedShowHidden);
       setSortBy(savedSortBy);
       setSortOrder(savedSortOrder);
       setItemsPerPage(savedPerPage);
       setGenerationFilter(savedGenFilter);
-      loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
+      loadGames({ onlyCompleted: savedOnlyCompleted, onlyMythic: savedOnlyMythic, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
       loadBaseGamerscore();
@@ -214,9 +219,9 @@ function XboxPageContent() {
       return;
     }
     if (selectedProfileId) {
-      loadGames({ onlyCompleted, showHidden });
+      loadGames({ onlyCompleted, onlyMythic, showHidden });
     }
-  }, [onlyCompleted, showHidden]);
+  }, [onlyCompleted, onlyMythic, showHidden]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -414,7 +419,7 @@ function XboxPageContent() {
     }
   };
 
-  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; showHidden?: boolean }) => {
+  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; onlyMythic?: boolean; showHidden?: boolean }) => {
     if (!selectedProfileId) return;
 
     setLoading(true);
@@ -423,6 +428,7 @@ function XboxPageContent() {
     const page = overrides?.page ?? currentPage;
     const perPage = overrides?.perPage ?? itemsPerPage;
     const effectiveOnlyCompleted = overrides?.onlyCompleted ?? onlyCompleted;
+    const effectiveOnlyMythic = overrides?.onlyMythic ?? onlyMythic;
     const effectiveShowHidden = overrides?.showHidden ?? showHidden;
 
     try {
@@ -437,6 +443,9 @@ function XboxPageContent() {
 
       if (effectiveOnlyCompleted) {
         params.append('onlyCompleted', 'true');
+      }
+      if (effectiveOnlyMythic) {
+        params.append('onlyMythic', 'true');
       }
       if (!effectiveShowHidden) {
         params.append('excludeHidden', 'true');
@@ -607,7 +616,25 @@ function XboxPageContent() {
           viewMode={viewMode}
           onViewModeChange={handleViewModeChange}
           onlyCompleted={onlyCompleted}
-          onOnlyCompletedChange={(next) => { setOnlyCompleted(next); if (selectedProfileId) localStorage.setItem(`xbox_onlyCompleted_${selectedProfileId}`, String(next)); }}
+          onOnlyCompletedChange={(next) => {
+            setOnlyCompleted(next);
+            if (next) setOnlyMythic(false);
+            if (selectedProfileId) {
+              localStorage.setItem(`xbox_onlyCompleted_${selectedProfileId}`, String(next));
+              if (next) localStorage.setItem(`xbox_onlyMythic_${selectedProfileId}`, 'false');
+            }
+          }}
+          secondaryFilterLabel="Mythic Only"
+          secondaryFilter={onlyMythic}
+          onSecondaryFilterChange={(next) => {
+            setOnlyMythic(next);
+            if (next) setOnlyCompleted(false);
+            if (selectedProfileId) {
+              localStorage.setItem(`xbox_onlyMythic_${selectedProfileId}`, String(next));
+              if (next) localStorage.setItem(`xbox_onlyCompleted_${selectedProfileId}`, 'false');
+            }
+          }}
+          secondaryFilterTitle="Games where the Mythic achievement has been earned."
           showHidden={showHidden}
           onShowHiddenChange={(next) => { setShowHidden(next); if (selectedProfileId) localStorage.setItem(`xbox_showHidden_${selectedProfileId}`, String(next)); }}
           showHiddenTitle="Show games you have manually hidden."
@@ -618,7 +645,7 @@ function XboxPageContent() {
             { value: 'title', label: 'Title' },
             { value: 'completionPercent', label: 'Completion %' },
             { value: 'currentGamerscore', label: 'Gamerscore' },
-            { value: 'achievementsTotal', label: 'Total Achievements' },
+            { value: 'achievementsTotal', label: 'Achievements' },
             { value: 'lastSyncedAt', label: 'Last Synced' },
           ]}
           sortBy={sortBy}
@@ -703,9 +730,11 @@ function XboxPageContent() {
           loading={loading}
           viewMode={viewMode}
           emptyMessage={
-            onlyCompleted
-              ? 'No 100% completed Xbox games yet.'
-              : 'No Xbox games found. Try syncing your profile.'
+            onlyMythic
+              ? 'No Mythic Xbox games yet.'
+              : onlyCompleted
+                ? 'No 100% completed Xbox games yet.'
+                : 'No Xbox games found. Try syncing your profile.'
           }
           onGamesUpdated={() => setReloadTrigger((r) => r + 1)}
         />

@@ -548,9 +548,12 @@ class SyncService {
         // fall back to it when completion is not available.
         const mythicEarned = mythicMeta.baseGameCompleted ?? mythicMeta.isMythic;
         if (mythicEarned !== undefined) title.isMythic = mythicEarned;
-        if (mythicMeta.baseGameCount !== undefined) {
-          title.baseGameCount = mythicMeta.baseGameCount;
-          title.hasAchievementGroups = mythicMeta.baseGameCount > 0;
+        // TitleHub's `baseGameCount` is a 0/1 flag indicating that a BaseGame
+        // group exists. It is NOT the number of base-game achievements; the
+        // real count comes from the achievements API in Phase 5.
+        if (mythicMeta.hasBaseGameGroup !== undefined) {
+          title.hasBaseGameGroup = mythicMeta.hasBaseGameGroup;
+          title.hasAchievementGroups = mythicMeta.hasBaseGameGroup;
         }
         if (mythicMeta.baseGameCompleted !== undefined) {
           title.baseGameCompleted = mythicMeta.baseGameCompleted;
@@ -620,9 +623,8 @@ class SyncService {
           currentGamerscore: title.currentGamerscore ?? 0,
           maxGamerscore: title.maxGamerscore ?? 0,
           ...(title.isMythic !== undefined && { isMythic: title.isMythic }),
-          ...(title.baseGameCount !== undefined && {
-            baseGameAchievementsTotal: title.baseGameCount,
-            hasAchievementGroups: title.baseGameCount > 0,
+          ...(title.hasBaseGameGroup !== undefined && {
+            hasAchievementGroups: title.hasBaseGameGroup,
           }),
           ...(title.lastPlayed !== undefined && { lastPlayed: new Date(title.lastPlayed) }),
           lastSyncedAt: new Date(),

@@ -12,6 +12,11 @@ interface GameToolbarProps {
   onViewModeChange: (mode: ViewMode) => void;
   onlyCompleted: boolean;
   onOnlyCompletedChange: (value: boolean) => void;
+  /** Optional second filter toggle shown next to "100% Only". */
+  secondaryFilterLabel?: string;
+  secondaryFilter?: boolean;
+  onSecondaryFilterChange?: (value: boolean) => void;
+  secondaryFilterTitle?: string;
   showHidden: boolean;
   onShowHiddenChange: (value: boolean) => void;
   showHiddenTitle?: string;
@@ -33,6 +38,10 @@ export default function GameToolbar({
   onViewModeChange,
   onlyCompleted,
   onOnlyCompletedChange,
+  secondaryFilterLabel,
+  secondaryFilter = false,
+  onSecondaryFilterChange,
+  secondaryFilterTitle,
   showHidden,
   onShowHiddenChange,
   showHiddenTitle = 'Show games you have manually hidden.',
@@ -49,6 +58,7 @@ export default function GameToolbar({
 
   const activeFilterCount =
     (onlyCompleted ? 1 : 0) +
+    (secondaryFilter ? 1 : 0) +
     (showHidden ? 1 : 0) +
     (generationFilter ? 1 : 0) +
     (sortBy !== 'completionPercent' ? 1 : 0) +
@@ -64,7 +74,7 @@ export default function GameToolbar({
       className="sticky top-0 z-20 -mx-4 mb-3 px-4 pt-2 pb-3 bg-[#0d1117]/95 backdrop-blur-md md:static md:z-auto md:mx-0 md:mb-0 md:px-0 md:pt-0 md:pb-0 md:bg-transparent md:backdrop-blur-none"
       style={{ '--toolbar-accent': accent } as CSSProperties}
     >
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-wrap md:gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:flex-nowrap md:items-center md:gap-4">
         {/* Search row: filter icon (mobile) + search input */}
         <div className="flex items-center gap-2 w-full md:w-auto md:flex-none">
           <button
@@ -104,12 +114,13 @@ export default function GameToolbar({
 
         <ViewModeSelector viewMode={viewMode} onViewModeChange={onViewModeChange} />
 
-        <div className={`${filtersOpen ? 'block' : 'hidden'} md:block w-full md:w-auto`}>
+        <div className={`${filtersOpen ? 'block' : 'hidden'} md:block w-full md:w-auto md:min-w-0 md:flex-1`}>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-wrap md:gap-4 border-t border-[var(--border)] md:border-t-0 pt-3 md:pt-0">
             {/* 100% Only toggle */}
             <div className="flex items-center gap-3">
               <button
                 role="switch"
+                aria-label="100% Only"
                 aria-checked={onlyCompleted}
                 onClick={() => onOnlyCompletedChange(!onlyCompleted)}
                 className={toggleClass(onlyCompleted)}
@@ -123,6 +134,32 @@ export default function GameToolbar({
               </button>
               <span className="text-sm">100% Only</span>
             </div>
+
+            {/* Optional platform-specific filter (Mythic / Platinum / Completed) */}
+            {secondaryFilterLabel && onSecondaryFilterChange && (
+              <div className="flex items-center gap-3">
+                <button
+                  role="switch"
+                  aria-label={secondaryFilterLabel}
+                  aria-checked={secondaryFilter}
+                  onClick={() => onSecondaryFilterChange(!secondaryFilter)}
+                  className={toggleClass(secondaryFilter)}
+                  style={secondaryFilter ? { backgroundColor: accent } : undefined}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      secondaryFilter ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <span
+                  className="text-sm cursor-default"
+                  title={secondaryFilterTitle}
+                >
+                  {secondaryFilterLabel}
+                </span>
+              </div>
+            )}
 
             {/* Show Hidden toggle */}
             <div className="flex items-center gap-3">
