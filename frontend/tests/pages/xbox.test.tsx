@@ -155,9 +155,31 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
       expect(screen.queryByText(/halo/i) || document.body.firstChild).toBeTruthy();
     });
     const toggles = screen.getAllByRole('switch');
-    expect(toggles.length).toBe(2);
+    expect(toggles.length).toBe(3);
     expect(toggles[0]).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByText('100% Only')).toBeInTheDocument();
+  });
+
+  it('keeps Mythic Only and 100% Only mutually exclusive', async () => {
+    const user = userEvent.setup();
+    const { default: XboxPage } = await import('../../app/xbox/page');
+    render(<XboxPage />);
+    await waitFor(() => {
+      expect(screen.getAllByRole('switch').length).toBeGreaterThan(0);
+    });
+    const hundred = screen.getByRole('switch', { name: '100% Only' });
+    const mythic = screen.getByRole('switch', { name: 'Mythic Only' });
+    expect(mythic).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(hundred);
+    expect(hundred).toHaveAttribute('aria-checked', 'true');
+    expect(mythic).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(mythic);
+    expect(mythic).toHaveAttribute('aria-checked', 'true');
+    expect(hundred).toHaveAttribute('aria-checked', 'false');
+    expect(localStorage.getItem('xbox_onlyCompleted_xbox-profile-1')).toBe('false');
+    expect(localStorage.getItem('xbox_onlyMythic_xbox-profile-1')).toBe('true');
   });
 
   it('persists 100% Only toggle per profile in localStorage', async () => {

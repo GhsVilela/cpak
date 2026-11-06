@@ -2,6 +2,10 @@
 
 import { useRouter } from 'next/navigation';
 import { getImageUrl, handleImageError } from '../services/imageUrl';
+import MythicIcon from './MythicIcon';
+import PlatinumBadge from './PlatinumBadge';
+import SteamCompletionIcon from './SteamCompletionIcon';
+import { isPlatinumUnlocked, isSteamBaseGameCompleted } from '../lib/completion';
 
 interface GameTileProps {
   game: {
@@ -17,6 +21,11 @@ interface GameTileProps {
     profileId: string;
     currentGamerscore?: number;
     maxGamerscore?: number;
+    trophyPlatinum?: number;
+    isMythic?: boolean;
+    hasAchievementGroups?: boolean;
+    baseGameAchievementsTotal?: number;
+    baseGameAchievementsUnlocked?: number;
     isHidden?: boolean;
   };
   onEdit?: () => void;
@@ -124,9 +133,26 @@ export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
 
       {/* Game Info */}
       <div className="p-4">
-        <h3 className="font-semibold text-sm sm:text-base line-clamp-2 mb-2 group-hover:text-white transition-colors">
-          {displayTitle}
-        </h3>
+        <div className="mb-2">
+          <h3 className="break-words font-semibold text-sm sm:text-base group-hover:text-white transition-colors">
+            {displayTitle}
+            {game.platform === 'xbox' && game.isMythic && (
+              <span className="ml-1 inline-flex align-middle">
+                <MythicIcon size={14} title="Mythic achievement earned" />
+              </span>
+            )}
+            {game.platform === 'playstation' && isPlatinumUnlocked(game) && (
+              <span className="ml-1 inline-flex align-middle">
+                <PlatinumBadge iconSize={12} size={18} />
+              </span>
+            )}
+            {isSteamBaseGameCompleted(game) && (
+              <span className="ml-1 inline-flex align-middle">
+                <SteamCompletionIcon size={14} />
+              </span>
+            )}
+          </h3>
+        </div>
 
         {/* Achievement Progress */}
         <div className="space-y-2">

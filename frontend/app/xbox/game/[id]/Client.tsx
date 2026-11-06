@@ -185,27 +185,26 @@ function AchievementGroupSection({
       >
         <span className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
         <span className="min-w-0 flex-1">
-          <span className="flex items-center justify-between gap-4">
-            <span className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="truncate text-lg font-semibold text-[var(--xbox-accent)]">{group.name}</span>
-              {baseGame && (
-                <MythicIcon
-                  size={16}
-                  muted={!mythicEarned}
-                  title={mythicEarned ? 'Mythic achievement earned' : 'Required for the Mythic achievement'}
-                />
-              )}
+          <span className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="min-w-0 truncate text-lg font-semibold text-[var(--xbox-accent)]">{group.name}</span>
+            {baseGame && (
+              <MythicIcon
+                size={16}
+                className="shrink-0"
+                muted={!mythicEarned}
+                title={mythicEarned ? 'Mythic achievement earned' : 'Required for the Mythic achievement'}
+              />
+            )}
+          </span>
+          <span className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <span
+              className="rounded border border-gray-500 bg-gray-700 px-2 py-0.5 text-xs font-bold text-white"
+              title="Gamerscore unlocked in this category"
+            >
+              {unlockedGamerscore.toLocaleString()} / {totalGamerscore.toLocaleString()} G
             </span>
-            <span className="flex shrink-0 items-center gap-2">
-              <span
-                className="rounded border border-gray-500 bg-gray-700 px-2 py-0.5 text-xs font-bold text-white"
-                title="Gamerscore unlocked in this category"
-              >
-                {unlockedGamerscore.toLocaleString()} / {totalGamerscore.toLocaleString()} G
-              </span>
-              <span className="text-sm text-gray-400">
-                {groupUnlocked.length} / {group.items.length}
-              </span>
+            <span className="text-sm text-gray-400">
+              {groupUnlocked.length} / {group.items.length}
             </span>
           </span>
           <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-[var(--border-muted)]">

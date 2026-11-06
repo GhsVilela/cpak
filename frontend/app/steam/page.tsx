@@ -7,6 +7,7 @@ import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
 import GameToolbar from '../../components/GameToolbar';
+import SteamCompletionIcon from '../../components/SteamCompletionIcon';
 import { StatsStrip, StatTile } from '../../components/StatsStrip';
 import type { ViewMode } from '../../components/ViewModeSelector';
 import Toast from '../../components/Toast';
@@ -26,6 +27,9 @@ interface Game {
   profileId: string;
   ownershipSource?: 'owned' | 'played_history';
   achievementsFetchFailed?: boolean;
+  hasAchievementGroups?: boolean;
+  baseGameAchievementsTotal?: number;
+  baseGameAchievementsUnlocked?: number;
   isHidden?: boolean;
 }
 
@@ -81,6 +85,7 @@ function SteamPageContent() {
   const [error, setError] = useState('');
   const [noProfiles, setNoProfiles] = useState(false);
   const [onlyCompleted, setOnlyCompleted] = useState(false);
+  const [onlyBaseCompleted, setOnlyBaseCompleted] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
@@ -139,16 +144,20 @@ function SteamPageContent() {
     if (selectedProfileId) {
       // Load per-profile toggle state synchronously before loading games
       const savedOnlyCompleted = localStorage.getItem(`steam_onlyCompleted_${selectedProfileId}`) === 'true';
+      const savedOnlyBaseCompleted =
+        !savedOnlyCompleted &&
+        localStorage.getItem(`steam_onlyBaseCompleted_${selectedProfileId}`) === 'true';
       const savedShowHidden = localStorage.getItem(`steam_showHidden_${selectedProfileId}`) === 'true';
       const savedSortBy = localStorage.getItem(`steam_sortBy_${selectedProfileId}`) || 'completionPercent';
       const savedSortOrder = (localStorage.getItem(`steam_sortOrder_${selectedProfileId}`) || 'desc') as 'asc' | 'desc';
       const savedPerPage = Number(localStorage.getItem(`steam_perPage_${selectedProfileId}`)) || 100;
       setOnlyCompleted(savedOnlyCompleted);
+      setOnlyBaseCompleted(savedOnlyBaseCompleted);
       setShowHidden(savedShowHidden);
       setSortBy(savedSortBy);
       setSortOrder(savedSortOrder);
       setItemsPerPage(savedPerPage);
-      loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
+      loadGames({ onlyCompleted: savedOnlyCompleted, onlyBaseCompleted: savedOnlyBaseCompleted, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
       loadBaseTrackedAchievements();
@@ -163,9 +172,9 @@ function SteamPageContent() {
       return;
     }
     if (selectedProfileId) {
-      loadGames({ onlyCompleted, showHidden });
+      loadGames({ onlyCompleted, onlyBaseCompleted, showHidden });
     }
-  }, [onlyCompleted, showHidden]);
+  }, [onlyCompleted, onlyBaseCompleted, showHidden]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -236,7 +245,7 @@ function SteamPageContent() {
     await loadGames({ page: 1, perPage: newItemsPerPage });
   };
 
-  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; showHidden?: boolean }) => {
+  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; onlyBaseCompleted?: boolean; showHidden?: boolean }) => {
     if (!selectedProfileId) return;
 
     setLoading(true);
@@ -245,6 +254,7 @@ function SteamPageContent() {
     const page = overrides?.page ?? currentPage;
     const perPage = overrides?.perPage ?? itemsPerPage;
     const effectiveOnlyCompleted = overrides?.onlyCompleted ?? onlyCompleted;
+    const effectiveOnlyBaseCompleted = overrides?.onlyBaseCompleted ?? onlyBaseCompleted;
     const effectiveShowHidden = overrides?.showHidden ?? showHidden;
 
     try {
@@ -259,6 +269,9 @@ function SteamPageContent() {
       
       if (effectiveOnlyCompleted) {
         params.append('onlyCompleted', 'true');
+      }
+      if (effectiveOnlyBaseCompleted) {
+        params.append('onlyBaseCompleted', 'true');
       }
       if (!effectiveShowHidden) {
         params.append('excludeHidden', 'true');
@@ -529,6 +542,7 @@ function SteamPageContent() {
               <StatTile
                 title="Games where every tracked achievement — base game and DLC/updates — is unlocked."
                 label="Completed Games"
+                icon={<SteamCompletionIcon size={14} />}
                 value={
                   <span className="text-[var(--steam-accent)]">{baseCompletedGames.toLocaleString()}</span>
                 }
@@ -585,7 +599,25 @@ function SteamPageContent() {
           viewMode={viewMode}
           onViewModeChange={handleViewModeChange}
           onlyCompleted={onlyCompleted}
-          onOnlyCompletedChange={(next) => { setOnlyCompleted(next); if (selectedProfileId) localStorage.setItem(`steam_onlyCompleted_${selectedProfileId}`, String(next)); }}
+          onOnlyCompletedChange={(next) => {
+            setOnlyCompleted(next);
+            if (next) setOnlyBaseCompleted(false);
+            if (selectedProfileId) {
+              localStorage.setItem(`steam_onlyCompleted_${selectedProfileId}`, String(next));
+              if (next) localStorage.setItem(`steam_onlyBaseCompleted_${selectedProfileId}`, 'false');
+            }
+          }}
+          secondaryFilterLabel="Completed Only"
+          secondaryFilter={onlyBaseCompleted}
+          onSecondaryFilterChange={(next) => {
+            setOnlyBaseCompleted(next);
+            if (next) setOnlyCompleted(false);
+            if (selectedProfileId) {
+              localStorage.setItem(`steam_onlyBaseCompleted_${selectedProfileId}`, String(next));
+              if (next) localStorage.setItem(`steam_onlyCompleted_${selectedProfileId}`, 'false');
+            }
+          }}
+          secondaryFilterTitle="Games whose base-game achievements are complete. DLC and update sets are not required."
           showHidden={showHidden}
           onShowHiddenChange={(next) => { setShowHidden(next); if (selectedProfileId) localStorage.setItem(`steam_showHidden_${selectedProfileId}`, String(next)); }}
           showHiddenTitle="Show games with revoked licenses and games you have manually hidden."
@@ -636,7 +668,7 @@ function SteamPageContent() {
       {selectedProfileId && totalCount > 0 && (
         <div className="mb-4 flex items-center justify-between flex-wrap gap-4">
           <p className="text-sm text-gray-400">
-            Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} {onlyCompleted ? 'completed' : 'total'} games
+            Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} {onlyCompleted || onlyBaseCompleted ? 'completed' : 'total'} games
           </p>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -680,7 +712,13 @@ function SteamPageContent() {
           games={games} 
           loading={loading}
           viewMode={viewMode}
-          emptyMessage={onlyCompleted ? 'No 100% completed Steam games yet.' : 'No Steam games found. Try syncing your profile.'}
+          emptyMessage={
+            onlyBaseCompleted
+              ? 'No completed Steam games yet.'
+              : onlyCompleted
+                ? 'No 100% completed Steam games yet.'
+                : 'No Steam games found. Try syncing your profile.'
+          }
           onGamesUpdated={() => setReloadTrigger((r) => r + 1)}
         />
       )}

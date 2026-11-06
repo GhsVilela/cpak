@@ -9,10 +9,26 @@ interface MythicIconProps {
   title?: string;
 }
 
+// Xbox sphere mark: the four negative-space lobes around the X. Combined with
+// the circular mask below, it produces the classic green sphere with white X.
+const XBOX_MARK =
+  'M4.102 21.033C6.211 22.881 8.977 24 12 24c3.026 0 5.789-1.119 ' +
+  '7.902-2.967 1.877-1.912-4.316-8.709-7.902-11.417-3.582 ' +
+  '2.708-9.779 9.505-7.898 11.417zm11.16-14.406c2.5 2.961 7.484 10.313 ' +
+  '6.076 12.912C23.002 17.48 24 14.861 24 12.004c0-3.34-1.365-6.362-3.57-8.536 ' +
+  '0 0-.027-.022-.082-.042-.063-.022-.152-.045-.281-.045-.592 ' +
+  '0-1.985.434-4.805 3.246zM3.654 3.426c-.057.02-.082.041-.086.042C1.365 ' +
+  '5.642 0 8.664 0 12.004c0 2.854.998 5.473 2.661 7.533-1.401-2.605 ' +
+  '3.579-9.951 6.08-12.91-2.82-2.813-4.216-3.245-4.806-3.245-.131 ' +
+  '0-.223.021-.281.046v-.002zM12 3.551S9.055 1.828 6.755 ' +
+  '1.746c-.903-.033-1.454.295-1.521.339C7.379.646 9.659 0 11.984 0H12c2.334 ' +
+  '0 4.605.646 6.766 2.085-.068-.046-.615-.372-1.52-.339C14.946 1.828 12 ' +
+  '3.545 12 3.545v.006z';
+
 /**
- * Xbox Mythic achievement badge: a laurel-framed star. Earned badges use a
- * bright green gradient with a soft glow. Locked badges keep the same badge
- * in grayscale and show a padlock where the inner highlight star would be.
+ * Xbox Mythic achievement icon: the circular Xbox sphere logo.
+ * Earned badges use the Xbox green gradient with a white X; locked badges are
+ * the same logo in grayscale.
  */
 export default function MythicIcon({
   size = 16,
@@ -22,15 +38,15 @@ export default function MythicIcon({
 }: MythicIconProps) {
   const rawId = useId();
   const baseId = rawId.replace(/:/g, '');
-  const gradientId = `mythic-gradient-${baseId}`;
-  const glowId = `mythic-glow-${baseId}`;
+  const sphereId = `mythic-sphere-${baseId}`;
+  const xMaskId = `mythic-x-mask-${baseId}`;
   const accessibleTitle = title ?? (muted ? 'Mythic achievement locked' : 'Mythic achievement');
-  const gradientStops = muted
+
+  const stops = muted
     ? ['#e5e7eb', '#9ca3af', '#4b5563']
-    : ['#e2ff9a', '#9bdc00', '#4e8300'];
-  const wreathStroke = muted ? '#6b7280' : '#4f7d00';
-  const starStroke = muted ? '#d1d5db' : '#d9ff8a';
-  const glowColor = muted ? '#9ca3af' : '#b8ff4d';
+    : ['#b9f24a', '#6dbb2f', '#2f6b00'];
+  const emblemStroke = muted ? '#6b7280' : '#2f5300';
+  const xFill = muted ? '#f3f4f6' : '#ffffff';
 
   return (
     <svg
@@ -45,101 +61,44 @@ export default function MythicIcon({
     >
       <title>{accessibleTitle}</title>
       <defs>
-        <linearGradient id={gradientId} x1="6" y1="2" x2="18" y2="22" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor={gradientStops[0]} />
-          <stop offset="0.42" stopColor={gradientStops[1]} />
-          <stop offset="1" stopColor={gradientStops[2]} />
-        </linearGradient>
-        <radialGradient id={glowId} cx="50%" cy="46%" r="54%">
-          <stop offset="0" stopColor={glowColor} stopOpacity={muted ? '0.3' : '0.55'} />
-          <stop offset="1" stopColor={glowColor} stopOpacity="0" />
+        <radialGradient id={sphereId} cx="35%" cy="26%" r="82%">
+          <stop offset="0" stopColor={stops[0]} />
+          <stop offset="0.55" stopColor={stops[1]} />
+          <stop offset="1" stopColor={stops[2]} />
         </radialGradient>
+        <mask
+          id={xMaskId}
+          maskUnits="userSpaceOnUse"
+          x="0"
+          y="0"
+          width="24"
+          height="24"
+        >
+          <circle cx="12" cy="12" r="11.7" fill="#ffffff" />
+          <path d={XBOX_MARK} fill="#000000" />
+        </mask>
       </defs>
 
-      {/* Soft halo behind the badge */}
-      <circle cx="12" cy="11.4" r="10.6" fill={`url(#${glowId})`} />
-
-      {/* Laurel wreath */}
-      <g
-        fill={`url(#${gradientId})`}
-        stroke={wreathStroke}
-        strokeWidth="0.55"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      >
-        <path
-          d="M7.3 9.7c-2.4 1.9-3.6 4.5-3.3 8"
-          fill="none"
-          strokeWidth="1.7"
-        />
-        <path d="M6.9 10.2c-1.7-.3-3.1.4-4.1 2 1.7.7 3.2.4 4.3-.8.4-.4.3-.8-.2-1.2Z" />
-        <path d="M5.9 13.2c-1.8-.4-3.3.4-4.2 2.1 1.8.7 3.4.3 4.5-1 .3-.4.2-.8-.3-1.1Z" />
-        <path d="M5.1 16.3c-1.7-.5-3.2.2-4.1 1.9 1.8.8 3.4.4 4.5-.8.3-.4.2-.8-.4-1.1Z" />
-        <path d="M5.5 19.2c-1.4.1-2.5.9-3.2 2.3 1.5.4 2.8 0 3.6-1.1.2-.4.1-.8-.4-1.2Z" />
-      </g>
-      <g
-        fill={`url(#${gradientId})`}
-        stroke={wreathStroke}
-        strokeWidth="0.55"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        transform="translate(24 0) scale(-1 1)"
-      >
-        <path
-          d="M7.3 9.7c-2.4 1.9-3.6 4.5-3.3 8"
-          fill="none"
-          strokeWidth="1.7"
-        />
-        <path d="M6.9 10.2c-1.7-.3-3.1.4-4.1 2 1.7.7 3.2.4 4.3-.8.4-.4.3-.8-.2-1.2Z" />
-        <path d="M5.9 13.2c-1.8-.4-3.3.4-4.2 2.1 1.8.7 3.4.3 4.5-1 .3-.4.2-.8-.3-1.1Z" />
-        <path d="M5.1 16.3c-1.7-.5-3.2.2-4.1 1.9 1.8.8 3.4.4 4.5-.8.3-.4.2-.8-.4-1.1Z" />
-        <path d="M5.5 19.2c-1.4.1-2.5.9-3.2 2.3 1.5.4 2.8 0 3.6-1.1.2-.4.1-.8-.4-1.2Z" />
-      </g>
-
-      {/* Central star */}
-      <path
-        d="M12 3.1l2.37 4.8 5.3.77-3.84 3.74.91 5.28L12 15.2l-4.74 2.49.91-5.28-3.84-3.74 5.3-.77L12 3.1Z"
-        fill={`url(#${gradientId})`}
-        stroke={starStroke}
-        strokeWidth="1"
-        strokeLinejoin="round"
+      {/* Xbox sphere */}
+      <circle
+        data-mythic-emblem="true"
+        cx="12"
+        cy="12"
+        r="11.7"
+        fill={`url(#${sphereId})`}
+        stroke={emblemStroke}
+        strokeWidth="0.8"
       />
 
-      {muted ? (
-        /* Locked badges show a padlock where the inner highlight star sits. */
-        <g data-mythic-lock="true">
-          <path
-            d="M10.6 10.2V9.1a1.4 1.4 0 0 1 2.8 0v1.1"
-            fill="none"
-            stroke="#374151"
-            strokeWidth="1.05"
-            strokeLinecap="round"
-          />
-          <rect
-            x="9.7"
-            y="10.1"
-            width="4.6"
-            height="3.7"
-            rx="1"
-            fill="#e5e7eb"
-            stroke="#374151"
-            strokeWidth="0.5"
-          />
-          <circle cx="12" cy="11.65" r="0.55" fill="#374151" />
-          <path d="M12 11.95v0.9" stroke="#374151" strokeWidth="0.55" strokeLinecap="round" />
-        </g>
-      ) : (
-        <>
-          {/* Inner highlight and sparkles make the earned badge pop at small sizes */}
-          <path
-            d="M12 6.1l1.14 2.3 2.54.37-1.84 1.79.44 2.53L12 11.9l-2.28 1.19.44-2.53-1.84-1.79 2.54-.37L12 6.1Z"
-            fill="#f3ffd8"
-            opacity="0.85"
-          />
-          <path d="M19.1 3.8l.42.88.88.42-.88.42-.42.88-.42-.88-.88-.42.88-.42.42-.88Z" fill="#f6ffd9" />
-          <circle cx="5.2" cy="5.6" r="0.55" fill="#eaffb0" />
-        </>
-      )}
+      {/* White X, cut from the sphere mark */}
+      <circle
+        data-mythic-x="true"
+        cx="12"
+        cy="12"
+        r="11.7"
+        fill={xFill}
+        mask={`url(#${xMaskId})`}
+      />
     </svg>
   );
 }

@@ -100,4 +100,81 @@ describe('GameTile', () => {
     expect(screen.getByText('10 / 20')).toBeInTheDocument();
     expect(screen.queryByTestId('trophy-counts')).toBeNull();
   });
+
+  it('shows the Mythic icon next to the title when the Mythic is unlocked', () => {
+    const game = { ...mockGame, platform: 'xbox' as const, isMythic: true };
+    render(<GameTile game={game} />);
+    const icon = screen.getByRole('img', { name: 'Mythic achievement earned' });
+    const title = screen.getByText('Half-Life 3');
+    expect(title).not.toHaveClass('flex-1');
+    expect(title).toContainElement(icon);
+    expect(icon.closest('h3')).toBe(title);
+  });
+
+  it('does not show the Mythic icon when the Mythic is locked', () => {
+    const game = { ...mockGame, platform: 'xbox' as const, isMythic: false };
+    render(<GameTile game={game} />);
+    expect(screen.queryByRole('img', { name: /Mythic achievement/ })).toBeNull();
+  });
+
+  it('shows the platinum icon in a circular badge next to the title', () => {
+    const game = { ...mockGame, platform: 'playstation' as const, trophyPlatinum: 1 };
+    render(<GameTile game={game} />);
+    const icon = screen.getByRole('img', { name: 'Platinum trophy earned' });
+    const badge = icon.parentElement!;
+    const title = screen.getByText('Half-Life 3');
+    expect(badge).toHaveClass('rounded-full');
+    expect(title).toContainElement(badge);
+    expect(badge.closest('h3')).toBe(title);
+  });
+
+  it('does not show the platinum icon when the Platinum is locked', () => {
+    const game = { ...mockGame, platform: 'playstation' as const, trophyPlatinum: 0 };
+    render(<GameTile game={game} />);
+    expect(screen.queryByRole('img', { name: 'Platinum trophy earned' })).toBeNull();
+  });
+
+  it('shows the Steam completion icon when the base game is complete', () => {
+    const game = {
+      ...mockGame,
+      completionPercent: 80,
+      hasAchievementGroups: true,
+      baseGameAchievementsTotal: 20,
+      baseGameAchievementsUnlocked: 20,
+    };
+    render(<GameTile game={game} />);
+    const icon = screen.getByRole('img', { name: 'Completed game' });
+    const title = screen.getByText('Half-Life 3');
+    expect(title).toContainElement(icon);
+    expect(icon.closest('h3')).toBe(title);
+  });
+
+  it('does not show the Steam completion icon when the base game is incomplete', () => {
+    const game = {
+      ...mockGame,
+      completionPercent: 95,
+      hasAchievementGroups: true,
+      baseGameAchievementsTotal: 20,
+      baseGameAchievementsUnlocked: 19,
+    };
+    render(<GameTile game={game} />);
+    expect(screen.queryByRole('img', { name: 'Completed game' })).toBeNull();
+  });
+
+  it('falls back to overall completion when a Steam game has no set data', () => {
+    const game = { ...mockGame, completionPercent: 100, achievementsUnlocked: 20 };
+    render(<GameTile game={game} />);
+    expect(screen.getByRole('img', { name: 'Completed game' })).toBeInTheDocument();
+  });
+
+  it('falls back to overall completion when set data is missing but a 100% game has groups', () => {
+    const game = {
+      ...mockGame,
+      completionPercent: 100,
+      achievementsUnlocked: 20,
+      hasAchievementGroups: true,
+    };
+    render(<GameTile game={game} />);
+    expect(screen.getByRole('img', { name: 'Completed game' })).toBeInTheDocument();
+  });
 });

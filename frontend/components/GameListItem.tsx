@@ -4,6 +4,9 @@ import { useRouter } from 'next/navigation';
 import { getImageUrl, handleImageError } from '../services/imageUrl';
 import TrophyCounts from './TrophyCounts';
 import MythicIcon from './MythicIcon';
+import PlatinumBadge from './PlatinumBadge';
+import SteamCompletionIcon from './SteamCompletionIcon';
+import { isPlatinumUnlocked, isSteamBaseGameCompleted } from '../lib/completion';
 
 interface GameListItemProps {
   game: {
@@ -25,6 +28,12 @@ interface GameListItemProps {
     trophyPlatinum?: number;
     /** Xbox: true when the game's Mythic achievement has been earned. */
     isMythic?: boolean;
+    /** True when achievements/trophies are split into base-game and DLC sets. */
+    hasAchievementGroups?: boolean;
+    /** Steam: number of achievements in the base-game set. */
+    baseGameAchievementsTotal?: number;
+    /** Steam: number of base-game achievements unlocked. */
+    baseGameAchievementsUnlocked?: number;
     isHidden?: boolean;
   };
   onEdit?: () => void;
@@ -110,15 +119,24 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
 
       {/* Title & Stats */}
       <div className="flex-1 min-w-0">
-        <h3 className="font-medium text-sm sm:text-base truncate">{displayTitle}</h3>
-        <div className="flex items-center gap-3 mt-1">
-          {renderPlatformStats()}
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="min-w-0 truncate font-medium text-sm sm:text-base">{displayTitle}</h3>
           {game.platform === 'xbox' && game.isMythic && (
-            <>
-              <span className="text-gray-600">•</span>
-              <MythicIcon size={16} className="shrink-0" title="Mythic achievement earned" />
-            </>
+            <MythicIcon
+              size={16}
+              className="shrink-0 translate-y-0.5"
+              title="Mythic achievement earned"
+            />
           )}
+          {game.platform === 'playstation' && isPlatinumUnlocked(game) && (
+            <PlatinumBadge className="translate-y-0.5" />
+          )}
+          {isSteamBaseGameCompleted(game) && (
+            <SteamCompletionIcon size={16} className="shrink-0 translate-y-0.5" />
+          )}
+        </div>
+        <div className="flex min-w-0 items-center gap-3 mt-1">
+          {renderPlatformStats()}
         </div>
       </div>
 

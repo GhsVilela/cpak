@@ -96,6 +96,7 @@ function PlayStationPageContent() {
   const [error, setError] = useState('');
   const [noProfiles, setNoProfiles] = useState(false);
   const [onlyCompleted, setOnlyCompleted] = useState(false);
+  const [onlyPlatinum, setOnlyPlatinum] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
@@ -158,18 +159,22 @@ function PlayStationPageContent() {
   useEffect(() => {
     if (selectedProfileId) {
       const savedOnlyCompleted = localStorage.getItem(`playstation_onlyCompleted_${selectedProfileId}`) === 'true';
+      const savedOnlyPlatinum =
+        !savedOnlyCompleted &&
+        localStorage.getItem(`playstation_onlyPlatinum_${selectedProfileId}`) === 'true';
       const savedShowHidden = localStorage.getItem(`playstation_showHidden_${selectedProfileId}`) === 'true';
       const savedSortBy = localStorage.getItem(`playstation_sortBy_${selectedProfileId}`) || 'completionPercent';
       const savedSortOrder = (localStorage.getItem(`playstation_sortOrder_${selectedProfileId}`) || 'desc') as 'asc' | 'desc';
       const savedPerPage = Number(localStorage.getItem(`playstation_perPage_${selectedProfileId}`)) || 100;
       const savedGenFilter = localStorage.getItem(`playstation_generationFilter_${selectedProfileId}`) || '';
       setOnlyCompleted(savedOnlyCompleted);
+      setOnlyPlatinum(savedOnlyPlatinum);
       setShowHidden(savedShowHidden);
       setSortBy(savedSortBy);
       setSortOrder(savedSortOrder);
       setItemsPerPage(savedPerPage);
       setGenerationFilter(savedGenFilter);
-      loadGames({ onlyCompleted: savedOnlyCompleted, showHidden: savedShowHidden });
+      loadGames({ onlyCompleted: savedOnlyCompleted, onlyPlatinum: savedOnlyPlatinum, showHidden: savedShowHidden });
       loadSyncStatus();
       loadBackupRestoreStatus();
       loadBaseTrophySummary();
@@ -185,9 +190,9 @@ function PlayStationPageContent() {
       return;
     }
     if (selectedProfileId) {
-      loadGames({ onlyCompleted, showHidden });
+      loadGames({ onlyCompleted, onlyPlatinum, showHidden });
     }
-  }, [onlyCompleted, showHidden]);
+  }, [onlyCompleted, onlyPlatinum, showHidden]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -355,7 +360,7 @@ function PlayStationPageContent() {
     }
   };
 
-  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; showHidden?: boolean }) => {
+  const loadGames = async (overrides?: { page?: number; perPage?: number; onlyCompleted?: boolean; onlyPlatinum?: boolean; showHidden?: boolean }) => {
     if (!selectedProfileId) return;
     setLoading(true);
     setError('');
@@ -363,6 +368,7 @@ function PlayStationPageContent() {
     const page = overrides?.page ?? currentPage;
     const perPage = overrides?.perPage ?? itemsPerPage;
     const effectiveOnlyCompleted = overrides?.onlyCompleted ?? onlyCompleted;
+    const effectiveOnlyPlatinum = overrides?.onlyPlatinum ?? onlyPlatinum;
     const effectiveShowHidden = overrides?.showHidden ?? showHidden;
 
     try {
@@ -375,6 +381,7 @@ function PlayStationPageContent() {
         sortOrder,
       });
       if (effectiveOnlyCompleted) params.append('onlyCompleted', 'true');
+      if (effectiveOnlyPlatinum) params.append('onlyPlatinum', 'true');
       if (!effectiveShowHidden) params.append('excludeHidden', 'true');
       if (generationFilter) params.append('device', generationFilter);
       if (searchQuery) params.append('search', searchQuery);
@@ -560,7 +567,25 @@ function PlayStationPageContent() {
           viewMode={viewMode}
           onViewModeChange={handleViewModeChange}
           onlyCompleted={onlyCompleted}
-          onOnlyCompletedChange={(next) => { setOnlyCompleted(next); if (selectedProfileId) localStorage.setItem(`playstation_onlyCompleted_${selectedProfileId}`, String(next)); }}
+          onOnlyCompletedChange={(next) => {
+            setOnlyCompleted(next);
+            if (next) setOnlyPlatinum(false);
+            if (selectedProfileId) {
+              localStorage.setItem(`playstation_onlyCompleted_${selectedProfileId}`, String(next));
+              if (next) localStorage.setItem(`playstation_onlyPlatinum_${selectedProfileId}`, 'false');
+            }
+          }}
+          secondaryFilterLabel="Platinum Only"
+          secondaryFilter={onlyPlatinum}
+          onSecondaryFilterChange={(next) => {
+            setOnlyPlatinum(next);
+            if (next) setOnlyCompleted(false);
+            if (selectedProfileId) {
+              localStorage.setItem(`playstation_onlyPlatinum_${selectedProfileId}`, String(next));
+              if (next) localStorage.setItem(`playstation_onlyCompleted_${selectedProfileId}`, 'false');
+            }
+          }}
+          secondaryFilterTitle="Games where the Platinum trophy has been earned."
           showHidden={showHidden}
           onShowHiddenChange={(next) => { setShowHidden(next); if (selectedProfileId) localStorage.setItem(`playstation_showHidden_${selectedProfileId}`, String(next)); }}
           showHiddenTitle="Show games you have manually hidden."
@@ -655,9 +680,11 @@ function PlayStationPageContent() {
           loading={loading}
           viewMode={viewMode}
           emptyMessage={
-            onlyCompleted
-              ? 'No 100% completed PlayStation games yet.'
-              : 'No PlayStation games found. Try syncing your profile.'
+            onlyPlatinum
+              ? 'No Platinum PlayStation games yet.'
+              : onlyCompleted
+                ? 'No 100% completed PlayStation games yet.'
+                : 'No PlayStation games found. Try syncing your profile.'
           }
           onGamesUpdated={() => setReloadTrigger((r) => r + 1)}
         />

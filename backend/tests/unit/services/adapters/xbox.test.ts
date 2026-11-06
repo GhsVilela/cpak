@@ -426,7 +426,7 @@ describe('XboxAdapter', () => {
         'xsts-token',
         'user-hash',
         'XboxSeries',
-        { baseGameCount: 1 },
+        { hasBaseGameGroup: true },
       );
 
       expect(achievements).toHaveLength(2);
@@ -442,6 +442,141 @@ describe('XboxAdapter', () => {
         groupName: 'DLC / Update',
         groupOrder: 1,
       });
+    });
+
+    it('does not let an overlapping groupIds entry inflate the BaseGame list', async () => {
+      getXSAPI().mockResolvedValueOnce({
+        data: {
+          achievements: [
+            {
+              id: 'base-1',
+              name: 'Base 1',
+              description: '',
+              lockedDescription: '',
+              progressState: 'Achieved',
+              progression: { timeUnlocked: '2024-01-15T10:00:00.0000000Z' },
+              mediaAssets: [],
+              isSecret: false,
+              productId: 'p1',
+              achievementType: 'Persistent',
+              participationType: 'Individual',
+              rewards: [],
+              groupIds: ['group-base'],
+            },
+            {
+              id: 'base-2',
+              name: 'Base 2',
+              description: '',
+              lockedDescription: '',
+              progressState: 'Achieved',
+              progression: { timeUnlocked: '2024-01-15T10:00:00.0000000Z' },
+              mediaAssets: [],
+              isSecret: false,
+              productId: 'p1',
+              achievementType: 'Persistent',
+              participationType: 'Individual',
+              rewards: [],
+              groupIds: ['group-base'],
+            },
+            {
+              // Add-on achievement that also carries the BaseGame group id.
+              // Xbox's BaseGame achievementIds list must remain authoritative.
+              id: 'addon-1',
+              name: 'Add-on 1',
+              description: '',
+              lockedDescription: '',
+              progressState: 'NotStarted',
+              progression: { timeUnlocked: '0001-01-01T00:00:00.0000000Z' },
+              mediaAssets: [],
+              isSecret: false,
+              productId: 'p1',
+              achievementType: 'Persistent',
+              participationType: 'Individual',
+              rewards: [],
+              groupIds: ['group-base', 'group-dlc'],
+            },
+          ],
+          completion: [
+            {
+              titleId: 'title-1',
+              groups: {
+                'group-base': {
+                  groupType: 'BaseGame',
+                  achievementIds: ['base-1', 'base-2'],
+                  unlockedAchievementIds: ['base-1', 'base-2'],
+                  isComplete: true,
+                },
+                'group-dlc': {
+                  groupType: 'AddOn',
+                  achievementIds: ['addon-1'],
+                  unlockedAchievementIds: [],
+                  isComplete: false,
+                },
+              },
+            },
+          ],
+          pagingInfo: { continuationToken: null },
+        },
+      });
+
+      const { achievements } = await adapter.getAchievements(
+        'user-xuid',
+        'title-1',
+        'xsts-token',
+        'user-hash',
+        'XboxSeries',
+        { hasBaseGameGroup: true },
+      );
+
+      expect(achievements.filter((a) => a.groupId === 'base').map((a) => a.achievementId)).toEqual([
+        'base-1',
+        'base-2',
+      ]);
+      expect(achievements.find((a) => a.achievementId === 'addon-1')?.groupId).toBe('addon');
+    });
+
+    it('classifies Xbox 360 base achievements by the standard Gamerscore cap', async () => {
+      // GS4 catalog — original/base achievements come first in sequence order.
+      getXSAPI().mockResolvedValueOnce({
+        data: {
+          achievements: [
+            { id: '1', name: 'Base 1', description: '', gamerscore: 300, imageId: 1 },
+            { id: '2', name: 'Base 2', description: '', gamerscore: 300, imageId: 2 },
+            { id: '3', name: 'Base 3', description: '', gamerscore: 400, imageId: 3 },
+            { id: '4', name: 'DLC 1', description: '', gamerscore: 100, imageId: 4 },
+            { id: '5', name: 'DLC 2', description: '', gamerscore: 100, imageId: 5 },
+          ],
+          pagingInfo: { continuationToken: null },
+        },
+      });
+      // GS4 earned list.
+      getXSAPI().mockResolvedValueOnce({
+        data: {
+          achievements: [
+            { id: '1', name: 'Base 1', description: '', gamerscore: 300, timeUnlocked: '2024-01-15T10:00:00.0000000Z' },
+          ],
+          pagingInfo: { continuationToken: null },
+        },
+      });
+
+      const { achievements } = await adapter.getAchievements(
+        'user-xuid',
+        '12345',
+        'xsts-token',
+        'user-hash',
+        'Xbox360',
+        { hasBaseGameGroup: true, maxGamerscore: 0 },
+      );
+
+      expect(achievements.map((a) => [a.achievementId, a.groupId])).toEqual([
+        ['1', 'base'],
+        ['2', 'base'],
+        ['3', 'base'],
+        ['4', 'addon'],
+        ['5', 'addon'],
+      ]);
+      // No extra contract-6 group lookup for legacy titles.
+      expect(getXSAPI()).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -745,16 +880,16 @@ describe('XboxAdapter', () => {
             {
               titleId: '12345',
               devices: ['PC', 'XboxSeries'],
-              isMythic: true,
-              baseGameCount: 50,
-              baseGameCompleted: true,
+              isMythic: 1,
+              baseGameCount: 1,
+              baseGameCompleted: 1,
             },
             {
               titleId: '67890',
               devices: ['Xbox360'],
-              isMythic: false,
-              baseGameCount: 20,
-              baseGameCompleted: false,
+              isMythic: 0,
+              baseGameCount: 0,
+              baseGameCompleted: 0,
             },
           ],
         },
@@ -764,12 +899,12 @@ describe('XboxAdapter', () => {
       expect(result.devicesMap.get('12345')).toEqual(['PC', 'XboxSeries']);
       expect(result.titleMeta.get('12345')).toEqual({
         isMythic: true,
-        baseGameCount: 50,
+        hasBaseGameGroup: true,
         baseGameCompleted: true,
       });
       expect(result.titleMeta.get('67890')).toEqual({
         isMythic: false,
-        baseGameCount: 20,
+        hasBaseGameGroup: false,
         baseGameCompleted: false,
       });
       expect(result.achievementSummary).toEqual({
@@ -797,7 +932,7 @@ describe('XboxAdapter', () => {
               devices: ['XboxOne'],
               achievement: {
                 isMythic: false,
-                baseGameCount: 25,
+                baseGameCount: 0,
                 baseGameCompleted: false,
               },
             },
@@ -808,12 +943,12 @@ describe('XboxAdapter', () => {
       const result = await adapter.getTitleHubData('xuid', 'token', 'hash');
       expect(result.titleMeta.get('111')).toEqual({
         isMythic: true,
-        baseGameCount: 40,
+        hasBaseGameGroup: true,
         baseGameCompleted: true,
       });
       expect(result.titleMeta.get('222')).toEqual({
         isMythic: false,
-        baseGameCount: 25,
+        hasBaseGameGroup: false,
         baseGameCompleted: false,
       });
       // No aggregate block in this response — derive the count from titles.

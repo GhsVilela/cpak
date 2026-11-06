@@ -4,6 +4,9 @@ import { useRouter } from 'next/navigation';
 import { getImageUrl, handleImageError } from '../services/imageUrl';
 import TrophyCounts from './TrophyCounts';
 import MythicIcon from './MythicIcon';
+import PlatinumBadge from './PlatinumBadge';
+import SteamCompletionIcon from './SteamCompletionIcon';
+import { isPlatinumUnlocked, isSteamBaseGameCompleted } from '../lib/completion';
 
 interface GameHeroCardProps {
   game: {
@@ -25,6 +28,12 @@ interface GameHeroCardProps {
     trophyPlatinum?: number;
     /** Xbox: true when the game's Mythic achievement has been earned. */
     isMythic?: boolean;
+    /** True when achievements/trophies are split into base-game and DLC sets. */
+    hasAchievementGroups?: boolean;
+    /** Steam: number of achievements in the base-game set. */
+    baseGameAchievementsTotal?: number;
+    /** Steam: number of base-game achievements unlocked. */
+    baseGameAchievementsUnlocked?: number;
     isHidden?: boolean;
   };
   onEdit?: () => void;
@@ -97,7 +106,7 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
   return (
     <div
       onClick={handleClick}
-      className="group relative rounded-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-[1.01]"
+      className="group relative rounded-lg overflow-hidden cursor-pointer transition-shadow duration-300 hover:shadow-xl"
     >
       {/* Hero Banner */}
       <div className="relative aspect-[16/5] bg-gray-900">
@@ -127,7 +136,7 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
 
         {/* Title & Info overlay */}
         <div className="absolute bottom-0 left-0 right-0 flex flex-col items-start gap-2 px-4 py-3 sm:px-6" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-          <div className="relative w-fit max-w-full">
+          <div className="relative flex w-fit max-w-full items-center gap-2">
             <div
               aria-hidden="true"
               className="pointer-events-none absolute inset-0 backdrop-blur-[2px]"
@@ -136,9 +145,22 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
                 maskImage: 'radial-gradient(ellipse at center, black 50%, transparent 90%)',
               }}
             />
-            <h3 className="relative font-bold text-lg sm:text-xl text-white line-clamp-1 drop-shadow-lg">
+            <h3 className="relative min-w-0 truncate font-bold text-lg sm:text-xl text-white drop-shadow-lg">
               {displayTitle}
             </h3>
+            {game.platform === 'xbox' && game.isMythic && (
+              <MythicIcon
+                size={16}
+                className="relative shrink-0 translate-y-0.5"
+                title="Mythic achievement earned"
+              />
+            )}
+            {game.platform === 'playstation' && isPlatinumUnlocked(game) && (
+              <PlatinumBadge className="relative translate-y-0.5" />
+            )}
+            {isSteamBaseGameCompleted(game) && (
+              <SteamCompletionIcon size={16} className="relative shrink-0 translate-y-0.5" />
+            )}
           </div>
           <div className="relative w-fit max-w-full">
             <div
@@ -159,12 +181,6 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
               <span className="text-gray-200 text-sm font-medium drop-shadow">
                 {renderProgressLabel()}
               </span>
-              {game.platform === 'xbox' && game.isMythic && (
-                <>
-                  <span className="text-gray-400">•</span>
-                  <MythicIcon size={16} className="shrink-0 drop-shadow" title="Mythic achievement earned" />
-                </>
-              )}
             </div>
           </div>
         </div>

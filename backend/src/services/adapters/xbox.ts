@@ -91,8 +91,12 @@ export interface XboxTitleHistory {
   inEarnedScan?: boolean;
   /** True when Xbox has awarded the game Mythic status. */
   isMythic?: boolean;
-  /** Number of achievements in the original/base game group (null/undefined when unsupported). */
-  baseGameCount?: number;
+  /**
+   * True when Xbox exposes a BaseGame achievement group. TitleHub reports this
+   * as `baseGameCount`, which is a 0/1 group-presence flag — not the number of
+   * achievements in the group.
+   */
+  hasBaseGameGroup?: boolean;
   /** True when every base game achievement has been unlocked. */
   baseGameCompleted?: boolean;
   /** True when Xbox exposes achievement groups (base game + add-ons) for this title. */
@@ -131,7 +135,8 @@ export interface XboxAchievement {
 /** Per-title Mythic metadata returned by the TitleHub API. */
 export interface XboxTitleHubMeta {
   isMythic?: boolean;
-  baseGameCount?: number;
+  /** `baseGameCount` is a 0/1 group-presence flag, not an achievement count. */
+  hasBaseGameGroup?: boolean;
   baseGameCompleted?: boolean;
 }
 
@@ -212,6 +217,13 @@ function toFiniteNumber(value: unknown): number | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/** Accept booleans and the 0/1 numeric flags the Xbox APIs sometimes return. */
+function toBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  return undefined;
 }
 
 function normalizeAchievementSummary(input: any): XboxAchievementSummary | undefined {
@@ -476,9 +488,9 @@ export class XboxAdapter {
       /** v1: actual last played timestamp; absent in v2 (v2 uses lastUnlock) */
       lastPlayed?: string;
       /** Mythic metadata (may be present on newer responses). */
-      isMythic?: boolean;
+      isMythic?: boolean | number;
       baseGameCount?: number;
-      baseGameCompleted?: boolean;
+      baseGameCompleted?: boolean | number;
     };
     type TitleHistoryResponse = {
       titles: RawTitle[];
@@ -974,14 +986,14 @@ export class XboxAdapter {
         inEarnedScan: earnedScanSet.has(String(title.titleId)),
         // `baseGameCompleted` is the authoritative Mythic-earned flag. `isMythic`
         // marks a title as Mythic-capable on some responses, so only use it as a
-        // fallback when the newer field is unavailable.
-        isMythic: title.baseGameCompleted ?? title.isMythic,
-        baseGameCount: title.baseGameCount,
-        baseGameCompleted: title.baseGameCompleted,
+        // fallback when the newer field is unavailable. TitleHub returns these
+        // as numeric 0/1 flags in some responses, so normalise both forms.
+        isMythic: toBoolean(title.baseGameCompleted) ?? toBoolean(title.isMythic),
+        hasBaseGameGroup:
+          typeof title.baseGameCount === 'number' ? title.baseGameCount > 0 : undefined,
+        baseGameCompleted: toBoolean(title.baseGameCompleted),
         hasAchievementGroups:
-          typeof title.baseGameCount === 'number' && title.baseGameCount > 0
-            ? true
-            : undefined,
+          typeof title.baseGameCount === 'number' ? title.baseGameCount > 0 : undefined,
       });
     }
 
@@ -1012,9 +1024,9 @@ export class XboxAdapter {
      * its `achievement` block, depending on the response version. Accept both.
      */
     type TitleHubAchievement = {
-      isMythic?: boolean;
+      isMythic?: boolean | number;
       baseGameCount?: number;
-      baseGameCompleted?: boolean;
+      baseGameCompleted?: boolean | number;
       achievementSummary?: XboxAchievementSummary;
     };
     type TitleHubTitle = TitleHubAchievement & {
@@ -1082,7 +1094,7 @@ export class XboxAdapter {
           );
 
           const readBoolean = (key: 'isMythic' | 'baseGameCompleted') =>
-            sources.find((source) => typeof source[key] === 'boolean')?.[key];
+            toBoolean(sources.find((source) => source[key] !== undefined)?.[key]);
           const readNumber = (key: 'baseGameCount') =>
             toFiniteNumber(sources.find((source) => source[key] !== undefined)?.[key]);
 
@@ -1092,7 +1104,7 @@ export class XboxAdapter {
           const baseGameCompleted = readBoolean('baseGameCompleted');
 
           if (isMythic !== undefined) meta.isMythic = isMythic;
-          if (baseGameCount !== undefined) meta.baseGameCount = baseGameCount;
+          if (baseGameCount !== undefined) meta.hasBaseGameGroup = baseGameCount > 0;
           if (baseGameCompleted !== undefined) meta.baseGameCompleted = baseGameCompleted;
 
           if ((baseGameCompleted ?? isMythic) === true) {
@@ -1160,8 +1172,8 @@ export class XboxAdapter {
     userHash: string,
     /** Pass the raw platform string from XboxTitleHistory to select the right schema version */
     platform?: string,
-    /** Optional title metadata (Mythic/base-game counts) used for achievement grouping. */
-    title?: Pick<XboxTitleHistory, 'isMythic' | 'baseGameCount' | 'baseGameCompleted'>,
+    /** Optional title metadata (Mythic/base-game support) used for achievement grouping. */
+    title?: Pick<XboxTitleHistory, 'isMythic' | 'hasBaseGameGroup' | 'baseGameCompleted' | 'maxGamerscore'>,
   ): Promise<{ achievements: XboxAchievement[]; totalInCatalog: number; storeProductId?: string }> {
     // Xbox 360 titles use the GS4 achievement system (contract version 1).
     // Xbox One and later use GS5 (contract version 2+).
@@ -1249,47 +1261,89 @@ export class XboxAdapter {
     };
 
     /**
-     * Apply BaseGame/add-on grouping to mapped achievements. Falls back to the
-     * TitleHub `baseGameCount` when the achievements service did not return a
-     * BaseGame group (e.g. older 360 responses).
+     * Apply BaseGame/add-on grouping to mapped achievements.
+     *
+     * Modern titles expose the exact group membership through contract 6.
+     * Legacy Xbox 360 titles do not expose groups at all, so their catalog is
+     * split by the standard base-game Gamerscore (1000 for retail titles,
+     * 400/200 for arcade titles): the original achievements come first in the
+     * GS4 catalog.
      */
     const applyAchievementGroups = (
       achievements: XboxAchievement[],
       groups: Record<string, XboxAchievementGroup> | undefined,
-      fallbackBaseCount?: number,
+      fallbackMaxGamerscore?: number,
     ): void => {
-      if (groups) {
-        const baseEntry = Object.entries(groups).find(([id, group]) => {
-          const type = (group.groupType ?? '').toLowerCase().replace(/[^a-z]/g, '');
-          const key = id.toLowerCase().replace(/[^a-z]/g, '');
-          return type === 'basegame' || key === 'basegame';
-        });
+      const setGroup = (achievement: XboxAchievement, isBaseGame: boolean): void => {
+        achievement.groupId = isBaseGame ? 'base' : 'addon';
+        achievement.groupName = isBaseGame ? 'Base Game' : 'DLC / Update';
+        achievement.groupOrder = isBaseGame ? 0 : 1;
+      };
 
-        if (baseEntry) {
-          const [baseId, baseGroup] = baseEntry;
-          const baseIds = new Set((baseGroup.achievementIds ?? []).map(String));
+      const applyFallbackByGamerscore = (): void => {
+        if (typeof fallbackMaxGamerscore !== 'number' || fallbackMaxGamerscore <= 0) return;
 
+        // Xbox 360 base lists are always one of the standard Gamerscore caps.
+        // The largest cap that fits the title's total is the base-game target;
+        // anything after that is DLC / a title update.
+        const target =
+          [1000, 400, 200].find((cap) => fallbackMaxGamerscore >= cap) ??
+          fallbackMaxGamerscore;
+
+        let cumulative = 0;
+        let boundary = -1;
+        for (let index = 0; index < achievements.length; index++) {
+          const next = cumulative + (achievements[index].gamerscore ?? 0);
+          if (next > target) break;
+          cumulative = next;
+          boundary = index;
+        }
+        if (boundary < 0) return;
+
+        achievements.forEach((achievement, index) => setGroup(achievement, index <= boundary));
+      };
+
+      const baseEntry = groups
+        ? Object.entries(groups).find(([id, group]) => {
+            const type = (group.groupType ?? '').toLowerCase().replace(/[^a-z]/g, '');
+            const key = id.toLowerCase().replace(/[^a-z]/g, '');
+            return type === 'basegame' || key === 'basegame';
+          })
+        : undefined;
+
+      if (baseEntry) {
+        const [baseId, baseGroup] = baseEntry;
+        const explicitBaseIds = new Set((baseGroup.achievementIds ?? []).map(String));
+        const baseAchievementIds = new Set<string>();
+
+        if (explicitBaseIds.size > 0) {
+          // `achievementIds` is the exact membership used by the Xbox app for
+          // the Mythic progress bar, so it is the source of truth.
+          for (const achievement of achievements) {
+            if (explicitBaseIds.has(achievement.achievementId)) {
+              baseAchievementIds.add(achievement.achievementId);
+            }
+          }
+        } else {
+          // Older responses may only expose `groupIds` on each achievement.
           for (const achievement of achievements) {
             const groupIds = ((achievement as any).groupIds as string[] | undefined)?.map(String) ?? [];
-            const isBaseGame = baseIds.has(achievement.achievementId) || groupIds.includes(baseId);
-            achievement.groupId = isBaseGame ? 'base' : 'addon';
-            achievement.groupName = isBaseGame ? 'Base Game' : 'DLC / Update';
-            achievement.groupOrder = isBaseGame ? 0 : 1;
+            if (groupIds.includes(baseId)) {
+              baseAchievementIds.add(achievement.achievementId);
+            }
+          }
+        }
+
+        if (baseAchievementIds.size > 0) {
+          for (const achievement of achievements) {
+            setGroup(achievement, baseAchievementIds.has(achievement.achievementId));
           }
           return;
         }
       }
 
-      // Fallback for responses that don't include group metadata yet. The
-      // achievement catalog is normally ordered with the original list first.
-      if (typeof fallbackBaseCount === 'number' && fallbackBaseCount > 0) {
-        achievements.forEach((achievement, index) => {
-          const isBaseGame = index < fallbackBaseCount;
-          achievement.groupId = isBaseGame ? 'base' : 'addon';
-          achievement.groupName = isBaseGame ? 'Base Game' : 'DLC / Update';
-          achievement.groupOrder = isBaseGame ? 0 : 1;
-        });
-      }
+      // Fallback for responses that do not include usable group metadata.
+      applyFallbackByGamerscore();
     };
 
     // Helper: fetch all pages from a GS4 endpoint and return raw GS4 achievements.
@@ -1422,14 +1476,26 @@ export class XboxAdapter {
 
       logger.debug({ titleId, total: allAchievements.length }, 'GS4 achievements mapped (icons via image.xboxlive.com public CDN)');
 
-      // Xbox 360 titles also participate in Mythic achievements. Contract 6
-      // returns the BaseGame group even for legacy titles, so try it when the
-      // TitleHub data says the game has an original achievement group.
-      let groups: Record<string, XboxAchievementGroup> | undefined;
-      if (typeof title?.baseGameCount === 'number' && title.baseGameCount > 0) {
-        groups = await this.getAchievementGroupData(xuid, titleId, xstsToken, userHash);
-      }
-      applyAchievementGroups(allAchievements, groups, title?.baseGameCount);
+      // Xbox 360 titles also participate in Mythic achievements, but the
+      // achievements service does not expose BaseGame groups for legacy
+      // titles. Classify by the standard base-game Gamerscore instead; the GS4
+      // catalog lists the original achievements first.
+      //
+      // The legacy title-history response often reports maxGamerscore=0 even
+      // though the GS4 catalog has the real values, so derive the total from
+      // the catalog when needed.
+      const catalogGamerscore = allAchievements.reduce(
+        (sum, achievement) => sum + (achievement.gamerscore ?? 0),
+        0,
+      );
+      const maxGamerscore = title?.maxGamerscore && title.maxGamerscore > 0
+        ? title.maxGamerscore
+        : catalogGamerscore;
+      applyAchievementGroups(
+        allAchievements,
+        undefined,
+        title?.hasBaseGameGroup ? maxGamerscore : undefined,
+      );
     } else {
       // GS5 (contract 6) — single endpoint returns the full catalog with per-user
       // progress states and (for Mythic-enabled titles) achievement groups.
@@ -1523,11 +1589,14 @@ export class XboxAdapter {
       // Contract 6 sometimes only returns the completion/group block when the
       // request asks for `possibleOnly=true`. Fetch it explicitly when the game
       // is known to have a base game group.
-      if (!groups && typeof title?.baseGameCount === 'number' && title.baseGameCount > 0) {
+      if (!groups && title?.hasBaseGameGroup) {
         groups = await this.getAchievementGroupData(xuid, titleId, xstsToken, userHash);
       }
 
-      applyAchievementGroups(allAchievements, groups, title?.baseGameCount);
+      // When neither the main response nor the explicit group lookup returned
+      // usable groups, leave the list flat rather than guessing a modern
+      // base-game boundary.
+      applyAchievementGroups(allAchievements, groups);
     }
 
     const totalInCatalog = allAchievements.length;
@@ -1544,8 +1613,8 @@ export class XboxAdapter {
 
   /**
    * Fetch achievement-group metadata for a single title using contract 6.
-   * Used for legacy (Xbox 360) titles whose main catalog is fetched through
-   * the contract 1 GS4 endpoints but which still have a BaseGame group.
+   * Used when the main contract-6 achievements response omits the completion
+   * block. `possibleOnly=true` is the request shape confirmed to return groups.
    */
   private async getAchievementGroupData(
     xuid: string,
@@ -2851,7 +2920,18 @@ export class XboxAdapter {
               gsUpdate.isMythic = true;
             }
           }
-          await Game.findByIdAndUpdate(gameMongoId, { $set: gsUpdate });
+
+          const gameUpdate: any = { $set: gsUpdate };
+          if (baseGameAchievements.length === 0 && title.hasBaseGameGroup === false) {
+            // Clear stale base-game counters left by older syncs for titles
+            // that no longer expose an achievement group.
+            gsUpdate.hasAchievementGroups = false;
+            gameUpdate.$unset = {
+              baseGameAchievementsTotal: '',
+              baseGameAchievementsUnlocked: '',
+            };
+          }
+          await Game.findByIdAndUpdate(gameMongoId, gameUpdate);
 
           // Authenticated image fallback: use GS5 productId for Emerald lookup
           if (achievementStoreProductId) {

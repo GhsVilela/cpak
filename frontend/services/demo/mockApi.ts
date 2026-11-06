@@ -106,6 +106,9 @@ function filterGames(searchParams: URLSearchParams): DemoGame[] {
   const platform = searchParams.get('platform');
   const profileId = searchParams.get('profileId');
   const onlyCompleted = searchParams.get('onlyCompleted') === 'true';
+  const onlyMythic = searchParams.get('onlyMythic') === 'true';
+  const onlyPlatinum = searchParams.get('onlyPlatinum') === 'true';
+  const onlyBaseCompleted = searchParams.get('onlyBaseCompleted') === 'true';
   const excludeHidden = searchParams.get('excludeHidden') === 'true';
   const device = searchParams.get('device');
   const search = searchParams.get('search')?.trim().toLowerCase();
@@ -115,6 +118,15 @@ function filterGames(searchParams: URLSearchParams): DemoGame[] {
   if (platform) games = games.filter((g) => g.platform === platform);
   if (profileId) games = games.filter((g) => g.profileId === profileId);
   if (onlyCompleted) games = games.filter((g) => g.completionPercent === 100);
+  if (onlyMythic) games = games.filter((g) => g.isMythic === true);
+  if (onlyPlatinum) games = games.filter((g) => (g.trophyPlatinum ?? 0) > 0);
+  if (onlyBaseCompleted) {
+    games = games.filter((g) => {
+      const total = g.baseGameAchievementsTotal ?? g.achievementsTotal;
+      const unlocked = g.baseGameAchievementsUnlocked ?? g.achievementsUnlocked;
+      return total > 0 && unlocked >= total;
+    });
+  }
   if (excludeHidden) {
     games = games.filter(
       (g) =>
