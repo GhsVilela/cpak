@@ -11,6 +11,12 @@ interface GamesQuery {
   platform?: 'steam' | 'xbox' | 'playstation';
   profileId?: string;
   onlyCompleted?: string;
+  /** Xbox: only games whose Mythic achievement has been earned. */
+  onlyMythic?: string;
+  /** PlayStation: only games whose Platinum trophy has been earned. */
+  onlyPlatinum?: string;
+  /** Steam: only games whose base-game achievements are complete. */
+  onlyBaseCompleted?: string;
   excludeHidden?: string;
   limit?: string;
   offset?: string;
@@ -31,6 +37,9 @@ export async function getGames(
       platform, 
       profileId, 
       onlyCompleted, 
+      onlyMythic,
+      onlyPlatinum,
+      onlyBaseCompleted,
       excludeHidden,
       limit = '50', 
       offset = '0',
@@ -68,6 +77,14 @@ export async function getGames(
     // Filter by completion (100% only)
     if (onlyCompleted === 'true') {
       filter.completionPercent = 100;
+    }
+
+    // Platform-specific highlight filters
+    if (onlyMythic === 'true' && platform === 'xbox') {
+      filter.isMythic = true;
+    }
+    if (onlyPlatinum === 'true' && platform === 'playstation') {
+      filter.trophyPlatinum = { $gt: 0 };
     }
 
     // Exclude hidden games (revoked licenses + manually hidden)
@@ -113,6 +130,38 @@ export async function getGames(
           { customTitle: { $regex: escaped, $options: 'i' } },
         ],
       });
+    }
+
+    // Steam: filter to games whose base-game achievements are complete.
+    // DLC/update sets are ignored: we use the base group ("0") when present and
+    // treat fully completed games as base-complete when no base rows exist.
+    if (onlyBaseCompleted === 'true' && filter.platform === 'steam' && filter.profileId) {
+      const [completedBaseGroups, fullyCompletedGames] = await Promise.all([
+        Achievement.aggregate([
+          {
+            $match: {
+              platform: 'steam',
+              profileId: filter.profileId,
+              groupId: '0',
+            },
+          },
+          {
+            $group: {
+              _id: '$gameId',
+              total: { $sum: 1 },
+              unlocked: { $sum: { $cond: [{ $ifNull: ['$unlockedAt', false] }, 1, 0] } },
+            },
+          },
+          { $match: { $expr: { $eq: ['$unlocked', '$total'] } } },
+        ]),
+        Game.find({ ...filter, completionPercent: 100 }).select('_id').lean(),
+      ]);
+
+      const completedGameIds = new Set<unknown>();
+      for (const entry of completedBaseGroups) completedGameIds.add(entry._id);
+      for (const game of fullyCompletedGames) completedGameIds.add(game._id);
+
+      filter._id = { $in: Array.from(completedGameIds) };
     }
 
     // Validate and build sort object
@@ -280,8 +329,55 @@ export async function getGames(
       .skip(offsetNum)
       .lean();
 
+    // Steam: expose per-game base-game completion. Achievement sets (DLC or
+    // content updates) are ignored here; group "0" is Steam's base game. Games
+    // without set data (legacy schema) fall back to their overall totals.
+    let responseGames: any[] = games;
+    if (filter.platform === 'steam' && filter.profileId && games.length > 0) {
+      const baseGroupAgg = await Achievement.aggregate([
+        {
+          $match: {
+            platform: 'steam',
+            profileId: filter.profileId,
+            gameId: { $in: games.map((game) => game._id) },
+            groupId: '0',
+          },
+        },
+        {
+          $group: {
+            _id: '$gameId',
+            total: { $sum: 1 },
+            unlocked: { $sum: { $cond: [{ $ifNull: ['$unlockedAt', false] }, 1, 0] } },
+          },
+        },
+      ]);
+
+      const baseGroupByGame = new Map<string, { total: number; unlocked: number }>(
+        baseGroupAgg.map((entry) => [String(entry._id), { total: entry.total, unlocked: entry.unlocked }]),
+      );
+
+      responseGames = games.map((game) => {
+        const base = baseGroupByGame.get(String(game._id));
+        if (base) {
+          return {
+            ...game,
+            baseGameAchievementsTotal: base.total,
+            baseGameAchievementsUnlocked: base.unlocked,
+          };
+        }
+        if (!game.hasAchievementGroups) {
+          return {
+            ...game,
+            baseGameAchievementsTotal: game.achievementsTotal ?? 0,
+            baseGameAchievementsUnlocked: game.achievementsUnlocked ?? 0,
+          };
+        }
+        return game;
+      });
+    }
+
     reply.send({
-      data: games,
+      data: responseGames,
       pagination: {
         total: totalCount,
         limit: limitNum,

@@ -189,6 +189,7 @@ function AchievementGroupSection({
             {baseGame && (
               <MythicIcon
                 size={16}
+                className="shrink-0"
                 muted={!mythicEarned}
                 title={mythicEarned ? 'Mythic achievement earned' : 'Required for the Mythic achievement'}
               />

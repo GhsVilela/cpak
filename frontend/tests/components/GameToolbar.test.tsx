@@ -62,6 +62,38 @@ describe('GameToolbar', () => {
     expect(button.getAttribute('aria-expanded')).toBe('true');
   });
 
+  it('renders an optional platform-specific toggle next to 100% Only', async () => {
+    const user = userEvent.setup();
+    const onSecondaryFilterChange = vi.fn();
+    render(
+      <GameToolbar
+        {...baseProps}
+        secondaryFilterLabel="Mythic Only"
+        secondaryFilter={false}
+        onSecondaryFilterChange={onSecondaryFilterChange}
+        secondaryFilterTitle="Games where the Mythic achievement has been earned."
+      />,
+    );
+    expect(screen.getByText('Mythic Only')).toBeInTheDocument();
+    const toggles = screen.getAllByRole('switch');
+    expect(toggles).toHaveLength(3);
+    await user.click(toggles[1]);
+    expect(onSecondaryFilterChange).toHaveBeenCalledWith(true);
+  });
+
+  it('counts the platform-specific toggle in the active filter badge', () => {
+    render(
+      <GameToolbar
+        {...baseProps}
+        secondaryFilterLabel="Platinum Only"
+        secondaryFilter
+        onSecondaryFilterChange={vi.fn()}
+      />,
+    );
+    const button = screen.getByRole('button', { name: /toggle filters/i });
+    expect(within(button).getByText('1')).toBeInTheDocument();
+  });
+
   it('shows active filter count badge when non-default filters are active', () => {
     render(<GameToolbar {...baseProps} onlyCompleted showHidden sortOrder="asc" />);
     const button = screen.getByRole('button', { name: /toggle filters/i });

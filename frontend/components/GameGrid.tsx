@@ -29,6 +29,12 @@ interface Game {
   trophyPlatinum?: number;
   /** Xbox: true when the game's Mythic achievement has been earned. */
   isMythic?: boolean;
+  /** True when achievements/trophies are split into base-game and DLC sets. */
+  hasAchievementGroups?: boolean;
+  /** Steam: number of achievements in the base-game set. */
+  baseGameAchievementsTotal?: number;
+  /** Steam: number of base-game achievements unlocked. */
+  baseGameAchievementsUnlocked?: number;
   isHidden?: boolean;
 }
 

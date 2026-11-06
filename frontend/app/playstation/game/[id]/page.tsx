@@ -4,6 +4,7 @@ import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
 import TrophyIcon from '../../../../components/TrophyIcon';
+import PlatinumBadge from '../../../../components/PlatinumBadge';
 import TrophyCounts from '../../../../components/TrophyCounts';
 
 interface Game {
@@ -190,13 +191,7 @@ function TrophyGroupSection({ group }: { group: TrophyGroup }) {
               {group.name}
             </span>
             {baseGame && platinumTrophy && (
-              <TrophyIcon
-                grade="platinum"
-                size={16}
-                className="shrink-0"
-                muted={!platinumTrophy.unlockedAt}
-                title={platinumTrophy.unlockedAt ? 'Platinum trophy earned' : 'Complete the base game to unlock the Platinum trophy'}
-              />
+              <PlatinumBadge muted={!platinumTrophy.unlockedAt} />
             )}
           </span>
           <span className="mt-2 flex flex-wrap items-center justify-between gap-2">

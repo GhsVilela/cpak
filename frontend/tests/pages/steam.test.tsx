@@ -233,6 +233,28 @@ describe('Steam page — app/steam/page.tsx', () => {
     expect(localStorage.getItem('steam_onlyCompleted_p1')).toBe('true');
   });
 
+  it('keeps Completed Only and 100% Only mutually exclusive', async () => {
+    const user = userEvent.setup();
+    const { default: SteamPage } = await import('../../app/steam/page');
+    render(<SteamPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Counter-Strike 2')).toBeInTheDocument();
+    });
+    const hundred = screen.getByRole('switch', { name: '100% Only' });
+    const completed = screen.getByRole('switch', { name: 'Completed Only' });
+    expect(completed).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(hundred);
+    expect(hundred).toHaveAttribute('aria-checked', 'true');
+    expect(completed).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(completed);
+    expect(completed).toHaveAttribute('aria-checked', 'true');
+    expect(hundred).toHaveAttribute('aria-checked', 'false');
+    expect(localStorage.getItem('steam_onlyCompleted_p1')).toBe('false');
+    expect(localStorage.getItem('steam_onlyBaseCompleted_p1')).toBe('true');
+  });
+
   it('renders Show Hidden toggle defaulting to off', async () => {
     const { default: SteamPage } = await import('../../app/steam/page');
     render(<SteamPage />);
@@ -240,8 +262,8 @@ describe('Steam page — app/steam/page.tsx', () => {
       expect(screen.getByText('Counter-Strike 2')).toBeInTheDocument();
     });
     const toggles = screen.getAllByRole('switch');
-    // Second toggle is Show Hidden
-    expect(toggles[1]).toHaveAttribute('aria-checked', 'false');
+    // Third toggle is Show Hidden (100% Only, Completed Only, Show Hidden)
+    expect(toggles[2]).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByText('Show Hidden')).toBeInTheDocument();
   });
 
@@ -335,9 +357,9 @@ describe('Steam page — app/steam/page.tsx', () => {
     await waitFor(() => {
       expect(screen.getByText('Counter-Strike 2')).toBeInTheDocument();
     });
-    // Click Show Hidden toggle (second switch)
+    // Click Show Hidden toggle (third switch)
     const toggles = screen.getAllByRole('switch');
-    await user.click(toggles[1]);
+    await user.click(toggles[2]);
     expect(localStorage.getItem('steam_showHidden_p1')).toBe('true');
     await waitFor(() => {
       expect(screen.getByText('Revoked Game')).toBeInTheDocument();
@@ -346,13 +368,16 @@ describe('Steam page — app/steam/page.tsx', () => {
 
   it('restores toggle states from localStorage per profile', async () => {
     localStorage.setItem('steam_onlyCompleted_p1', 'true');
+    localStorage.setItem('steam_onlyBaseCompleted_p1', 'true');
     localStorage.setItem('steam_showHidden_p1', 'true');
     const { default: SteamPage } = await import('../../app/steam/page');
     render(<SteamPage />);
     await waitFor(() => {
       const toggles = screen.getAllByRole('switch');
+      // 100% Only wins if both completion filters were stored as active.
       expect(toggles[0]).toHaveAttribute('aria-checked', 'true');
-      expect(toggles[1]).toHaveAttribute('aria-checked', 'true');
+      expect(toggles[1]).toHaveAttribute('aria-checked', 'false');
+      expect(toggles[2]).toHaveAttribute('aria-checked', 'true');
     });
   });
 

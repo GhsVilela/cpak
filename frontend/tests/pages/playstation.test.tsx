@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const pushMock = vi.fn();
 
@@ -146,6 +147,28 @@ describe('PlayStation page — app/playstation/page.tsx (T026)', () => {
           document.body.firstChild,
       ).toBeTruthy();
     }, { timeout: 3000 });
+  });
+
+  it('keeps Platinum Only and 100% Only mutually exclusive', async () => {
+    const user = userEvent.setup();
+    const { default: PlayStationPage } = await import('../../app/playstation/page');
+    render(<PlayStationPage />);
+    await waitFor(() => {
+      expect(screen.getAllByRole('switch').length).toBeGreaterThan(0);
+    });
+    const hundred = screen.getByRole('switch', { name: '100% Only' });
+    const platinum = screen.getByRole('switch', { name: 'Platinum Only' });
+    expect(platinum).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(hundred);
+    expect(hundred).toHaveAttribute('aria-checked', 'true');
+    expect(platinum).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(platinum);
+    expect(platinum).toHaveAttribute('aria-checked', 'true');
+    expect(hundred).toHaveAttribute('aria-checked', 'false');
+    expect(localStorage.getItem('playstation_onlyCompleted_ps-profile-1')).toBe('false');
+    expect(localStorage.getItem('playstation_onlyPlatinum_ps-profile-1')).toBe('true');
   });
 
   it('renders generation filter dropdown', async () => {

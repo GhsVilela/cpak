@@ -454,6 +454,28 @@ describe('GET /api/games platform aggregations', () => {
     expect(body.pagination.completedTotal).toBe(4);
     expect(body.pagination).not.toHaveProperty('completedGames');
     expect(body.pagination).not.toHaveProperty('completedGroups');
+
+    // Per-game base-game completion ignores DLC/update sets; games without
+    // set data fall back to their overall totals.
+    const byTitle = Object.fromEntries(
+      body.data.map((game: { title: string }) => [game.title, game]),
+    );
+    expect(byTitle['Complete Grouped']).toMatchObject({
+      baseGameAchievementsTotal: 2,
+      baseGameAchievementsUnlocked: 2,
+    });
+    expect(byTitle['Complete Two Groups']).toMatchObject({
+      baseGameAchievementsTotal: 2,
+      baseGameAchievementsUnlocked: 2,
+    });
+    expect(byTitle['Incomplete With Completed Group']).toMatchObject({
+      baseGameAchievementsTotal: 3,
+      baseGameAchievementsUnlocked: 1,
+    });
+    expect(byTitle['Complete Legacy']).toMatchObject({
+      baseGameAchievementsTotal: 2,
+      baseGameAchievementsUnlocked: 2,
+    });
   });
 
   it('includes completed games, average completion and rare achievements for steam + profileId', async () => {
@@ -698,5 +720,158 @@ describe('GET /api/games platform aggregations', () => {
     const body = res.json();
     expect(body.data).toHaveLength(1);
     expect(body.data[0].title).toBe('Xbox Series Game');
+  });
+});
+
+describe('GET /api/games highlight filters', () => {
+  it('filters Xbox games by Mythic status', async () => {
+    const profile = await Profile.create({
+      platform: 'xbox',
+      profileId: 'xbox-mythic-filter',
+      displayName: 'Xbox Mythic Filter',
+      credentials: {},
+    });
+    await Game.create([
+      {
+        platform: 'xbox',
+        profileId: profile._id,
+        gameId: 'mf1',
+        title: 'Mythic Game',
+        achievementsTotal: 10,
+        achievementsUnlocked: 10,
+        completionPercent: 100,
+        isMythic: true,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'xbox',
+        profileId: profile._id,
+        gameId: 'mf2',
+        title: 'Regular Game',
+        achievementsTotal: 10,
+        achievementsUnlocked: 5,
+        completionPercent: 50,
+        isMythic: false,
+        lastSyncedAt: new Date(),
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=xbox&profileId=${profile._id}&onlyMythic=true`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].title).toBe('Mythic Game');
+  });
+
+  it('filters PlayStation games by Platinum trophy', async () => {
+    const profile = await Profile.create({
+      platform: 'playstation',
+      profileId: 'ps-platinum-filter',
+      displayName: 'PS Platinum Filter',
+      credentials: {},
+    });
+    await Game.create([
+      {
+        platform: 'playstation',
+        profileId: profile._id,
+        gameId: 'pf1',
+        title: 'Platinum Game',
+        achievementsTotal: 10,
+        achievementsUnlocked: 10,
+        completionPercent: 100,
+        trophyPlatinum: 1,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'playstation',
+        profileId: profile._id,
+        gameId: 'pf2',
+        title: 'No Platinum Game',
+        achievementsTotal: 10,
+        achievementsUnlocked: 5,
+        completionPercent: 50,
+        trophyPlatinum: 0,
+        lastSyncedAt: new Date(),
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=playstation&profileId=${profile._id}&onlyPlatinum=true`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].title).toBe('Platinum Game');
+  });
+
+  it('filters Steam games by base-game completion, ignoring DLC sets', async () => {
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-base-complete-filter',
+      displayName: 'Steam Base Complete Filter',
+      credentials: {},
+    });
+    const games = await Game.create([
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'bf1',
+        title: 'Base Complete DLC Pending',
+        achievementsTotal: 4,
+        achievementsUnlocked: 2,
+        completionPercent: 50,
+        hasAchievementGroups: true,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'bf2',
+        title: 'Base Incomplete',
+        achievementsTotal: 4,
+        achievementsUnlocked: 1,
+        completionPercent: 25,
+        hasAchievementGroups: true,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'steam',
+        profileId: profile._id,
+        gameId: 'bf3',
+        title: 'Fully Complete Legacy',
+        achievementsTotal: 2,
+        achievementsUnlocked: 2,
+        completionPercent: 100,
+        lastSyncedAt: new Date(),
+      },
+    ]);
+    await Achievement.create([
+      // bf1: base group complete, DLC group untouched
+      { platform: 'steam', profileId: profile._id, gameId: games[0]._id, achievementId: 'a1', name: 'A1', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date() },
+      { platform: 'steam', profileId: profile._id, gameId: games[0]._id, achievementId: 'a2', name: 'A2', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date() },
+      { platform: 'steam', profileId: profile._id, gameId: games[0]._id, achievementId: 'a3', name: 'A3', groupId: '1', groupName: 'DLC', groupOrder: 1 },
+      { platform: 'steam', profileId: profile._id, gameId: games[0]._id, achievementId: 'a4', name: 'A4', groupId: '1', groupName: 'DLC', groupOrder: 1 },
+      // bf2: base group incomplete
+      { platform: 'steam', profileId: profile._id, gameId: games[1]._id, achievementId: 'b1', name: 'B1', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date() },
+      { platform: 'steam', profileId: profile._id, gameId: games[1]._id, achievementId: 'b2', name: 'B2', groupId: '0', groupName: 'Base Game', groupOrder: 0 },
+      // bf3: legacy/no group rows, complete overall
+      { platform: 'steam', profileId: profile._id, gameId: games[2]._id, achievementId: 'c1', name: 'C1', unlockedAt: new Date() },
+      { platform: 'steam', profileId: profile._id, gameId: games[2]._id, achievementId: 'c2', name: 'C2', unlockedAt: new Date() },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=steam&profileId=${profile._id}&onlyBaseCompleted=true`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data.map((game: { title: string }) => game.title)).toEqual([
+      'Base Complete DLC Pending',
+      'Fully Complete Legacy',
+    ]);
   });
 });
