@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 
 const pushMock = vi.fn();
 
@@ -64,6 +64,37 @@ describe('Steam page — demo mode end to end', () => {
     expect(screen.getByText('Avg Completion')).toBeTruthy();
     expect(screen.getByText('66%')).toBeTruthy();
     expect(screen.getByText('Last Sync')).toBeTruthy();
+  });
+
+  it('shows completion badges on base-complete games in every view mode', async () => {
+    const { default: SteamPage } = await import('../../app/steam/page');
+
+    render(<SteamPage />);
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('Celestial Odyssey')).toBeTruthy();
+      },
+      { timeout: 10000 }
+    );
+
+    for (const mode of ['Grid', 'List', 'Hero']) {
+      if (mode !== 'Grid') {
+        fireEvent.click(screen.getByTitle(mode));
+      }
+
+      await waitFor(() => {
+        expect(screen.getByTitle(mode).getAttribute('aria-pressed')).toBe('true');
+      });
+
+      for (const title of ['Celestial Odyssey', 'Shadow Tactics']) {
+        const container = screen.getByText(title).closest('.group');
+        expect(container).toBeTruthy();
+        expect(
+          within(container as HTMLElement).getByRole('img', { name: 'Completed game' })
+        ).toBeTruthy();
+      }
+    }
   });
 
   it('renders the game artwork with a loadable url', async () => {

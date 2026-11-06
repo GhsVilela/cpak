@@ -337,6 +337,17 @@ for (const game of demoGames) {
     }
   }
 
+  if (game.platform === 'steam') {
+    // The backend derives these from the "0" (base game) achievement group so
+    // completed base games show the Steam completion badge even when DLC sets
+    // are still incomplete. Mirror that here for the demo.
+    const baseAchievements = gameAchievements.filter((achievement) => achievement.groupId === 'base');
+    game.baseGameAchievementsTotal = baseAchievements.length;
+    game.baseGameAchievementsUnlocked = baseAchievements.filter(
+      (achievement) => achievement.unlockedAt
+    ).length;
+  }
+
   if (game.platform === 'playstation') {
     game.trophyPlatinum = unlockedAchievements.filter((achievement) => achievement.trophyGrade === 'platinum').length;
     game.trophyGold = unlockedAchievements.filter((achievement) => achievement.trophyGrade === 'gold').length;
