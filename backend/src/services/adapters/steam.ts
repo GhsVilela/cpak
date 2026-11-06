@@ -480,12 +480,20 @@ export class SteamAdapter {
       userMap.set(ua.internal_key, { unlocked: !!ua.unlocked, unlockTime: ua.unlock_time });
     }
 
-    // GetGameAchievements returns bare icon hashes (e.g. "abc123.jpg"), unlike
-    // GetSchemaForGame which returns fully-qualified URLs. Rebuild the CDN URL.
+    // GetGameAchievements returns bare icon filenames (e.g. "abc123.jpg"),
+    // unlike GetSchemaForGame which returns fully-qualified URLs. Rebuild the
+    // CDN URL.
+    //
+    // Steam now serves modern achievement icons from the shared community
+    // assets host. The old steamcommunity/public/images/apps path still works
+    // for some older titles but returns 404 for newer achievements (for
+    // example Rust, PAYDAY 2 and Marauders), so use the current host first.
     const iconUrl = (value?: string): string | undefined => {
       if (!value) return undefined;
-      if (/^https?:\/\//i.test(value)) return value;
-      return `https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/${appId}/${value}`;
+      const normalized = value.trim();
+      if (!normalized) return undefined;
+      if (/^https?:\/\//i.test(normalized)) return normalized;
+      return `https://shared.akamai.steamstatic.com/community_assets/images/apps/${appId}/${normalized}`;
     };
 
     let earnedAchievements = 0;
@@ -1080,14 +1088,41 @@ export class SteamAdapter {
 
     if (progress) {
       const missing: typeof games = [];
-      for (const game of games) {
+      logger.info(
+        { total: games.length, syncOperationId: syncOperation._id },
+        'Checking local Steam game image cache',
+      );
+
+      for (let index = 0; index < games.length; index++) {
+        const game = games[index];
         const cached = imageStorage.checkCachedGameImages('steam', game.appId.toString());
         if (cached.capsuleImagePath && cached.iconImagePath && cached.heroImagePath) {
           cachedGameImages.set(game.appId, cached);
         } else {
           missing.push(game);
         }
+
+        if ((index + 1) % 100 === 0 && index + 1 < games.length) {
+          logger.info(
+            { checked: index + 1, total: games.length, cached: cachedGameImages.size },
+            'Steam game image cache check progress',
+          );
+          // Yield so logs flush and the event loop stays responsive on large
+          // libraries / slow NAS storage.
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
       }
+
+      logger.info(
+        {
+          total: games.length,
+          cached: cachedGameImages.size,
+          missing: missing.length,
+          syncOperationId: syncOperation._id,
+        },
+        'Steam game image cache check complete',
+      );
+
       gamesToDownload = missing;
 
       await progress.begin(
@@ -1306,6 +1341,79 @@ export class SteamAdapter {
   }
 
   /**
+   * Convert a current shared community-asset URL back to the legacy CDN path.
+   * Steam serves modern achievement icons from
+   * `shared.akamai.steamstatic.com/community_assets/images/apps/...`, while
+   * older icons may only exist on the legacy
+   * `cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/...` path.
+   */
+  private toLegacySteamCommunityImageUrl(url: string, appId: number): string | undefined {
+    try {
+      const parsed = new URL(url);
+      const marker = '/community_assets/images/apps/';
+      const index = parsed.pathname.indexOf(marker);
+      if (index === -1) return undefined;
+
+      const filename = parsed.pathname.slice(index + marker.length).split('/').pop();
+      if (!filename) return undefined;
+
+      return `https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/${appId}/${filename}`;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Download a Steam achievement image, trying the current shared CDN first
+   * and falling back to the legacy community image path when needed.
+   */
+  private async downloadSteamAchievementImage(
+    url: string,
+    appId: number,
+    achievementId: string,
+    imageType: 'icon' | 'iconGray',
+  ): Promise<string | undefined> {
+    try {
+      return await imageStorage.downloadAndStore(
+        url, 'steam', appId.toString(), achievementId, imageType,
+      );
+    } catch (primaryError) {
+      const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      const legacyUrl = this.toLegacySteamCommunityImageUrl(url, appId);
+
+      if (legacyUrl) {
+        try {
+          logger.debug(
+            { appId, achievementId, imageType, primaryUrl: url, legacyUrl },
+            'Current Steam image URL failed — retrying legacy CDN path',
+          );
+          return await imageStorage.downloadAndStore(
+            legacyUrl, 'steam', appId.toString(), achievementId, imageType,
+          );
+        } catch (fallbackError) {
+          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          logger.warn(
+            {
+              appId,
+              achievementId,
+              imageType,
+              primaryUrl: url,
+              legacyUrl,
+              primaryError: primaryMessage,
+              fallbackError: fallbackMessage,
+            },
+            'Failed to download Steam image from both CDN paths',
+          );
+          return imageStorage.checkLocalFile('steam', appId.toString(), achievementId, imageType);
+        }
+      }
+
+      logger.warn({ appId, achievementId, imageType, error: primaryMessage }, 'Failed to download Steam image');
+      return imageStorage.checkLocalFile('steam', appId.toString(), achievementId, imageType);
+    }
+  }
+
+  /**
    * Download achievement icons with adaptive concurrency control.
    *
    * The local cache is checked before the phase starts so the reported total is
@@ -1335,25 +1443,62 @@ export class SteamAdapter {
     let achievementsToDownload = achievements;
     if (progress) {
       const missing: typeof achievements = [];
+      logger.info(
+        { total: achievements.length, syncOperationId: syncOperation._id },
+        'Checking Steam achievement icon cache',
+      );
+
+      // Group by app so we read each game image directory only once. A Steam
+      // library can easily contain tens of thousands of achievements; doing
+      // two directory scans per achievement made this preflight very slow on
+      // NAS/WSL setups.
+      const achievementsByApp = new Map<number, typeof achievements>();
       for (const achievement of achievements) {
-        const key = `${achievement.appId}:${achievement.achievementId}`;
-        const iconPath = imageStorage.checkLocalFile(
-          'steam', achievement.appId.toString(), achievement.achievementId, 'icon',
-        );
-        const iconGrayPath = imageStorage.checkLocalFile(
-          'steam', achievement.appId.toString(), achievement.achievementId, 'iconGray',
-        );
-
-        const needsIcon = !!achievement.icon && !iconPath;
-        const needsGray = !!achievement.iconGray && !iconGrayPath;
-
-        if (needsIcon || needsGray) {
-          missing.push(achievement);
+        const appAchievements = achievementsByApp.get(achievement.appId);
+        if (appAchievements) {
+          appAchievements.push(achievement);
         } else {
-          iconMap.set(key, { iconPath, iconGrayPath });
+          achievementsByApp.set(achievement.appId, [achievement]);
         }
       }
+
+      for (const [appId, appAchievements] of achievementsByApp) {
+        const checks: Array<{ achievementId: string; imageType: 'icon' | 'iconGray' }> = [];
+        for (const achievement of appAchievements) {
+          checks.push({ achievementId: achievement.achievementId, imageType: 'icon' });
+          checks.push({ achievementId: achievement.achievementId, imageType: 'iconGray' });
+        }
+
+        const cachedPaths = imageStorage.checkLocalFiles('steam', appId.toString(), checks);
+
+        appAchievements.forEach((achievement, index) => {
+          const key = `${achievement.appId}:${achievement.achievementId}`;
+          const iconPath = cachedPaths[index * 2];
+          const iconGrayPath = cachedPaths[index * 2 + 1];
+
+          const needsIcon = !!achievement.icon && !iconPath;
+          const needsGray = !!achievement.iconGray && !iconGrayPath;
+
+          if (needsIcon || needsGray) {
+            missing.push(achievement);
+          } else {
+            iconMap.set(key, { iconPath, iconGrayPath });
+          }
+        });
+      }
+
       achievementsToDownload = missing;
+
+      logger.info(
+        {
+          total: achievements.length,
+          applications: achievementsByApp.size,
+          cachedAchievements: iconMap.size,
+          missingAchievements: missing.length,
+          syncOperationId: syncOperation._id,
+        },
+        'Steam achievement icon cache check complete',
+      );
 
       await progress.begin(
         'icons',
@@ -1385,15 +1530,12 @@ export class SteamAdapter {
 
           if (achievement.icon) {
             downloads.push(
-              imageStorage
-                .downloadAndStore(
-                  achievement.icon, 'steam', achievement.appId.toString(), achievement.achievementId, 'icon',
-                )
-                .catch((error) => {
-                  const errorMessage = error instanceof Error ? error.message : String(error);
-                  logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download icon');
-                  return imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'icon');
-                }),
+              this.downloadSteamAchievementImage(
+                achievement.icon,
+                achievement.appId,
+                achievement.achievementId,
+                'icon',
+              ),
             );
           } else {
             downloads.push(Promise.resolve(undefined));
@@ -1401,15 +1543,12 @@ export class SteamAdapter {
 
           if (achievement.iconGray) {
             downloads.push(
-              imageStorage
-                .downloadAndStore(
-                  achievement.iconGray, 'steam', achievement.appId.toString(), achievement.achievementId, 'iconGray',
-                )
-                .catch((error) => {
-                  const errorMessage = error instanceof Error ? error.message : String(error);
-                  logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download iconGray');
-                  return imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'iconGray');
-                }),
+              this.downloadSteamAchievementImage(
+                achievement.iconGray,
+                achievement.appId,
+                achievement.achievementId,
+                'iconGray',
+              ),
             );
           } else {
             downloads.push(Promise.resolve(undefined));

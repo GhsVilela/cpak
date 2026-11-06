@@ -2476,14 +2476,39 @@ export class XboxAdapter {
 
     if (progress) {
       const missing: XboxTitleHistory[] = [];
-      for (const title of eligibleTitles) {
+      logger.info(
+        { total: eligibleTitles.length, syncOperationId: syncOperation._id },
+        'Checking local Xbox game image cache',
+      );
+
+      for (let index = 0; index < eligibleTitles.length; index++) {
+        const title = eligibleTitles[index];
         const cached = imageStorage.checkCachedGameImages('xbox', title.titleId);
         if (cached.capsuleImagePath && cached.iconImagePath && cached.heroImagePath) {
           cachedGameImages.set(title.titleId, cached);
         } else {
           missing.push(title);
         }
+
+        if ((index + 1) % 100 === 0 && index + 1 < eligibleTitles.length) {
+          logger.info(
+            { checked: index + 1, total: eligibleTitles.length, cached: cachedGameImages.size },
+            'Xbox game image cache check progress',
+          );
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
       }
+
+      logger.info(
+        {
+          total: eligibleTitles.length,
+          cached: cachedGameImages.size,
+          missing: missing.length,
+          syncOperationId: syncOperation._id,
+        },
+        'Xbox game image cache check complete',
+      );
+
       titlesToDownload = missing;
 
       await progress.begin(
@@ -3067,25 +3092,53 @@ export class XboxAdapter {
       const iconMap = new Map<string, string | undefined>();
       const iconKey = (titleId: string, achievementId: string) => `${titleId}:${achievementId}`;
 
+      logger.info(
+        {
+          totalTitles: fetchedTitles.length,
+          totalAchievements: fetchedTitles.reduce((sum, fetched) => sum + fetched.achievements.length, 0),
+          syncOperationId: syncOperation._id,
+        },
+        'Checking Xbox achievement icon cache',
+      );
+
       for (const fetched of fetchedTitles) {
         const isXbox360 = (fetched.title.platform ?? '').toLowerCase().includes('360');
-        for (const achievement of fetched.achievements) {
-          if (!achievement.iconUrl) continue;
+        const achievementsWithIcons = fetched.achievements.filter((achievement) => !!achievement.iconUrl);
+        if (achievementsWithIcons.length === 0) continue;
+
+        const cachedPaths = imageStorage.checkLocalFiles(
+          'xbox',
+          fetched.title.titleId,
+          achievementsWithIcons.map((achievement) => ({
+            achievementId: achievement.achievementId,
+            imageType: 'icon' as const,
+          })),
+        );
+
+        achievementsWithIcons.forEach((achievement, index) => {
           const key = iconKey(fetched.title.titleId, achievement.achievementId);
-          const cached = imageStorage.checkLocalFile(
-            'xbox', fetched.title.titleId, achievement.achievementId, 'icon',
-          );
+          const cached = cachedPaths[index];
           if (cached) {
             iconMap.set(key, cached);
           } else {
             iconWork.push({ title: fetched.title, achievement, isXbox360 });
           }
-        }
+        });
       }
 
       const plannedIcons = iconMap.size + iconWork.length;
       syncOperation.iconDownloadsPending = plannedIcons;
       syncOperation.iconDownloadsCompleted = iconMap.size;
+
+      logger.info(
+        {
+          totalTitles: fetchedTitles.length,
+          cachedIcons: iconMap.size,
+          missingIcons: iconWork.length,
+          syncOperationId: syncOperation._id,
+        },
+        'Xbox achievement icon cache check complete',
+      );
 
       if (progress) {
         await progress.begin(

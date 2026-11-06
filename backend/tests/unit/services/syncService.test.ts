@@ -27,6 +27,7 @@ vi.mock('../../../src/utils/imageStorage.js', () => ({
     exists: vi.fn().mockReturnValue(false),
     getAbsolutePath: vi.fn().mockReturnValue('/fake/path'),
     checkLocalFile: vi.fn().mockReturnValue(undefined),
+    checkLocalFiles: vi.fn().mockReturnValue([]),
     checkCachedGameImages: vi.fn().mockReturnValue({}),
   },
 }));

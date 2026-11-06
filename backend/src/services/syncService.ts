@@ -848,14 +848,38 @@ class SyncService {
     }>();
     const titlesNeedingImages: PSNTrophyTitle[] = [];
 
-    for (const title of titles) {
+    logger.info(
+      { total: titles.length, profileId: accountId },
+      'Checking local PlayStation game image cache',
+    );
+
+    for (let index = 0; index < titles.length; index++) {
+      const title = titles[index];
       const cached = imageStorage.checkCachedGameImages('playstation', title.npCommunicationId);
       if (cached.capsuleImagePath && cached.iconImagePath && cached.heroImagePath) {
         gameImageMap.set(title.npCommunicationId, cached);
       } else {
         titlesNeedingImages.push(title);
       }
+
+      if ((index + 1) % 100 === 0 && index + 1 < titles.length) {
+        logger.info(
+          { checked: index + 1, total: titles.length, cached: gameImageMap.size },
+          'PlayStation game image cache check progress',
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
+
+    logger.info(
+      {
+        total: titles.length,
+        cached: gameImageMap.size,
+        missing: titlesNeedingImages.length,
+        profileId: accountId,
+      },
+      'PlayStation game image cache check complete',
+    );
 
     await progress.begin(
       'game-images',
@@ -974,16 +998,33 @@ class SyncService {
     const trophyIconWork: TrophyIconWork[] = [];
     const trophyIconKey = (titleId: string, trophyId: string) => `${titleId}:${trophyId}`;
 
+    logger.info(
+      {
+        totalTitles: fetchedTitles.length,
+        totalTrophies: fetchedTitles.reduce((sum, fetched) => sum + fetched.definitions.length, 0),
+        profileId: accountId,
+      },
+      'Checking PlayStation trophy icon cache',
+    );
+
     for (const fetched of fetchedTitles) {
-      for (const definition of fetched.definitions) {
+      const cachedPaths = imageStorage.checkLocalFiles(
+        'playstation',
+        fetched.title.npCommunicationId,
+        fetched.definitions.map((definition) => ({
+          achievementId: definition.trophyId,
+          imageType: 'icon' as const,
+        })),
+      );
+
+      fetched.definitions.forEach((definition, index) => {
         const key = trophyIconKey(fetched.title.npCommunicationId, definition.trophyId);
         if (!definition.iconUrl) {
           trophyIconMap.set(key, undefined);
-          continue;
+          return;
         }
-        const cached = imageStorage.checkLocalFile(
-          'playstation', fetched.title.npCommunicationId, definition.trophyId, 'icon',
-        );
+
+        const cached = cachedPaths[index];
         if (cached) {
           trophyIconMap.set(key, cached);
         } else {
@@ -993,12 +1034,22 @@ class SyncService {
             iconUrl: definition.iconUrl,
           });
         }
-      }
+      });
     }
 
     const plannedIcons = trophyIconMap.size + trophyIconWork.length;
     syncOperation.iconDownloadsPending = plannedIcons;
     syncOperation.iconDownloadsCompleted = trophyIconMap.size;
+
+    logger.info(
+      {
+        totalTitles: fetchedTitles.length,
+        cachedIcons: trophyIconMap.size,
+        missingIcons: trophyIconWork.length,
+        profileId: accountId,
+      },
+      'PlayStation trophy icon cache check complete',
+    );
 
     await progress.begin(
       'icons',

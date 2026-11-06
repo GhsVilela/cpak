@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { checkLocalFileMock, downloadAndStoreMock } = vi.hoisted(() => ({
+const { checkLocalFileMock, checkLocalFilesMock, downloadAndStoreMock } = vi.hoisted(() => ({
   checkLocalFileMock: vi.fn(),
+  checkLocalFilesMock: vi.fn(),
   downloadAndStoreMock: vi.fn(),
 }));
 
 vi.mock('../../../../src/utils/imageStorage.js', () => ({
   imageStorage: {
     checkLocalFile: checkLocalFileMock,
+    checkLocalFiles: checkLocalFilesMock,
     downloadAndStore: downloadAndStoreMock,
     checkCachedGameImages: vi.fn().mockReturnValue({}),
   },
@@ -51,9 +53,11 @@ describe('SteamAdapter.downloadAchievementIcons planning', () => {
   });
 
   it('skips downloads and reports "already up to date" when both icons are cached', async () => {
-    checkLocalFileMock.mockImplementation(
-      (_platform: string, _gameId: string, _achievementId: string, type: string) =>
-        type === 'icon' ? 'steam/10/ACH_1_icon.jpg' : 'steam/10/ACH_1_iconGray.jpg',
+    checkLocalFilesMock.mockImplementation(
+      (_platform: string, _gameId: string, checks: Array<{ achievementId: string; imageType: string }>) =>
+        checks.map((check) => check.imageType === 'icon'
+          ? 'steam/10/ACH_1_icon.jpg'
+          : 'steam/10/ACH_1_iconGray.jpg'),
     );
     const progress = createProgress();
 
@@ -74,7 +78,9 @@ describe('SteamAdapter.downloadAchievementIcons planning', () => {
   });
 
   it('reports only the number of achievements with missing icons', async () => {
-    checkLocalFileMock.mockReturnValue(undefined);
+    checkLocalFilesMock.mockImplementation(
+      (_platform: string, _gameId: string, checks: unknown[]) => checks.map(() => undefined),
+    );
     downloadAndStoreMock
       .mockResolvedValueOnce('steam/10/ACH_1_icon.jpg')
       .mockResolvedValueOnce('steam/10/ACH_1_iconGray.jpg');
@@ -98,5 +104,37 @@ describe('SteamAdapter.downloadAchievementIcons planning', () => {
       iconPath: 'steam/10/ACH_1_icon.jpg',
       iconGrayPath: 'steam/10/ACH_1_iconGray.jpg',
     });
+  });
+
+  it('falls back to the legacy Steam CDN path when the current URL is not found', async () => {
+    checkLocalFilesMock.mockImplementation(
+      (_platform: string, _gameId: string, checks: unknown[]) => checks.map(() => undefined),
+    );
+    downloadAndStoreMock
+      .mockRejectedValueOnce(new Error('Image not found'))
+      .mockResolvedValueOnce('steam/10/ACH_1_icon.jpg');
+    const progress = createProgress();
+
+    const result = await adapter.downloadAchievementIcons(
+      [{
+        appId: 10,
+        achievementId: 'ACH_1',
+        icon: 'https://shared.akamai.steamstatic.com/community_assets/images/apps/10/hash.jpg',
+      }],
+      syncOperation,
+      progress,
+    );
+
+    expect(downloadAndStoreMock).toHaveBeenNthCalledWith(
+      1,
+      'https://shared.akamai.steamstatic.com/community_assets/images/apps/10/hash.jpg',
+      'steam', '10', 'ACH_1', 'icon',
+    );
+    expect(downloadAndStoreMock).toHaveBeenNthCalledWith(
+      2,
+      'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/10/hash.jpg',
+      'steam', '10', 'ACH_1', 'icon',
+    );
+    expect(result.iconMap.get('10:ACH_1')?.iconPath).toBe('steam/10/ACH_1_icon.jpg');
   });
 });
