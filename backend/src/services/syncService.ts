@@ -775,6 +775,9 @@ class SyncService {
             accessToken: newTokens.accessToken,
             refreshToken: newTokens.refreshToken,
             expiresAt: newTokens.expiresAt,
+            // Preserve the existing value if Sony did not return a refresh-token
+            // lifetime again; otherwise store the rotated token's new expiry.
+            refreshTokenExpiresAt: newTokens.refreshTokenExpiresAt ?? freshProfile.credentials.refreshTokenExpiresAt,
           } as any;
           freshProfile.markModified('credentials');
           await freshProfile.save();

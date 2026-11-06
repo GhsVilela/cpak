@@ -34,7 +34,10 @@ import { createIGDBAdapter } from './igdb.js';
 export interface PSNAuthTokens {
   accessToken: string;
   refreshToken: string;
+  /** Access-token expiry (roughly one hour). */
   expiresAt: Date;
+  /** Refresh-token expiry (usually ~60 days). */
+  refreshTokenExpiresAt?: Date;
   tokenType: string;
 }
 
@@ -191,11 +194,22 @@ export class PlayStationAdapter {
   // -------------------------------------------------------------------------
 
   private _mapTokenResponse(tokens: AuthTokensResponse): PSNAuthTokens {
-    const expiresAt = new Date(Date.now() + tokens.expiresIn * 1_000);
+    const now = Date.now();
+    const expiresAt = new Date(now + tokens.expiresIn * 1_000);
+    // Sony returns a long-lived refresh token alongside the short-lived access
+    // token. Persist both expiry times: the access token is refreshed
+    // automatically, while the refresh token is what actually determines when
+    // the user must provide a new NPSSO token.
+    const refreshTokenExpiresAt =
+      typeof tokens.refreshTokenExpiresIn === 'number' && tokens.refreshTokenExpiresIn > 0
+        ? new Date(now + tokens.refreshTokenExpiresIn * 1_000)
+        : undefined;
+
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresAt,
+      ...(refreshTokenExpiresAt ? { refreshTokenExpiresAt } : {}),
       tokenType: tokens.tokenType,
     };
   }
