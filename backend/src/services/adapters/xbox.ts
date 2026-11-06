@@ -2792,6 +2792,7 @@ export class XboxAdapter {
     userHash: string,
     syncOperation: any,
     gameIdToMongoId: Map<string, any>,
+    gameImageMap?: Map<string, { capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string }>,
   ): Promise<number> {
     const { isSyncCancelled } = await import('../syncCancellation.js');
 
@@ -2850,11 +2851,7 @@ export class XboxAdapter {
             'Xbox achievements fetched for title',
           );
 
-          const gameMongoId = gameIdToMongoId.get(title.titleId);
-          if (!gameMongoId) {
-            logger.warn({ titleId: title.titleId }, 'Xbox game not found after upsert, skipping achievements');
-            return;
-          }
+          let gameMongoId = gameIdToMongoId.get(title.titleId);
 
           if (achievements.length === 0) {
             if (title.inEarnedScan) {
@@ -2864,11 +2861,13 @@ export class XboxAdapter {
               );
               return;
             }
-            logger.info(
-              { titleId: title.titleId, name: title.name },
-              'Removing game — per-title achievements API returned 0 achievements',
-            );
-            await Game.deleteOne({ _id: gameMongoId });
+            if (gameMongoId) {
+              logger.info(
+                { titleId: title.titleId, name: title.name },
+                'Removing game — per-title achievements API returned 0 achievements',
+              );
+              await Game.deleteOne({ _id: gameMongoId });
+            }
             return;
           }
 
@@ -2883,15 +2882,59 @@ export class XboxAdapter {
               );
               return;
             }
-            logger.info(
-              { titleId: title.titleId, name: title.name, totalInCatalog: realTotal },
-              'Removing game — achievements API confirms 0 earned achievements',
-            );
-            await Game.deleteOne({ _id: gameMongoId });
+            if (gameMongoId) {
+              logger.info(
+                { titleId: title.titleId, name: title.name, totalInCatalog: realTotal },
+                'Removing game — achievements API confirms 0 earned achievements',
+              );
+              await Game.deleteOne({ _id: gameMongoId });
+            }
             return;
           }
 
           const realCompletionPercent = Math.round((unlockedCount / realTotal) * 100);
+
+          // The title passed the authoritative achievement check, so create the
+          // library entry now. Creating it earlier (before Phase 5) meant games
+          // that turn out to have zero achievements appeared as 0/0 entries for
+          // the whole duration of the sync.
+          if (!gameMongoId) {
+            const cleanTitle = title.name
+              .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, '')
+              .replace(/\s{2,}/g, ' ')
+              .trim();
+            const imagePaths = gameImageMap?.get(title.titleId);
+            const createdGame = await Game.findOneAndUpdate(
+              { profileId: syncOperation.profileId, platform: 'xbox', gameId: title.titleId },
+              {
+                $setOnInsert: {
+                  profileId: syncOperation.profileId,
+                  platform: 'xbox',
+                  gameId: title.titleId,
+                  title: cleanTitle,
+                  achievementsTotal: realTotal,
+                  achievementsUnlocked: unlockedCount,
+                  completionPercent: realCompletionPercent,
+                  devices: title.devices,
+                  currentGamerscore: title.currentGamerscore ?? 0,
+                  maxGamerscore: title.maxGamerscore ?? 0,
+                  ...(title.isMythic !== undefined && { isMythic: title.isMythic }),
+                  ...(title.hasBaseGameGroup !== undefined && {
+                    hasAchievementGroups: title.hasBaseGameGroup,
+                  }),
+                  ...(title.lastPlayed !== undefined && { lastPlayed: new Date(title.lastPlayed) }),
+                  lastSyncedAt: new Date(),
+                  ...(imagePaths?.capsuleImagePath && { capsuleImagePath: imagePaths.capsuleImagePath }),
+                  ...(imagePaths?.iconImagePath && { iconImagePath: imagePaths.iconImagePath }),
+                  ...(imagePaths?.heroImagePath && { heroImagePath: imagePaths.heroImagePath }),
+                },
+              },
+              { upsert: true, new: true },
+            );
+            gameMongoId = createdGame._id;
+            gameIdToMongoId.set(title.titleId, gameMongoId);
+            logger.info({ titleId: title.titleId, name: title.name }, 'Created Xbox game after confirming achievements');
+          }
           const maxGS = achievements.reduce((s, a) => s + (a.gamerscore ?? 0), 0);
           const currentGS = achievements
             .filter((a) => a.isUnlocked)

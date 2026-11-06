@@ -596,15 +596,22 @@ class SyncService {
     const steamGridDBAdapter = await createSteamGridDBAdapter();
     const gameImageMap = await adapter.downloadGameImages(titles, syncOperation, steamGridDBAdapter);
 
-    // Upsert games
+    // Games already in the library are updated with fresh metadata here.
+    // New games are only created in Phase 5, after the achievements API
+    // confirms they actually have achievements. Inserting every title from the
+    // history API here made previously-synced libraries briefly fill with 0/0
+    // entries that were deleted again at the end of the sync.
+    const allGames = await Game.find({ profileId: profile._id, platform: 'xbox' })
+      .select('_id gameId')
+      .lean();
+    const gameIdToMongoId = new Map(allGames.map((g) => [g.gameId, g._id]));
+
     await performanceMonitor.measureDbQuery(
       'syncService.upsertXboxGames',
       async () => Promise.all(
       titles.map((title) => {
-        const completionPercent =
-          title.totalAchievements > 0
-            ? Math.round((title.currentAchievements / title.totalAchievements) * 100)
-            : 0;
+        const gameMongoId = gameIdToMongoId.get(title.titleId);
+        if (!gameMongoId) return Promise.resolve();
 
         // Strip C0/C1 control characters (e.g. U+009E in "Rush: A Disney\u009EPixar Adventure")
         // while preserving all printable characters including ™ (U+2122).
@@ -613,15 +620,13 @@ class SyncService {
           .replace(/\s{2,}/g, ' ')
           .trim();
 
+        // Achievement/gamerscore counters are intentionally not written here:
+        // the title-history values are unreliable (often 0) and Phase 5 owns
+        // those fields. This keeps existing totals visible during the sync.
         const updateData: any = {
           platform: 'xbox',
           title: cleanTitle,
-          achievementsTotal: title.totalAchievements,
-          achievementsUnlocked: title.currentAchievements,
-          completionPercent,
           devices: title.devices,
-          currentGamerscore: title.currentGamerscore ?? 0,
-          maxGamerscore: title.maxGamerscore ?? 0,
           ...(title.isMythic !== undefined && { isMythic: title.isMythic }),
           ...(title.hasBaseGameGroup !== undefined && {
             hasAchievementGroups: title.hasBaseGameGroup,
@@ -635,12 +640,8 @@ class SyncService {
         if (imagePaths?.iconImagePath) updateData.iconImagePath = imagePaths.iconImagePath;
         if (imagePaths?.heroImagePath) updateData.heroImagePath = imagePaths.heroImagePath;
 
-        return Game.findOneAndUpdate(
-          { profileId: profile._id, platform: 'xbox', gameId: title.titleId },
-          { $set: updateData },
-          { upsert: true, new: true },
-        ).catch((error) => {
-          logger.error({ error, titleId: title.titleId }, 'Failed to upsert Xbox game');
+        return Game.updateOne({ _id: gameMongoId }, { $set: updateData }).catch((error) => {
+          logger.error({ error, titleId: title.titleId }, 'Failed to update Xbox game');
           syncOperation.gamesFailed++;
         });
       }),
@@ -649,19 +650,14 @@ class SyncService {
     syncOperation.gamesProcessed = titles.length;
     await syncOperation.save();
 
-    logger.info({ syncOperationId: syncOperation._id, gamesUpserted: titles.length, gamesWithAchievements }, 'Xbox games upserted');
+    logger.info({ syncOperationId: syncOperation._id, existingGames: allGames.length, gamesWithAchievements }, 'Xbox games updated');
 
     // -----------------------------------------------------------------------
     // Phase 5: Achievement sync (adaptive batch/throttle/concurrency inside xbox adapter)
     // -----------------------------------------------------------------------
 
-    const allGames = await Game.find({ profileId: profile._id, platform: 'xbox' })
-      .select('_id gameId')
-      .lean();
-    const gameIdToMongoId = new Map(allGames.map((g) => [g.gameId, g._id]));
-
     const achievementsSynced = await adapter.syncAchievements(
-      titles, xuid, xstsToken, userHash, syncOperation, gameIdToMongoId,
+      titles, xuid, xstsToken, userHash, syncOperation, gameIdToMongoId, gameImageMap,
     );
 
     syncOperation.achievementsSynced = achievementsSynced;

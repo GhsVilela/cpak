@@ -57,6 +57,24 @@ describe('GameListItem', () => {
     expect(pushMock).toHaveBeenCalledWith('/steam/game/12345?profileId=profile-1');
   });
 
+  it('includes a trailing-slash list URL in returnTo', async () => {
+    const originalUrl = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState({}, '', '/steam/?profileId=profile-1&page=2');
+
+    try {
+      const user = userEvent.setup();
+      render(<GameListItem game={mockGame} />);
+      await user.click(screen.getByText('Half-Life 3'));
+
+      expect(pushMock).toHaveBeenCalledWith(
+        '/steam/game/12345?profileId=profile-1&returnTo=' +
+          encodeURIComponent('/steam/?profileId=profile-1&page=2'),
+      );
+    } finally {
+      window.history.replaceState({}, '', originalUrl);
+    }
+  });
+
   it('shows achievements and gamerscore for Xbox games', () => {
     const xboxGame = { ...mockGame, platform: 'xbox' as const, currentGamerscore: 500, maxGamerscore: 1000 };
     render(<GameListItem game={xboxGame} />);

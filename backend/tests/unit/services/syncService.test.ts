@@ -259,6 +259,93 @@ describe('SyncService', () => {
     expect(op?.status).toBe('completed');
   });
 
+  it('syncProfile does not reset existing Xbox game stats or insert empty titles', async () => {
+    const { syncService } = await import('../../../src/services/syncService.js');
+    const { Profile } = await import('../../../src/models/profile.js');
+    const { Game } = await import('../../../src/models/game.js');
+    const { configService } = await import('../../../src/services/configService.js');
+    const { SettingCategory } = await import('../../../src/models/setting.js');
+    const { createXboxAdapter } = await import('../../../src/services/adapters/xbox.js');
+
+    await configService.setSetting('xbox_client_id', 'test-client-id', SettingCategory.AUTH);
+    await configService.setSetting('xbox_client_secret', 'test-client-secret', SettingCategory.AUTH);
+
+    const profile = await Profile.create({
+      platform: 'xbox',
+      profileId: 'xbox-existing-profile',
+      displayName: 'Xbox User',
+      credentials: {
+        accessToken: 'old-xsts-token',
+        refreshToken: 'test-refresh-token',
+        tokenType: 'xbox',
+        expiresAt: new Date(Date.now() + 3600000),
+      },
+    });
+
+    const existingGame = await Game.create({
+      platform: 'xbox',
+      profileId: profile._id,
+      gameId: '111111',
+      title: 'Existing Game',
+      achievementsTotal: 20,
+      achievementsUnlocked: 10,
+      completionPercent: 50,
+      currentGamerscore: 500,
+      maxGamerscore: 1000,
+    });
+
+    vi.mocked(createXboxAdapter).mockReturnValueOnce({
+      refreshXboxTokens: vi.fn().mockResolvedValue({
+        xstsToken: 'test-xsts-token',
+        userHash: 'test-user-hash',
+        xuid: 'test-xuid-123',
+        refreshToken: 'new-refresh-token',
+        expiresAt: new Date(Date.now() + 3600000),
+      }),
+      getXboxProfile: vi.fn().mockResolvedValue({ gamertag: 'TestGamertag', xuid: 'test-xuid-123' }),
+      getTitleHistory: vi.fn().mockResolvedValue([
+        {
+          titleId: '111111',
+          name: 'Existing Game',
+          totalAchievements: 0,
+          currentAchievements: 0,
+          devices: ['XboxOne'],
+          platform: 'XboxOne',
+          maxGamerscore: 1000,
+          currentGamerscore: 500,
+          inEarnedScan: true,
+        },
+        {
+          titleId: '222222',
+          name: 'Never Played',
+          totalAchievements: 0,
+          currentAchievements: 0,
+          devices: ['XboxOne'],
+          platform: 'XboxOne',
+          maxGamerscore: 0,
+          currentGamerscore: 0,
+          inEarnedScan: false,
+        },
+      ]),
+      getTitleHubData: vi.fn().mockResolvedValue({
+        devicesMap: new Map(),
+        titleMeta: new Map(),
+        achievementSummary: undefined,
+      }),
+      downloadGameImages: vi.fn().mockResolvedValue(new Map()),
+      syncAchievements: vi.fn().mockResolvedValue(0),
+    } as any);
+
+    await syncService.syncProfile(profile as any);
+
+    const unchangedGame = await Game.findById(existingGame._id);
+    expect(unchangedGame?.achievementsTotal).toBe(20);
+    expect(unchangedGame?.achievementsUnlocked).toBe(10);
+    expect(unchangedGame?.completionPercent).toBe(50);
+
+    expect(await Game.findOne({ profileId: profile._id, gameId: '222222' })).toBeNull();
+  });
+
   it('profile toJSON strips sensitive credentials and pre-save encrypts accessToken/refreshToken', async () => {
     const { Profile } = await import('../../../src/models/profile.js');
 

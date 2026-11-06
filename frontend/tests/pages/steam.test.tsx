@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 const pushMock = vi.fn();
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pushMock }),
+  useRouter: () => ({ push: pushMock, replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => '/steam',
 }));

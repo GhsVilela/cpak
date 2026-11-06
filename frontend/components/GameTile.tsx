@@ -5,6 +5,7 @@ import MythicIcon from './MythicIcon';
 import PlatinumBadge from './PlatinumBadge';
 import SteamCompletionIcon from './SteamCompletionIcon';
 import { isPlatinumUnlocked, isSteamBaseGameCompleted } from '../lib/completion';
+import { getCurrentListReturnTo } from '../lib/navigation';
 
 interface GameTileProps {
   game: {
@@ -37,7 +38,10 @@ export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
   const displayTitle = game.customTitle || game.title;
 
   const handleClick = () => {
-    router.push(`/${game.platform}/game/${game.gameId}?profileId=${game.profileId}`);
+    const params = new URLSearchParams({ profileId: game.profileId });
+    const returnTo = getCurrentListReturnTo(game.platform);
+    if (returnTo) params.set('returnTo', returnTo);
+    router.push(`/${game.platform}/game/${game.gameId}?${params.toString()}`);
   };
 
   const getCompletionColor = (percent: number) => {
@@ -135,17 +139,17 @@ export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
           <h3 className="break-words font-semibold text-sm sm:text-base group-hover:text-white transition-colors">
             {displayTitle}
             {game.platform === 'xbox' && game.isMythic && (
-              <span className="ml-1 inline-flex align-middle">
+              <span className="ml-1 inline-flex shrink-0 align-middle -translate-y-[0.05em]">
                 <MythicIcon size={14} title="Mythic achievement earned" />
               </span>
             )}
             {game.platform === 'playstation' && isPlatinumUnlocked(game) && (
-              <span className="ml-1 inline-flex align-middle">
+              <span className="ml-1 inline-flex shrink-0 align-middle">
                 <PlatinumBadge iconSize={12} size={18} />
               </span>
             )}
             {isSteamBaseGameCompleted(game) && (
-              <span className="ml-1 inline-flex align-middle">
+              <span className="ml-1 inline-flex shrink-0 align-middle">
                 <SteamCompletionIcon size={14} />
               </span>
             )}
