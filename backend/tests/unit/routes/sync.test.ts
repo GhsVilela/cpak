@@ -157,6 +157,33 @@ describe('Sync Route Handlers', () => {
       expect(reply.body.current.progress).toBeGreaterThan(0);
     });
 
+    it('returns stored tracker progress and message when a phase is present', async () => {
+      syncOpFindOneMock.mockReturnValue({
+        sort: vi.fn().mockResolvedValue({
+          _id: { toString: () => 'op1' },
+          status: 'running',
+          phase: 'icons',
+          progress: 71.4,
+          message: 'Downloading achievement icons... (12/40)',
+          totalGames: 10,
+          gamesProcessed: 10,
+          imagesCompleted: 10,
+          iconDownloadsPending: 40,
+          iconDownloadsCompleted: 12,
+        }),
+      });
+      syncRunFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
+
+      const reply = createMockReply();
+      await getSyncStatus({ query: { profileId: 'p1' } } as any, reply);
+
+      expect(reply.body.current).toMatchObject({
+        phase: 'icons',
+        progress: 71,
+        message: 'Downloading achievement icons... (12/40)',
+      });
+    });
+
     it('returns empty object when no active sync and no history', async () => {
       syncOpFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });
       syncRunFindOneMock.mockReturnValue({ sort: vi.fn().mockResolvedValue(null) });

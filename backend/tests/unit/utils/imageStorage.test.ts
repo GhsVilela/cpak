@@ -166,5 +166,20 @@ describe('ImageStorage', () => {
       const result = storage.checkLocalFile('steam', '12345', 'game', 'icon');
       expect(result).toContain('game_icon.jpg');
     });
+
+    it('reports all cached game images for sync planning', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readdirSync).mockReturnValue([
+        'game_grid.jpg',
+        'game_icon.jpg',
+        'game_hero.jpg',
+      ] as any);
+
+      const result = storage.checkCachedGameImages('steam', '12345');
+
+      expect(result.capsuleImagePath).toContain('game_grid.jpg');
+      expect(result.iconImagePath).toContain('game_icon.jpg');
+      expect(result.heroImagePath).toContain('game_hero.jpg');
+    });
   });
 });

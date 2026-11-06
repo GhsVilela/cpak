@@ -538,6 +538,25 @@ export class ImageStorage {
   }
 
   /**
+   * Check which standard game images (cover/grid, icon, hero) are already
+   * cached locally. Used by sync planning to determine how many games actually
+   * need a download before progress is reported.
+   */
+  checkCachedGameImages(
+    platform: string,
+    gameId: string,
+  ): { capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string } {
+    return {
+      capsuleImagePath:
+        this.checkLocalFile(platform, gameId, 'game', 'grid') ??
+        this.checkLocalFile(platform, gameId, 'game', 'header') ??
+        this.checkLocalFile(platform, gameId, 'game', 'capsule'),
+      iconImagePath: this.checkLocalFile(platform, gameId, 'game', 'icon'),
+      heroImagePath: this.checkLocalFile(platform, gameId, 'game', 'hero'),
+    };
+  }
+
+  /**
    * Check if an image file exists
    */
   exists(relativePath: string): boolean {

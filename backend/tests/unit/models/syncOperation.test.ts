@@ -14,6 +14,11 @@ describe('SyncOperation model', () => {
     expect(paths).toContain('status');
     expect(paths).toContain('startedAt');
     expect(paths).toContain('completedAt');
+    expect(paths).toContain('phase');
+    expect(paths).toContain('progress');
+    expect(paths).toContain('message');
+    expect(paths).toContain('phaseTotal');
+    expect(paths).toContain('phaseCompleted');
     expect(paths).toContain('totalGames');
     expect(paths).toContain('gamesProcessed');
     expect(paths).toContain('imagesCompleted');
@@ -61,6 +66,11 @@ describe('SyncOperation model', () => {
     });
     expect(op.platform).toBe('steam');
     expect(op.status).toBe('running');
+    expect(op.phase).toBe('preparing');
+    expect(op.progress).toBe(0);
+    expect(op.message).toBe('Preparing sync...');
+    expect(op.phaseTotal).toBe(0);
+    expect(op.phaseCompleted).toBe(0);
     expect(op.totalGames).toBe(0);
     expect(op.gamesProcessed).toBe(0);
     expect(op.gamesFailed).toBe(0);

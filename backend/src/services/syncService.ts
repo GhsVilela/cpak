@@ -7,12 +7,16 @@ import { createSteamAdapter } from './adapters/steam.js';
 import { createSteamGridDBAdapter } from './adapters/steamgriddb.js';
 import { createXboxAdapter } from './adapters/xbox.js';
 import { createPlayStationAdapter } from './adapters/playstation.js';
+import type { PSNTrophyTitle, PSNTrophyDetail, PSNTrophyGroup, PSNEarnedTrophy } from './adapters/playstation.js';
 import { backfillPlayStationGameImages } from './playstationImageBackfill.js';
 import { logger } from '../utils/logger.js';
 import { configService } from './configService.js';
 import { SYNC_DEFAULTS } from './syncDefaults.js';
 import { performanceMonitor } from './performanceMonitor.js';
-import { markSyncAsCompleted } from './syncCancellation.js';
+import { markSyncAsCompleted, isSyncCancelled } from './syncCancellation.js';
+import { SyncProgressTracker } from './syncProgress.js';
+import { imageStorage } from '../utils/imageStorage.js';
+import pLimit from 'p-limit';
 
 class SyncService {
   async syncProfile(profile: IProfile): Promise<void> {
@@ -43,13 +47,16 @@ class SyncService {
 
     logger.info({ syncOperationId: syncOperation._id }, 'SyncOperation created');
 
+    const progress = new SyncProgressTracker(syncOperation);
+    await progress.begin('preparing', 1, 'Preparing sync...');
+
     try {
       if (profile.platform === 'steam') {
-        await this.syncSteam(profile, syncOperation);
+        await this.syncSteam(profile, syncOperation, progress);
       } else if (profile.platform === 'xbox') {
-        await this.syncXbox(profile, syncOperation);
+        await this.syncXbox(profile, syncOperation, progress);
       } else if (profile.platform === 'playstation') {
-        await this.syncPlayStation(profile, syncOperation);
+        await this.syncPlayStation(profile, syncOperation, progress);
       }
 
       // Ensure progress reaches 100% and save to database for UI to display
@@ -58,6 +65,9 @@ class SyncService {
         syncOperation.iconDownloadsCompleted = syncOperation.iconDownloadsPending;
       }
       await syncOperation.save();
+
+      await progress.begin('finalizing', 1, 'Finalizing sync...');
+      await progress.finish('Sync complete');
       
       logger.info({
         syncOperationId: syncOperation._id,
@@ -124,7 +134,7 @@ class SyncService {
     }
   }
 
-  private async syncSteam(profile: IProfile, syncOperation: any): Promise<void> {
+  private async syncSteam(profile: IProfile, syncOperation: any, progress: SyncProgressTracker): Promise<void> {
     // Get decrypted credentials
     const credentials = profile.getDecryptedCredentials();
     
@@ -154,12 +164,18 @@ class SyncService {
     ).lean();
     const knownGameIds = previousGames.map((g) => parseInt(g.gameId, 10)).filter((id) => !isNaN(id));
 
-    const result = await steamAdapter.syncGamesAndAchievements(profile.profileId, syncOperation, knownGameIds);
+    await progress.begin('discovering', null, 'Fetching your Steam library...');
+    const result = await steamAdapter.syncGamesAndAchievements(
+      profile.profileId,
+      syncOperation,
+      knownGameIds,
+      progress,
+    );
 
     // T031: Update SyncOperation with final counts
     syncOperation.totalGames = result.games.length;
     syncOperation.totalAchievements = result.achievements.length;
-    syncOperation.iconDownloadsPending = result.achievements.length * 2; // icon + iconGray
+    syncOperation.iconDownloadsPending = result.achievements.length;
     
     // T032: Update adaptive parameters from steam adapter
     if (result.adaptiveStats) {
@@ -171,6 +187,13 @@ class SyncService {
     }
     await syncOperation.save();
 
+    await progress.complete('Achievement data fetched', {
+      totalGames: result.games.length,
+      totalAchievements: result.achievements.length,
+      iconDownloadsPending: result.achievements.length,
+      gamesProcessed: result.games.length,
+    });
+
     logger.info({
       syncOperationId: syncOperation._id,
       totalGames: result.games.length,
@@ -178,16 +201,34 @@ class SyncService {
       adaptiveParams: syncOperation.adaptiveParams,
     }, 'Sync data fetched, beginning database updates');
 
-    // Download game images (adaptive concurrency inside steam adapter)
+    // Download game images (adaptive concurrency inside steam adapter).
+    // The adapter pre-checks the local cache and only reports downloads that
+    // are actually missing.
     const steamGridDBAdapter = await createSteamGridDBAdapter();
-    const gameImageMap = await steamAdapter.downloadGameImages(result.games, syncOperation, steamGridDBAdapter);
+    const gameImageMap = await steamAdapter.downloadGameImages(
+      result.games,
+      syncOperation,
+      steamGridDBAdapter,
+      progress,
+    );
 
-    // Upsert games with downloaded images (with performance monitoring)
+    // Download achievement icons (adaptive concurrency inside steam adapter)
+    const { iconMap: achievementIconMap, completed, failed } = await steamAdapter.downloadAchievementIcons(
+      result.achievements, syncOperation, progress,
+    );
+    syncOperation.iconDownloadsCompleted = completed;
+    syncOperation.iconDownloadsFailed = failed;
+
+    // All network work is done. Save games and achievements to the database.
+    const savingTotal = result.games.length + result.achievements.length;
+    await progress.begin('saving', savingTotal, `Saving games... (0/${result.games.length})`);
+
+    let savedGames = 0;
     await performanceMonitor.measureDbQuery(
       'syncService.upsertGames',
       async () => {
         return Promise.all(
-          result.games.map((game) => {
+          result.games.map(async (game) => {
             const updateData: any = {
               platform: 'steam',
               title: game.name,
@@ -220,7 +261,7 @@ class SyncService {
               updateData.heroImagePath = imagePaths.heroImagePath;
             }
 
-            return Game.findOneAndUpdate(
+            const saved = await Game.findOneAndUpdate(
               { profileId: profile._id, gameId: game.appId.toString() },
               { $set: updateData },
               { upsert: true, new: true }
@@ -236,6 +277,16 @@ class SyncService {
               logger.error({ error, gameId: game.appId }, 'Failed to upsert game');
               return null;
             });
+
+            savedGames++;
+            if (savedGames % 50 === 0 || savedGames === result.games.length) {
+              await progress.update(
+                savedGames,
+                `Saving games... (${savedGames}/${result.games.length})`,
+                { gamesProcessed: savedGames },
+              );
+            }
+            return saved;
           })
         );
       }
@@ -267,14 +318,6 @@ class SyncService {
         }, 'Removed stale Steam games with no displayable achievements');
       }
     }
-
-    // Download achievement icons (adaptive concurrency inside steam adapter)
-    const { iconMap: achievementIconMap, completed, failed } = await steamAdapter.downloadAchievementIcons(
-      result.achievements, syncOperation,
-    );
-    syncOperation.iconDownloadsCompleted = completed;
-    syncOperation.iconDownloadsFailed = failed;
-    await syncOperation.save();
 
     // PERFORMANCE FIX: Pre-fetch all games into a Map to avoid 26k+ sequential queries
     logger.info({ syncOperationId: syncOperation._id }, 'Pre-fetching all games for achievement upsert');
@@ -389,13 +432,14 @@ class SyncService {
             
             achievementsUpserted += bulkOps.length;
             
-            // T031: Update achievements synced count after each batch with atomic updates
-            await SyncOperation.findByIdAndUpdate(syncOperation._id, {
-              achievementsSynced: achievementsUpserted
-            });
-            
             // Update in-memory copy
             syncOperation.achievementsSynced = achievementsUpserted;
+
+            await progress.update(
+              result.games.length + achievementsUpserted,
+              `Saving achievements... (${achievementsUpserted}/${result.achievements.length})`,
+              { achievementsSynced: achievementsUpserted },
+            );
             
             logger.info({
               achievementsUpserted,
@@ -457,6 +501,13 @@ class SyncService {
       totalExpected: result.achievements.length,
       errors: syncOperation.syncErrors.length,
     }, 'Achievement upserts completed');
+
+    await progress.complete('Games and achievements saved', {
+      gamesProcessed: result.games.length,
+      achievementsSynced: achievementsUpserted,
+      iconDownloadsCompleted: completed,
+      iconDownloadsFailed: failed,
+    });
     
     // Clear large data structures to free memory
     achievementIconMap.clear();
@@ -467,7 +518,7 @@ class SyncService {
   // Xbox sync (T014 / T016)
   // -------------------------------------------------------------------------
 
-  private async syncXbox(profile: IProfile, syncOperation: any): Promise<void> {
+  private async syncXbox(profile: IProfile, syncOperation: any, progress: SyncProgressTracker): Promise<void> {
     // -----------------------------------------------------------------------
     // Phase 1: Token refresh
     // Xbox XSTS tokens expire in ~24 h and we need userHash from the bundle.
@@ -530,7 +581,9 @@ class SyncService {
     // Phase 3: Game discovery
     // -----------------------------------------------------------------------
 
+    await progress.begin('discovering', null, 'Fetching Xbox title history...');
     const titles = await adapter.getTitleHistory(xuid, xstsToken, userHash);
+    await progress.setTotal(titles.length, `Found ${titles.length} Xbox titles — loading achievement metadata...`);
 
     // Enrich from TitleHub — the only source that returns the full devices array,
     // and the source of Mythic status/base-game counts and aggregate summary.
@@ -558,6 +611,14 @@ class SyncService {
         if (mythicMeta.baseGameCompleted !== undefined) {
           title.baseGameCompleted = mythicMeta.baseGameCompleted;
         }
+        // TitleHub reports exact catalog counts. Use them to plan achievement
+        // and icon work before any per-title API calls are made.
+        if (mythicMeta.currentAchievements !== undefined && mythicMeta.currentAchievements > title.currentAchievements) {
+          title.currentAchievements = mythicMeta.currentAchievements;
+        }
+        if (mythicMeta.totalAchievements !== undefined) {
+          title.totalAchievements = mythicMeta.totalAchievements;
+        }
       }
     }
 
@@ -584,6 +645,12 @@ class SyncService {
     syncOperation.iconDownloadsPending = totalAchievements; // one icon per achievement
     await syncOperation.save();
 
+    await progress.complete('Xbox library loaded', {
+      totalGames: gamesWithAchievements,
+      totalAchievements,
+      iconDownloadsPending: totalAchievements,
+    });
+
     logger.info(
       { syncOperationId: syncOperation._id, totalGames: gamesWithAchievements, totalTitles: titles.length, totalAchievements },
       'Xbox title history fetched',
@@ -594,7 +661,7 @@ class SyncService {
     // -----------------------------------------------------------------------
 
     const steamGridDBAdapter = await createSteamGridDBAdapter();
-    const gameImageMap = await adapter.downloadGameImages(titles, syncOperation, steamGridDBAdapter);
+    const gameImageMap = await adapter.downloadGameImages(titles, syncOperation, steamGridDBAdapter, progress);
 
     // Games already in the library are updated with fresh metadata here.
     // New games are only created in Phase 5, after the achievements API
@@ -647,17 +714,20 @@ class SyncService {
       }),
     ));
 
-    syncOperation.gamesProcessed = titles.length;
-    await syncOperation.save();
-
     logger.info({ syncOperationId: syncOperation._id, existingGames: allGames.length, gamesWithAchievements }, 'Xbox games updated');
 
     // -----------------------------------------------------------------------
     // Phase 5: Achievement sync (adaptive batch/throttle/concurrency inside xbox adapter)
     // -----------------------------------------------------------------------
 
+    await progress.begin(
+      'achievements',
+      titles.length,
+      `Fetching achievement data... (0/${titles.length})`,
+    );
+
     const achievementsSynced = await adapter.syncAchievements(
-      titles, xuid, xstsToken, userHash, syncOperation, gameIdToMongoId, gameImageMap,
+      titles, xuid, xstsToken, userHash, syncOperation, gameIdToMongoId, gameImageMap, progress,
     );
 
     syncOperation.achievementsSynced = achievementsSynced;
@@ -668,7 +738,7 @@ class SyncService {
   // PlayStation sync
   // -------------------------------------------------------------------------
 
-  private async syncPlayStation(profile: IProfile, syncOperation: any): Promise<void> {
+  private async syncPlayStation(profile: IProfile, syncOperation: any, progress: SyncProgressTracker): Promise<void> {
     const adapter = createPlayStationAdapter();
     const creds = profile.getDecryptedCredentials();
 
@@ -719,6 +789,7 @@ class SyncService {
     // -----------------------------------------------------------------------
     // Phase 2: Fetch trophy titles (games with ≥1 earned trophy)
     // -----------------------------------------------------------------------
+    await progress.begin('discovering', null, 'Fetching PlayStation trophy titles...');
     logger.info({ profileId: accountId }, 'Fetching PlayStation trophy titles');
     const titles = await adapter.getTrophyTitles(accessToken, 'me');
 
@@ -741,28 +812,268 @@ class SyncService {
       }
     }
 
+    const plannedTrophies = titles.reduce((sum, title) => sum + (
+      title.definedTrophies.bronze +
+      title.definedTrophies.silver +
+      title.definedTrophies.gold +
+      title.definedTrophies.platinum
+    ), 0);
+
     syncOperation.totalGames = titles.length;
-    syncOperation.iconDownloadsPending = 0;
+    syncOperation.totalAchievements = plannedTrophies;
+    syncOperation.iconDownloadsPending = plannedTrophies;
     await syncOperation.save();
 
-    logger.info({ profileId: accountId, totalGames: titles.length }, 'PlayStation trophy titles fetched');
+    await progress.complete('PlayStation library loaded', {
+      totalGames: titles.length,
+      totalAchievements: plannedTrophies,
+      iconDownloadsPending: plannedTrophies,
+    });
+
+    logger.info({ profileId: accountId, totalGames: titles.length, plannedTrophies }, 'PlayStation trophy titles fetched');
+
+    const steamGridDB = await createSteamGridDBAdapter();
 
     // -----------------------------------------------------------------------
-    // Phase 3: Per-game trophy definitions + earned status + image download
+    // Phase 3: Game images (pre-flight cache check, then download only what
+    // is missing — repeat syncs with cached art finish this phase immediately)
     // -----------------------------------------------------------------------
-    const steamGridDB = await createSteamGridDBAdapter();
-    let totalAchievements = 0;
-    let achievementsSynced = 0;
+    const gameImageMap = new Map<string, {
+      capsuleImagePath?: string;
+      iconImagePath?: string;
+      heroImagePath?: string;
+    }>();
+    const titlesNeedingImages: PSNTrophyTitle[] = [];
 
     for (const title of titles) {
+      const cached = imageStorage.checkCachedGameImages('playstation', title.npCommunicationId);
+      if (cached.capsuleImagePath && cached.iconImagePath && cached.heroImagePath) {
+        gameImageMap.set(title.npCommunicationId, cached);
+      } else {
+        titlesNeedingImages.push(title);
+      }
+    }
+
+    await progress.begin(
+      'game-images',
+      titlesNeedingImages.length,
+      titlesNeedingImages.length === 0
+        ? 'Game images already up to date'
+        : `Downloading game images... (0/${titlesNeedingImages.length})`,
+      { imagesCompleted: gameImageMap.size },
+    );
+
+    if (titlesNeedingImages.length > 0) {
+      for (let i = 0; i < titlesNeedingImages.length; i++) {
+        const title = titlesNeedingImages[i];
+        try {
+          const imagePaths = await adapter.downloadGameImage(
+            title.title,
+            title.npCommunicationId,
+            title.imageUrl,
+            steamGridDB || undefined,
+          );
+          gameImageMap.set(title.npCommunicationId, imagePaths);
+        } catch (err) {
+          logger.warn(
+            { err, game: title.title, npCommunicationId: title.npCommunicationId },
+            'Failed to download PlayStation game images, will retry next sync',
+          );
+        }
+
+        if (i % 5 === 0 || i === titlesNeedingImages.length - 1) {
+          await progress.update(
+            i + 1,
+            `Downloading game images... (${i + 1}/${titlesNeedingImages.length})`,
+            { imagesCompleted: gameImageMap.size },
+          );
+        }
+      }
+    }
+
+    await progress.complete('Game images ready', { imagesCompleted: titles.length });
+
+    // -----------------------------------------------------------------------
+    // Phase 4: Fetch every title's trophy definitions and earned status
+    // -----------------------------------------------------------------------
+    interface FetchedTrophyTitle {
+      title: PSNTrophyTitle;
+      definitions: PSNTrophyDetail[];
+      earned: PSNEarnedTrophy[];
+      groups: PSNTrophyGroup[];
+      error?: string;
+    }
+
+    const fetchedTitles: FetchedTrophyTitle[] = [];
+    let actualTrophies = 0;
+
+    await progress.begin(
+      'achievements',
+      titles.length,
+      `Fetching trophy data... (0/${titles.length})`,
+    );
+
+    for (let i = 0; i < titles.length; i++) {
+      if (isSyncCancelled(syncOperation._id.toString())) {
+        logger.info({ syncOperationId: syncOperation._id }, 'PlayStation sync cancelled while fetching trophies');
+        break;
+      }
+
+      const title = titles[i];
       try {
-        // Download game cover art (PlayStation CDN → SteamGridDB → IGDB)
-        const imagePaths = await adapter.downloadGameImage(
-          title.title,
-          title.npCommunicationId,
-          title.imageUrl,
-          steamGridDB || undefined,
+        const [definitions, earned, trophyGroups] = await Promise.all([
+          adapter.getTrophyDefinitions(accessToken, title.npCommunicationId, title.npServiceName),
+          adapter.getEarnedTrophies(accessToken, 'me', title.npCommunicationId, title.npServiceName),
+          title.hasTrophyGroups
+            ? adapter.getTrophyGroups(accessToken, title.npCommunicationId, title.npServiceName)
+            : Promise.resolve([]),
+        ]);
+
+        actualTrophies += definitions.length;
+        fetchedTitles.push({ title, definitions, earned, groups: trophyGroups });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn({ err: message, game: title.title }, 'Failed to fetch PlayStation trophies, skipping');
+        fetchedTitles.push({ title, definitions: [], earned: [], groups: [], error: message });
+      }
+
+      if (i % 5 === 0 || i === titles.length - 1) {
+        await progress.update(
+          i + 1,
+          `Fetching trophy data... (${i + 1}/${titles.length})`,
+          {
+            gamesProcessed: i + 1,
+            totalAchievements: actualTrophies,
+          },
         );
+      }
+    }
+
+    syncOperation.totalAchievements = actualTrophies;
+    await syncOperation.save();
+
+    await progress.complete('Trophy data fetched', {
+      totalAchievements: actualTrophies,
+      gamesProcessed: titles.length,
+      iconDownloadsPending: actualTrophies,
+    });
+
+    // -----------------------------------------------------------------------
+    // Phase 5: Trophy icons (pre-flight cache check, exact total)
+    // -----------------------------------------------------------------------
+    interface TrophyIconWork {
+      titleId: string;
+      trophyId: string;
+      iconUrl?: string;
+    }
+
+    const trophyIconMap = new Map<string, string | undefined>();
+    const trophyIconWork: TrophyIconWork[] = [];
+    const trophyIconKey = (titleId: string, trophyId: string) => `${titleId}:${trophyId}`;
+
+    for (const fetched of fetchedTitles) {
+      for (const definition of fetched.definitions) {
+        const key = trophyIconKey(fetched.title.npCommunicationId, definition.trophyId);
+        if (!definition.iconUrl) {
+          trophyIconMap.set(key, undefined);
+          continue;
+        }
+        const cached = imageStorage.checkLocalFile(
+          'playstation', fetched.title.npCommunicationId, definition.trophyId, 'icon',
+        );
+        if (cached) {
+          trophyIconMap.set(key, cached);
+        } else {
+          trophyIconWork.push({
+            titleId: fetched.title.npCommunicationId,
+            trophyId: definition.trophyId,
+            iconUrl: definition.iconUrl,
+          });
+        }
+      }
+    }
+
+    const plannedIcons = trophyIconMap.size + trophyIconWork.length;
+    syncOperation.iconDownloadsPending = plannedIcons;
+    syncOperation.iconDownloadsCompleted = trophyIconMap.size;
+
+    await progress.begin(
+      'icons',
+      trophyIconWork.length,
+      trophyIconWork.length === 0
+        ? 'Trophy icons already up to date'
+        : `Downloading trophy icons... (0/${trophyIconWork.length})`,
+      {
+        iconDownloadsPending: plannedIcons,
+        iconDownloadsCompleted: trophyIconMap.size,
+        iconDownloadsFailed: 0,
+      },
+    );
+
+    if (trophyIconWork.length > 0) {
+      const trophyIconLimit = pLimit(Math.min(SYNC_DEFAULTS.CONCURRENCY, 10));
+      let iconsCompleted = 0;
+      let iconsFailed = 0;
+
+      await Promise.all(trophyIconWork.map((work) => trophyIconLimit(async () => {
+        const iconPath = await adapter.downloadTrophyIcon(
+          work.titleId,
+          work.trophyId,
+          work.iconUrl,
+        );
+        trophyIconMap.set(trophyIconKey(work.titleId, work.trophyId), iconPath);
+        if (!iconPath) iconsFailed++;
+
+        iconsCompleted++;
+        if (iconsCompleted % 50 === 0 || iconsCompleted === trophyIconWork.length) {
+          await progress.update(
+            iconsCompleted,
+            `Downloading trophy icons... (${iconsCompleted}/${trophyIconWork.length})`,
+            {
+              iconDownloadsCompleted: trophyIconMap.size,
+              iconDownloadsFailed: iconsFailed,
+            },
+          );
+        }
+      })));
+
+      await progress.complete('Trophy icons ready', {
+        iconDownloadsPending: plannedIcons,
+        iconDownloadsCompleted: plannedIcons,
+        iconDownloadsFailed: iconsFailed,
+      });
+    } else {
+      await progress.complete('Trophy icons already up to date', {
+        iconDownloadsPending: plannedIcons,
+        iconDownloadsCompleted: plannedIcons,
+        iconDownloadsFailed: 0,
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 6: Save games and trophies
+    // -----------------------------------------------------------------------
+    let achievementsSynced = 0;
+
+    await progress.begin(
+      'saving',
+      fetchedTitles.length,
+      `Saving games and trophies... (0/${fetchedTitles.length})`,
+      {
+        iconDownloadsPending: plannedIcons,
+        iconDownloadsCompleted: plannedIcons,
+      },
+    );
+
+    for (let i = 0; i < fetchedTitles.length; i++) {
+      if (isSyncCancelled(syncOperation._id.toString())) {
+        logger.info({ syncOperationId: syncOperation._id }, 'PlayStation sync cancelled before saving');
+        break;
+      }
+
+      const { title, definitions, earned, groups, error } = fetchedTitles[i];
+      try {
+        const imagePaths = gameImageMap.get(title.npCommunicationId) ?? {};
 
         // Upsert game record
         const game = await Game.findOneAndUpdate(
@@ -792,27 +1103,16 @@ class SyncService {
           { upsert: true, new: true }
         );
 
-        // Fetch trophy definitions and earned status. For titles with trophy
-        // groups (base game + DLC/updates), also fetch the group metadata so
-        // trophies can be split into their respective sets.
-        const [definitions, earned, trophyGroups] = await Promise.all([
-          adapter.getTrophyDefinitions(accessToken, title.npCommunicationId, title.npServiceName),
-          adapter.getEarnedTrophies(accessToken, 'me', title.npCommunicationId, title.npServiceName),
-          title.hasTrophyGroups
-            ? adapter.getTrophyGroups(accessToken, title.npCommunicationId, title.npServiceName)
-            : Promise.resolve([]),
-        ]);
+        if (!error) {
+          const groupMap = new Map(groups.map((g) => [g.groupId, g]));
+          const earnedMap = new Map(earned.map((e) => [e.trophyId, e]));
 
-        const groupMap = new Map(trophyGroups.map((g) => [g.groupId, g]));
-        const earnedMap = new Map(earned.map((e) => [e.trophyId, e]));
-        totalAchievements += definitions.length;
-        syncOperation.iconDownloadsPending += definitions.length;
-
-        // Upsert achievements (trophies)
-        const bulkOps = await Promise.all(
-          definitions.map(async (def) => {
+          // Upsert achievements (trophies)
+          const bulkOps = definitions.map((def) => {
             const earnStatus = earnedMap.get(def.trophyId);
-            const iconPath = await adapter.downloadTrophyIcon(title.npCommunicationId, def.trophyId, def.iconUrl);
+            const iconPath = trophyIconMap.get(
+              trophyIconKey(title.npCommunicationId, def.trophyId),
+            );
             const group = def.groupId ? groupMap.get(def.groupId) : undefined;
 
             return {
@@ -844,45 +1144,66 @@ class SyncService {
                 upsert: true,
               },
             };
-          })
-        );
+          });
 
-        if (bulkOps.length > 0) {
-          await Achievement.bulkWrite(bulkOps);
-          achievementsSynced += bulkOps.length;
+          if (bulkOps.length > 0) {
+            await Achievement.bulkWrite(bulkOps);
+            achievementsSynced += bulkOps.length;
+          }
         }
-
-        syncOperation.gamesProcessed++;
-        syncOperation.achievementsSynced = achievementsSynced;
-        syncOperation.iconDownloadsCompleted += definitions.length;
-        await syncOperation.save();
-
-        logger.debug({
-          game: title.title,
-          trophies: definitions.length,
-        }, 'PlayStation game synced');
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        logger.warn({ err: message, game: title.title }, 'Failed to sync PlayStation game, skipping');
-        syncOperation.gamesProcessed++;
-        await syncOperation.save();
+        logger.warn({ err: message, game: title.title }, 'Failed to save PlayStation game, skipping');
+      }
+
+      if (i % 5 === 0 || i === fetchedTitles.length - 1) {
+        await progress.update(
+          i + 1,
+          `Saving games and trophies... (${i + 1}/${fetchedTitles.length})`,
+          {
+            gamesProcessed: i + 1,
+            achievementsSynced,
+          },
+        );
       }
     }
 
-    syncOperation.totalAchievements = totalAchievements;
     syncOperation.achievementsSynced = achievementsSynced;
     await syncOperation.save();
 
+    await progress.complete('Games and trophies saved', {
+      gamesProcessed: fetchedTitles.length,
+      achievementsSynced,
+      iconDownloadsPending: plannedIcons,
+      iconDownloadsCompleted: plannedIcons,
+    });
+
     // -----------------------------------------------------------------------
-    // Phase 4: Image backfill for games missing from the PSN response
+    // Phase 7: Image backfill for games missing from the PSN response
     // -----------------------------------------------------------------------
     // Games imported from a trophy backup are never returned by the PSN API,
     // so the loop above never visits them and they stay without cover art.
     // Run the same provider chain for those games so they look like synced
     // ones (SteamGridDB → IGDB → PlayStation CDN).
     const syncedGameIds = titles.map((t) => t.npCommunicationId);
+
+    await progress.begin('finalizing', null, 'Checking remaining game images...');
     const backfilled = await backfillPlayStationGameImages(profile._id, {
       excludeGameIds: syncedGameIds,
+      onPlan: async (total) => {
+        await progress.setTotal(
+          total,
+          total === 0
+            ? 'No remaining game images'
+            : `Updating remaining game images... (0/${total})`,
+        );
+      },
+      onProgress: async (completed, total) => {
+        await progress.update(
+          completed,
+          `Updating remaining game images... (${completed}/${total})`,
+        );
+      },
     });
     if (backfilled > 0) {
       logger.info(
@@ -894,7 +1215,7 @@ class SyncService {
     logger.info({
       profileId: accountId,
       totalGames: titles.length,
-      totalAchievements,
+      totalAchievements: actualTrophies,
       achievementsSynced,
     }, 'PlayStation sync completed');
   }

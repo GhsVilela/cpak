@@ -26,6 +26,8 @@ vi.mock('../../../src/utils/imageStorage.js', () => ({
     getRelativePath: vi.fn().mockReturnValue('fake/path'),
     exists: vi.fn().mockReturnValue(false),
     getAbsolutePath: vi.fn().mockReturnValue('/fake/path'),
+    checkLocalFile: vi.fn().mockReturnValue(undefined),
+    checkCachedGameImages: vi.fn().mockReturnValue({}),
   },
 }));
 
@@ -97,6 +99,7 @@ vi.mock('../../../src/services/adapters/playstation.js', () => ({
       iconImagePath: null,
       heroImagePath: null,
     }),
+    downloadTrophyIcon: vi.fn().mockResolvedValue('/fake/trophy.png'),
     downloadTrophyIcons: vi.fn().mockResolvedValue(new Map()),
   })),
 }));

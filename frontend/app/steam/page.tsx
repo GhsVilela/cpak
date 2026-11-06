@@ -59,6 +59,7 @@ interface SyncStatus {
     status: string;
     progress: number;
     message: string;
+    phase?: string;
   };
   lastCompleted?: {
     completedAt: string;
