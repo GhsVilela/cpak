@@ -10,7 +10,10 @@ export interface IProfile extends Document {
     tokenType?: string;
     accessToken?: string;
     refreshToken?: string;
+    /** Access-token expiry. */
     expiresAt?: Date;
+    /** Refresh-token expiry — used to decide when re-authentication is required. */
+    refreshTokenExpiresAt?: Date;
     scopes?: string[];
   };
   /** Whether this is the default profile for its platform. */
@@ -105,9 +108,11 @@ ProfileSchema.methods.toJSON = function() {
     obj.credentials = { 
       configured: true,
       steamApiKeyConfigured: hasApiKey,
+      refreshTokenConfigured: !!(obj.credentials.refreshToken),
       // Only expose non-sensitive metadata
       tokenType: obj.credentials.tokenType,
       expiresAt: obj.credentials.expiresAt,
+      refreshTokenExpiresAt: obj.credentials.refreshTokenExpiresAt,
       scopes: obj.credentials.scopes
     };
   }

@@ -178,6 +178,14 @@ describe('POST /api/profiles — PlayStation NPSSO', () => {
     const body = res.json<{ platform: string; profileId: string }>();
     expect(body.platform).toBe('playstation');
     expect(body.profileId).toBe('psn-account-new-id');
+
+    // The long-lived refresh-token expiry must be persisted and exposed,
+    // separate from the short-lived access-token expiry.
+    const { Profile } = await import('../../../src/models/profile.js');
+    const saved = await Profile.findOne({ profileId: 'psn-account-new-id' });
+    expect(saved?.credentials.refreshTokenExpiresAt).toBeInstanceOf(Date);
+    expect(new Date(res.json<any>().credentials.refreshTokenExpiresAt).getTime())
+      .toBeGreaterThan(Date.now() + 50 * 24 * 60 * 60 * 1000);
   });
 
   it('returns 400 for invalid NPSSO token', async () => {

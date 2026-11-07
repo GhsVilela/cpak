@@ -538,6 +538,58 @@ export class ImageStorage {
   }
 
   /**
+   * Check which standard game images (cover/grid, icon, hero) are already
+   * cached locally. Used by sync planning to determine how many games actually
+   * need a download before progress is reported.
+   */
+  checkCachedGameImages(
+    platform: string,
+    gameId: string,
+  ): { capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string } {
+    const [grid, header, capsule, icon, hero] = this.checkLocalFiles(platform, gameId, [
+      { achievementId: 'game', imageType: 'grid' },
+      { achievementId: 'game', imageType: 'header' },
+      { achievementId: 'game', imageType: 'capsule' },
+      { achievementId: 'game', imageType: 'icon' },
+      { achievementId: 'game', imageType: 'hero' },
+    ]);
+
+    return {
+      capsuleImagePath: grid ?? header ?? capsule,
+      iconImagePath: icon,
+      heroImagePath: hero,
+    };
+  }
+
+  /**
+   * Check multiple images for one game using a single directory read.
+   * This is important for sync preflight, where checking thousands of
+   * achievements one-by-one would otherwise cause thousands of redundant
+   * `readdirSync` calls.
+   */
+  checkLocalFiles(
+    platform: string,
+    gameId: string,
+    checks: Array<{ achievementId: string; imageType: ImageType }>,
+  ): Array<string | undefined> {
+    const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
+    if (!fs.existsSync(gameDir)) return checks.map(() => undefined);
+
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(gameDir);
+    } catch {
+      return checks.map(() => undefined);
+    }
+
+    return checks.map(({ achievementId, imageType }) => {
+      const baseFilename = `${this.sanitizeFilename(achievementId)}_${imageType}`;
+      const match = entries.find((entry) => entry === baseFilename || entry.startsWith(`${baseFilename}.`));
+      return match ? this.getRelativePath(path.join(gameDir, match)) : undefined;
+    });
+  }
+
+  /**
    * Check if an image file exists
    */
   exists(relativePath: string): boolean {
@@ -559,30 +611,7 @@ export class ImageStorage {
     achievementId: string,
     imageType: ImageType
   ): string | undefined {
-    const gameDir = path.join(IMAGES_BASE_DIR, platform, gameId);
-    // Directory may not exist yet (first sync)
-    if (!fs.existsSync(gameDir)) return undefined;
-
-    const baseFilename = `${this.sanitizeFilename(achievementId)}_${imageType}`;
-
-    // Scan the directory for any file whose name starts with baseFilename.
-    // Using readdirSync instead of a fixed extension list handles:
-    //  - Standard images: game_grid.jpg, game_grid.png, etc.
-    //  - CDN files saved with a GUID "extension" from URL path segments
-    //    (e.g. game_grid.ed9482e8-90c6-4198-952b-9a084078cb92)
-    //  - Any future format without a separate code change.
-    try {
-      const entries = fs.readdirSync(gameDir);
-      const match = entries.find((e) => e === baseFilename || e.startsWith(`${baseFilename}.`));
-      if (match) {
-        return this.getRelativePath(path.join(gameDir, match));
-      }
-    } catch {
-      // readdirSync can throw if permissions change between the existsSync check
-      // and the read — treat as cache-miss so the download chain continues.
-    }
-
-    return undefined;
+    return this.checkLocalFiles(platform, gameId, [{ achievementId, imageType }])[0];
   }
 }
 

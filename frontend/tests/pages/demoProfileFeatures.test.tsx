@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup, fireEvent, act } from '@testing-library/react';
 
 const pushMock = vi.fn();
+const replaceMock = vi.fn();
 let searchParams = new URLSearchParams('');
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pushMock, back: vi.fn() }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, back: vi.fn() }),
   useSearchParams: () => searchParams,
   usePathname: () => '/steam',
 }));
@@ -20,6 +21,7 @@ describe('Demo mode — profile edit page and favorite profile', () => {
     vi.stubEnv('NEXT_PUBLIC_DEMO_MODE', 'true');
     localStorage.clear();
     pushMock.mockClear();
+    replaceMock.mockClear();
     delete (window as any).__DEMO_MOCK_INSTALLED__;
     delete (window as any).__DEMO_MODE__;
   });

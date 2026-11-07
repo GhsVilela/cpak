@@ -403,12 +403,14 @@ describe('XboxAdapter', () => {
               groups: {
                 'group-base': {
                   groupType: 'BaseGame',
+                  groupName: 'Test Game II',
                   achievementIds: ['base-1'],
                   unlockedAchievementIds: ['base-1'],
                   isComplete: true,
                 },
                 'group-dlc': {
                   groupType: 'AddOn',
+                  groupName: 'Title Update 1',
                   achievementIds: ['dlc-1'],
                   unlockedAchievementIds: [],
                   isComplete: false,

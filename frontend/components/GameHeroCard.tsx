@@ -7,6 +7,7 @@ import MythicIcon from './MythicIcon';
 import PlatinumBadge from './PlatinumBadge';
 import SteamCompletionIcon from './SteamCompletionIcon';
 import { isPlatinumUnlocked, isSteamBaseGameCompleted } from '../lib/completion';
+import { getCurrentListReturnTo } from '../lib/navigation';
 
 interface GameHeroCardProps {
   game: {
@@ -45,7 +46,10 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
   const displayTitle = game.customTitle || game.title;
 
   const handleClick = () => {
-    router.push(`/${game.platform}/game/${game.gameId}?profileId=${game.profileId}`);
+    const params = new URLSearchParams({ profileId: game.profileId });
+    const returnTo = getCurrentListReturnTo(game.platform);
+    if (returnTo) params.set('returnTo', returnTo);
+    router.push(`/${game.platform}/game/${game.gameId}?${params.toString()}`);
   };
 
   const getCompletionColor = (percent: number) => {
@@ -151,15 +155,15 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
             {game.platform === 'xbox' && game.isMythic && (
               <MythicIcon
                 size={16}
-                className="relative shrink-0 translate-y-0.5"
+                className="relative shrink-0 translate-y-[0.1em]"
                 title="Mythic achievement earned"
               />
             )}
             {game.platform === 'playstation' && isPlatinumUnlocked(game) && (
-              <PlatinumBadge className="relative translate-y-0.5" />
+              <PlatinumBadge className="relative shrink-0 translate-y-[0.15em]" />
             )}
             {isSteamBaseGameCompleted(game) && (
-              <SteamCompletionIcon size={16} className="relative shrink-0 translate-y-0.5" />
+              <SteamCompletionIcon size={16} className="relative shrink-0 translate-y-[0.15em]" />
             )}
           </div>
           <div className="relative w-fit max-w-full">

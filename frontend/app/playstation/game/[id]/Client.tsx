@@ -6,6 +6,7 @@ import { apiClient } from '../../../../services/apiClient';
 import TrophyIcon from '../../../../components/TrophyIcon';
 import PlatinumBadge from '../../../../components/PlatinumBadge';
 import TrophyCounts from '../../../../components/TrophyCounts';
+import { isPlatformListUrl } from '../../../../lib/navigation';
 import { getImageUrl, handleImageError } from '../../../../services/imageUrl';
 
 interface Game {
@@ -192,7 +193,10 @@ function TrophyGroupSection({ group }: { group: TrophyGroup }) {
               {group.name}
             </span>
             {baseGame && platinumTrophy && (
-              <PlatinumBadge muted={!platinumTrophy.unlockedAt} />
+              <PlatinumBadge
+                className="translate-y-[0.15em]"
+                muted={!platinumTrophy.unlockedAt}
+              />
             )}
           </span>
           <span className="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -259,6 +263,7 @@ export default function PlayStationGameDetailsPage({ params }: { params: Promise
   const router = useRouter();
   const searchParams = useSearchParams();
   const profileId = searchParams.get('profileId');
+  const returnTo = searchParams.get('returnTo');
   const [game, setGame] = useState<Game | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -294,7 +299,12 @@ export default function PlayStationGameDetailsPage({ params }: { params: Promise
     }
   };
 
-  const backHref = profileId ? `/playstation?profileId=${profileId}` : '/playstation';
+  const backHref =
+    isPlatformListUrl(returnTo, 'playstation')
+      ? returnTo
+      : profileId
+        ? `/playstation?profileId=${profileId}`
+        : '/playstation';
 
   if (loading) {
     return (

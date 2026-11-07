@@ -396,8 +396,8 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
       groupOrder: 0,
       unlocked: true,
       globalPercent: 4.2,
-      icon: 'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/500/b.png',
-      iconGray: 'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/500/bg.png',
+      icon: 'https://shared.akamai.steamstatic.com/community_assets/images/apps/500/b.png',
+      iconGray: 'https://shared.akamai.steamstatic.com/community_assets/images/apps/500/bg.png',
     });
     expect(base!.unlockTime).toEqual(new Date(1700000000 * 1000));
 

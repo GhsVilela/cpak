@@ -11,6 +11,22 @@ export type SyncOperationStatus = 'pending' | 'running' | 'completed' | 'failed'
 export type Platform = 'steam' | 'xbox' | 'playstation';
 
 /**
+ * Sync progress phases.
+ *
+ * The phase order and weights are centralised in `syncProgress.ts`. Each phase
+ * receives a fixed share of the overall 0-100% bar so progress can only move
+ * forward, even when a phase finds no work to do.
+ */
+export type SyncPhase =
+  | 'preparing'
+  | 'discovering'
+  | 'game-images'
+  | 'achievements'
+  | 'icons'
+  | 'saving'
+  | 'finalizing';
+
+/**
  * Error entry within a sync operation
  */
 export interface ISyncError {
@@ -41,6 +57,16 @@ export interface ISyncOperation extends Document {
   status: SyncOperationStatus;
   startedAt: Date;
   completedAt?: Date;
+  /** Current progress phase (planned by the sync service before work starts). */
+  phase: SyncPhase;
+  /** Overall progress 0-100. Monotonic for the lifetime of the operation. */
+  progress: number;
+  /** User-facing message for the current phase. */
+  message: string;
+  /** Planned number of work items in the current phase. */
+  phaseTotal: number;
+  /** Completed work items in the current phase. */
+  phaseCompleted: number;
   totalGames: number;
   gamesProcessed: number;
   imagesCompleted: number;
@@ -84,6 +110,34 @@ const syncOperationSchema = new Schema<ISyncOperation>(
     },
     completedAt: {
       type: Date,
+    },
+    phase: {
+      type: String,
+      enum: ['preparing', 'discovering', 'game-images', 'achievements', 'icons', 'saving', 'finalizing'],
+      required: true,
+      default: 'preparing',
+    },
+    progress: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+    message: {
+      type: String,
+      required: true,
+      default: 'Preparing sync...',
+    },
+    phaseTotal: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
+    phaseCompleted: {
+      type: Number,
+      required: true,
+      default: 0,
     },
     totalGames: {
       type: Number,

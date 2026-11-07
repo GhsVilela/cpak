@@ -4,6 +4,7 @@ import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
 import MythicIcon from '../../../../components/MythicIcon';
+import { isPlatformListUrl } from '../../../../lib/navigation';
 import { getImageUrl, handleImageError } from '../../../../services/imageUrl';
 
 interface Game {
@@ -190,7 +191,7 @@ function AchievementGroupSection({
             {baseGame && (
               <MythicIcon
                 size={16}
-                className="shrink-0"
+                className="shrink-0 translate-y-[0.1em]"
                 muted={!mythicEarned}
                 title={mythicEarned ? 'Mythic achievement earned' : 'Required for the Mythic achievement'}
               />
@@ -256,6 +257,7 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
   const router = useRouter();
   const searchParams = useSearchParams();
   const profileId = searchParams.get('profileId');
+  const returnTo = searchParams.get('returnTo');
   const [game, setGame] = useState<Game | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -294,7 +296,12 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
     }
   };
 
-  const backHref = profileId ? `/xbox?profileId=${profileId}` : '/xbox';
+  const backHref =
+    isPlatformListUrl(returnTo, 'xbox')
+      ? returnTo
+      : profileId
+        ? `/xbox?profileId=${profileId}`
+        : '/xbox';
 
   if (loading) {
     return (
