@@ -3,7 +3,6 @@
 import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
-import MythicIcon from '../../../../components/MythicIcon';
 import { isPlatformListUrl } from '../../../../lib/navigation';
 
 interface Game {
@@ -156,22 +155,11 @@ function groupAchievements(achievements: Achievement[]): AchievementGroup[] {
   return Array.from(map.values()).sort((a, b) => a.order - b.order);
 }
 
-function isBaseGameGroup(group: AchievementGroup): boolean {
-  return group.id === 'base' || /base game/i.test(group.name);
-}
-
-function AchievementGroupSection({
-  group,
-  mythicEarned = false,
-}: {
-  group: AchievementGroup;
-  mythicEarned?: boolean;
-}) {
+function AchievementGroupSection({ group }: { group: AchievementGroup }) {
   const [open, setOpen] = useState(false);
   const groupUnlocked = group.items.filter((a) => a.unlockedAt);
   const groupLocked = group.items.filter((a) => !a.unlockedAt);
   const percent = group.items.length > 0 ? Math.round((groupUnlocked.length / group.items.length) * 100) : 0;
-  const baseGame = isBaseGameGroup(group);
   const totalGamerscore = group.items.reduce((total, achievement) => total + (achievement.gamerscore ?? 0), 0);
   const unlockedGamerscore = groupUnlocked.reduce((total, achievement) => total + (achievement.gamerscore ?? 0), 0);
 
@@ -187,14 +175,6 @@ function AchievementGroupSection({
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="min-w-0 truncate text-lg font-semibold text-[var(--xbox-accent)]">{group.name}</span>
-            {baseGame && (
-              <MythicIcon
-                size={16}
-                className="shrink-0 translate-y-[0.1em]"
-                muted={!mythicEarned}
-                title={mythicEarned ? 'Mythic achievement earned' : 'Required for the Mythic achievement'}
-              />
-            )}
           </span>
           <span className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <span
@@ -405,7 +385,7 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
       <div className="space-y-6">
         {showGroups ? (
           groups.map((group) => (
-            <AchievementGroupSection key={group.id} group={group} mythicEarned={!!game.isMythic} />
+            <AchievementGroupSection key={group.id} group={group} />
           ))
         ) : (
           <>

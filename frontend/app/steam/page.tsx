@@ -6,7 +6,6 @@ import { apiClient } from '../../services/apiClient';
 import ProfileSelector from '../../components/ProfileSelector';
 import GameGrid from '../../components/GameGrid';
 import GameToolbar from '../../components/GameToolbar';
-import SteamCompletionIcon from '../../components/SteamCompletionIcon';
 import { StatsStrip, StatTile } from '../../components/StatsStrip';
 import type { ViewMode } from '../../components/ViewModeSelector';
 import Toast from '../../components/Toast';
@@ -561,7 +560,6 @@ function SteamPageContent() {
               <StatTile
                 title="Games where every tracked achievement — base game and DLC/updates — is unlocked."
                 label="Completed Games"
-                icon={<SteamCompletionIcon size={14} />}
                 value={
                   <span className="text-[var(--steam-accent)]">{baseCompletedGames.toLocaleString()}</span>
                 }

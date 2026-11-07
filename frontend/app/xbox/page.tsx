@@ -9,7 +9,6 @@ import GameToolbar from '../../components/GameToolbar';
 import { StatsStrip, StatTile } from '../../components/StatsStrip';
 import type { ViewMode } from '../../components/ViewModeSelector';
 import Toast from '../../components/Toast';
-import MythicIcon from '../../components/MythicIcon';
 
 interface Game {
   _id: string;
@@ -39,6 +38,8 @@ interface GamesResponse {
     hasMore: boolean;
     totalCurrentGamerscore?: number;
     totalMaxGamerscore?: number;
+    /** Total achievements unlocked for the filtered set of games. */
+    totalAchievementsUnlocked?: number;
     /** Xbox's own Mythic achievement total for the profile. */
     mythicAchievementsUnlocked?: number;
   };
@@ -117,6 +118,8 @@ function XboxPageContent() {
   // Persistent gamerscore values — unfiltered, only refreshed on profile/sync change
   const [baseGamerscore, setBaseGamerscore] = useState<number | undefined>(undefined);
   const [xbox360Gamerscore, setXbox360Gamerscore] = useState<number | undefined>(undefined);
+  const [baseAchievementsUnlocked, setBaseAchievementsUnlocked] = useState<number | undefined>(undefined);
+  const [xbox360AchievementsUnlocked, setXbox360AchievementsUnlocked] = useState<number | undefined>(undefined);
   const [mythicAchievements, setMythicAchievements] = useState<number | undefined>(undefined);
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(
     searchParams.get('profileId') || undefined
@@ -284,6 +287,8 @@ function XboxPageContent() {
       ]);
       setBaseGamerscore(allRes.pagination.totalCurrentGamerscore);
       setXbox360Gamerscore(x360Res.pagination.totalCurrentGamerscore);
+      setBaseAchievementsUnlocked(allRes.pagination.totalAchievementsUnlocked);
+      setXbox360AchievementsUnlocked(x360Res.pagination.totalAchievementsUnlocked);
       setMythicAchievements(allRes.pagination.mythicAchievementsUnlocked);
     } catch {
       // ignore — not critical
@@ -586,7 +591,6 @@ function XboxPageContent() {
               <StatTile
                 title="Mythic achievements earned by completing every original/base game achievement. DLC and title-update achievements are not required."
                 label="Mythic"
-                icon={<MythicIcon size={14} />}
                 value={mythicAchievements.toLocaleString()}
                 valueClassName="text-[var(--xbox-accent)]"
               />
@@ -602,8 +606,26 @@ function XboxPageContent() {
                 {xbox360Gamerscore !== undefined && xbox360Gamerscore > 0 && (
                   <StatTile
                     title="Total gamerscore from xbox 360 only."
-                    label="Xbox 360"
+                    label="Xbox 360 Gamerscore"
                     value={xbox360Gamerscore.toLocaleString()}
+                    valueClassName="text-[var(--xbox-accent)]"
+                  />
+                )}
+              </>
+            )}
+            {baseAchievementsUnlocked !== undefined && baseAchievementsUnlocked > 0 && (
+              <>
+                <StatTile
+                  title="Total achievements unlocked across all Xbox games."
+                  label="Achievements"
+                  value={baseAchievementsUnlocked.toLocaleString()}
+                  valueClassName="text-[var(--xbox-accent)]"
+                />
+                {xbox360AchievementsUnlocked !== undefined && xbox360AchievementsUnlocked > 0 && (
+                  <StatTile
+                    title="Achievements unlocked from Xbox 360 games only."
+                    label="Xbox 360 Achievements"
+                    value={xbox360AchievementsUnlocked.toLocaleString()}
                     valueClassName="text-[var(--xbox-accent)]"
                   />
                 )}
@@ -616,6 +638,8 @@ function XboxPageContent() {
                 [
                   baseGamerscore !== undefined && baseGamerscore > 0 ? 1 : 0,
                   xbox360Gamerscore !== undefined && xbox360Gamerscore > 0 ? 1 : 0,
+                  baseAchievementsUnlocked !== undefined && baseAchievementsUnlocked > 0 ? 1 : 0,
+                  xbox360AchievementsUnlocked !== undefined && xbox360AchievementsUnlocked > 0 ? 1 : 0,
                   mythicAchievements !== undefined ? 1 : 0,
                 ].reduce((total, value) => total + value, 0) % 2 === 0
               }

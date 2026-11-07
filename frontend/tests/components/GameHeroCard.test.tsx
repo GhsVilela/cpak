@@ -77,7 +77,7 @@ describe('GameHeroCard', () => {
     expect(screen.getByText(/1,000/)).toBeInTheDocument();
   });
 
-  it('shows the plain Mythic icon right after the hero title', () => {
+  it('does not show a Mythic icon next to the hero title', () => {
     const game = {
       ...mockGame,
       platform: 'xbox' as const,
@@ -86,55 +86,20 @@ describe('GameHeroCard', () => {
       isMythic: true,
     };
     render(<GameHeroCard game={game} />);
-    const icon = screen.getByRole('img', { name: 'Mythic achievement earned' });
-
-    // The icon is rendered bare next to the title, with no badge wrapper.
-    const title = screen.getByText('Half-Life 3');
-    const titleRow = title.parentElement!;
-    expect(title.nextElementSibling).toBe(icon);
-    expect(icon.parentElement).toBe(titleRow);
-    expect(titleRow).not.toContainElement(
-      screen.getByText('50%'),
-    );
-    expect(screen.getAllByText('•')).toHaveLength(1);
-  });
-
-  it('does not show the Mythic icon when the Mythic is locked', () => {
-    const game = {
-      ...mockGame,
-      platform: 'xbox' as const,
-      currentGamerscore: 500,
-      maxGamerscore: 1000,
-      isMythic: false,
-    };
-    render(<GameHeroCard game={game} />);
     expect(screen.queryByRole('img', { name: /Mythic achievement/ })).toBeNull();
   });
 
-  it('shows the platinum icon in a circular badge next to the hero title', () => {
+  it('does not show a Platinum badge next to the hero title', () => {
     const game = {
       ...mockGame,
       platform: 'playstation' as const,
       trophyPlatinum: 1,
     };
     render(<GameHeroCard game={game} />);
-    const icon = screen.getByRole('img', { name: 'Platinum trophy earned' });
-    const badge = icon.parentElement!;
-    expect(badge).toHaveClass('rounded-full');
-    expect(screen.getByText('Half-Life 3').nextElementSibling).toBe(badge);
-  });
-
-  it('does not show the platinum icon when the Platinum is locked', () => {
-    const game = {
-      ...mockGame,
-      platform: 'playstation' as const,
-      trophyPlatinum: 0,
-    };
-    render(<GameHeroCard game={game} />);
     expect(screen.queryByRole('img', { name: 'Platinum trophy earned' })).toBeNull();
   });
 
-  it('shows the Steam completion icon when the base game is complete', () => {
+  it('does not show a Steam completion icon next to the hero title', () => {
     const game = {
       ...mockGame,
       completionPercent: 80,
@@ -143,20 +108,17 @@ describe('GameHeroCard', () => {
       baseGameAchievementsUnlocked: 20,
     };
     render(<GameHeroCard game={game} />);
-    const icon = screen.getByRole('img', { name: 'Completed game' });
-    expect(screen.getByText('Half-Life 3').nextElementSibling).toBe(icon);
+    expect(screen.queryByRole('img', { name: 'Completed game' })).toBeNull();
   });
 
-  it('does not show the Steam completion icon when the base game is incomplete', () => {
+  it('does not render a backdrop blur behind the hero title', () => {
     const game = {
       ...mockGame,
-      completionPercent: 95,
-      hasAchievementGroups: true,
-      baseGameAchievementsTotal: 20,
-      baseGameAchievementsUnlocked: 19,
+      heroImagePath: 'steam/12345/game_hero.jpg',
     };
-    render(<GameHeroCard game={game} />);
-    expect(screen.queryByRole('img', { name: 'Completed game' })).toBeNull();
+    const { container } = render(<GameHeroCard game={game} />);
+    expect(container.querySelector('.backdrop-blur-\\[2px\\]')).toBeNull();
+    expect(screen.getByText('Half-Life 3')).toHaveClass('font-extrabold');
   });
 
   it('shows PlayStation trophy counts alongside achievement totals', () => {
@@ -175,7 +137,7 @@ describe('GameHeroCard', () => {
     expect(screen.getByText('20')).toBeInTheDocument();
   });
 
-  it('shows zeroed gold, silver and bronze counts but hides unearned platinum', () => {
+  it('shows zeroed gold, silver and bronze counts but hides unearned platinum without a Platinum trophy', () => {
     const game = {
       ...mockGame,
       platform: 'playstation' as const,
@@ -190,5 +152,21 @@ describe('GameHeroCard', () => {
     expect(screen.getByLabelText('Silver trophy')).toBeInTheDocument();
     expect(screen.getByLabelText('Bronze trophy')).toBeInTheDocument();
     expect(screen.getAllByText('0')).toHaveLength(3);
+  });
+
+  it('shows zeroed platinum when the game defines a Platinum trophy', () => {
+    const game = {
+      ...mockGame,
+      platform: 'playstation' as const,
+      trophyPlatinum: 0,
+      trophyGold: 0,
+      trophySilver: 0,
+      trophyBronze: 0,
+      hasPlatinum: true,
+    };
+    render(<GameHeroCard game={game} />);
+    expect(screen.getByLabelText('Platinum trophy')).toBeInTheDocument();
+    expect(screen.getByTitle('0 platinum trophies')).toBeInTheDocument();
+    expect(screen.getAllByText('0')).toHaveLength(4);
   });
 });

@@ -27,6 +27,8 @@ interface Game {
   trophySilver?: number;
   trophyGold?: number;
   trophyPlatinum?: number;
+  /** PlayStation: true when the game defines a Platinum trophy. */
+  hasPlatinum?: boolean;
   /** Xbox: true when the game's Mythic achievement has been earned. */
   isMythic?: boolean;
   /** True when achievements/trophies are split into base-game and DLC sets. */

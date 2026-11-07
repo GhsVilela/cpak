@@ -2,10 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import TrophyCounts from './TrophyCounts';
-import MythicIcon from './MythicIcon';
-import PlatinumBadge from './PlatinumBadge';
-import SteamCompletionIcon from './SteamCompletionIcon';
-import { isPlatinumUnlocked, isSteamBaseGameCompleted } from '../lib/completion';
 import { getCurrentListReturnTo } from '../lib/navigation';
 
 interface GameListItemProps {
@@ -26,6 +22,8 @@ interface GameListItemProps {
     trophySilver?: number;
     trophyGold?: number;
     trophyPlatinum?: number;
+    /** PlayStation: true when the game defines a Platinum trophy. */
+    hasPlatinum?: boolean;
     /** Xbox: true when the game's Mythic achievement has been earned. */
     isMythic?: boolean;
     /** True when achievements/trophies are split into base-game and DLC sets. */
@@ -44,6 +42,7 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
   const router = useRouter();
   const displayTitle = game.customTitle || game.title;
   const hasTrophyCounts =
+    game.hasPlatinum === true ||
     game.trophyPlatinum != null ||
     game.trophyGold != null ||
     game.trophySilver != null ||
@@ -86,6 +85,7 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
             gold={game.trophyGold}
             silver={game.trophySilver}
             bronze={game.trophyBronze}
+            showPlatinum={game.hasPlatinum === true}
             className="text-gray-400 text-sm"
           />
         </span>
@@ -123,19 +123,6 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
       <div className="flex-1 min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <h3 className="min-w-0 truncate font-medium text-sm sm:text-base">{displayTitle}</h3>
-          {game.platform === 'xbox' && game.isMythic && (
-            <MythicIcon
-              size={16}
-              className="shrink-0 translate-y-[0.1em]"
-              title="Mythic achievement earned"
-            />
-          )}
-          {game.platform === 'playstation' && isPlatinumUnlocked(game) && (
-            <PlatinumBadge className="shrink-0 translate-y-[0.15em]" />
-          )}
-          {isSteamBaseGameCompleted(game) && (
-            <SteamCompletionIcon size={16} className="shrink-0 translate-y-[0.15em]" />
-          )}
         </div>
         <div className="flex min-w-0 items-center gap-3 mt-1">
           {renderPlatformStats()}

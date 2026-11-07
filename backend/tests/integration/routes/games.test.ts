@@ -645,6 +645,7 @@ describe('GET /api/games platform aggregations', () => {
     const body = res.json();
     expect(body.pagination.totalCurrentGamerscore).toBe(800);
     expect(body.pagination.totalMaxGamerscore).toBe(1500);
+    expect(body.pagination.totalAchievementsUnlocked).toBe(30);
   });
 
   it('includes trophy summary for playstation + profileId', async () => {
@@ -679,6 +680,60 @@ describe('GET /api/games platform aggregations', () => {
     expect(body.pagination.trophySummary.totalSilver).toBe(3);
     expect(body.pagination.trophySummary.totalGold).toBe(1);
     expect(body.pagination.trophySummary.totalPlatinum).toBe(0);
+  });
+
+  it('exposes whether PlayStation games define a Platinum trophy', async () => {
+    const profile = await Profile.create({
+      platform: 'playstation',
+      profileId: 'ps-platinum-flag',
+      displayName: 'PS Platinum Flag',
+      credentials: {},
+    });
+    const [withPlatinum, withoutPlatinum] = await Game.create([
+      {
+        platform: 'playstation',
+        profileId: profile._id,
+        gameId: 'psflag1',
+        title: 'Has Platinum',
+        achievementsTotal: 10,
+        achievementsUnlocked: 0,
+        completionPercent: 0,
+        trophyPlatinum: 0,
+        lastSyncedAt: new Date(),
+      },
+      {
+        platform: 'playstation',
+        profileId: profile._id,
+        gameId: 'psflag2',
+        title: 'No Platinum',
+        achievementsTotal: 10,
+        achievementsUnlocked: 0,
+        completionPercent: 0,
+        trophyPlatinum: 0,
+        lastSyncedAt: new Date(),
+      },
+    ]);
+    await Achievement.create({
+      platform: 'playstation',
+      profileId: profile._id,
+      gameId: withPlatinum._id,
+      achievementId: '0',
+      name: 'Platinum Trophy',
+      trophyGrade: 'platinum',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=playstation&profileId=${profile._id}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const gamesByTitle = new Map(
+      body.data.map((game: any) => [game.title, game]),
+    );
+    expect(gamesByTitle.get('Has Platinum').hasPlatinum).toBe(true);
+    expect(gamesByTitle.get('No Platinum').hasPlatinum).toBe(false);
+    expect(gamesByTitle.get('No Platinum')._id).toBe(withoutPlatinum._id.toString());
   });
 
   it('filters by specific Xbox device', async () => {
@@ -720,6 +775,7 @@ describe('GET /api/games platform aggregations', () => {
     const body = res.json();
     expect(body.data).toHaveLength(1);
     expect(body.data[0].title).toBe('Xbox Series Game');
+    expect(body.pagination.totalAchievementsUnlocked).toBe(5);
   });
 });
 

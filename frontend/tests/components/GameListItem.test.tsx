@@ -83,7 +83,7 @@ describe('GameListItem', () => {
     expect(screen.getByText(/1,000/)).toBeInTheDocument();
   });
 
-  it('shows the plain Mythic icon right after the title', () => {
+  it('does not show a Mythic icon next to the title', () => {
     const xboxGame = {
       ...mockGame,
       platform: 'xbox' as const,
@@ -92,34 +92,10 @@ describe('GameListItem', () => {
       isMythic: true,
     };
     render(<GameListItem game={xboxGame} />);
-    const icon = screen.getByRole('img', { name: 'Mythic achievement earned' });
-
-    // The icon is rendered bare next to the title, with no badge wrapper.
-    const title = screen.getByText('Half-Life 3');
-    const titleRow = title.parentElement!;
-    expect(title.nextElementSibling).toBe(icon);
-    expect(icon.parentElement).toBe(titleRow);
-    expect(icon.parentElement!.children).toHaveLength(2);
-
-    // Achievements and Gamerscore stay on their own line below the title.
-    expect(titleRow).not.toHaveTextContent('10 / 20');
-    expect(screen.getByText('10 / 20')).toBeInTheDocument();
-    expect(screen.getAllByText('•')).toHaveLength(1);
-  });
-
-  it('does not show the Mythic icon when the Mythic is locked', () => {
-    const xboxGame = {
-      ...mockGame,
-      platform: 'xbox' as const,
-      currentGamerscore: 500,
-      maxGamerscore: 1000,
-      isMythic: false,
-    };
-    render(<GameListItem game={xboxGame} />);
     expect(screen.queryByRole('img', { name: /Mythic achievement/ })).toBeNull();
   });
 
-  it('shows the platinum icon in a circular badge next to the title', () => {
+  it('does not show a Platinum badge next to the title', () => {
     const psGame = {
       ...mockGame,
       platform: 'playstation' as const,
@@ -127,44 +103,16 @@ describe('GameListItem', () => {
       trophyGold: 5,
     };
     render(<GameListItem game={psGame} />);
-    const icon = screen.getByRole('img', { name: 'Platinum trophy earned' });
-    const badge = icon.parentElement!;
-    expect(badge).toHaveClass('rounded-full');
-    expect(badge).toHaveClass('border-[#7cc4ff]/70');
-    expect(screen.getByText('Half-Life 3').nextElementSibling).toBe(badge);
-  });
-
-  it('does not show the platinum icon when the Platinum is locked', () => {
-    const psGame = {
-      ...mockGame,
-      platform: 'playstation' as const,
-      trophyPlatinum: 0,
-      trophyGold: 5,
-    };
-    render(<GameListItem game={psGame} />);
     expect(screen.queryByRole('img', { name: 'Platinum trophy earned' })).toBeNull();
   });
 
-  it('shows the Steam completion icon when the base game is complete', () => {
+  it('does not show a Steam completion icon next to the title', () => {
     const steamGame = {
       ...mockGame,
       completionPercent: 80,
       hasAchievementGroups: true,
       baseGameAchievementsTotal: 20,
       baseGameAchievementsUnlocked: 20,
-    };
-    render(<GameListItem game={steamGame} />);
-    const icon = screen.getByRole('img', { name: 'Completed game' });
-    expect(screen.getByText('Half-Life 3').nextElementSibling).toBe(icon);
-  });
-
-  it('does not show the Steam completion icon when the base game is incomplete', () => {
-    const steamGame = {
-      ...mockGame,
-      completionPercent: 95,
-      hasAchievementGroups: true,
-      baseGameAchievementsTotal: 20,
-      baseGameAchievementsUnlocked: 19,
     };
     render(<GameListItem game={steamGame} />);
     expect(screen.queryByRole('img', { name: 'Completed game' })).toBeNull();
@@ -186,7 +134,7 @@ describe('GameListItem', () => {
     expect(screen.getByText('20')).toBeInTheDocument();
   });
 
-  it('shows zeroed gold, silver and bronze trophies but hides unearned platinum', () => {
+  it('shows zeroed gold, silver and bronze trophies but hides unearned platinum without a Platinum trophy', () => {
     const psGame = {
       ...mockGame,
       platform: 'playstation' as const,
@@ -201,5 +149,21 @@ describe('GameListItem', () => {
     expect(screen.getByLabelText('Silver trophy')).toBeInTheDocument();
     expect(screen.getByLabelText('Bronze trophy')).toBeInTheDocument();
     expect(screen.getAllByText('0')).toHaveLength(3);
+  });
+
+  it('shows zeroed platinum when the game defines a Platinum trophy', () => {
+    const psGame = {
+      ...mockGame,
+      platform: 'playstation' as const,
+      trophyPlatinum: 0,
+      trophyGold: 0,
+      trophySilver: 0,
+      trophyBronze: 0,
+      hasPlatinum: true,
+    };
+    render(<GameListItem game={psGame} />);
+    expect(screen.getByLabelText('Platinum trophy')).toBeInTheDocument();
+    expect(screen.getByTitle('0 platinum trophies')).toBeInTheDocument();
+    expect(screen.getAllByText('0')).toHaveLength(4);
   });
 });

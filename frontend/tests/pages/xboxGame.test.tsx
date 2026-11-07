@@ -254,6 +254,11 @@ describe('Xbox Game detail page — app/xbox/game/[id]/page.tsx (T021)', () => {
     expect(within(baseGroupButton!).getByText('50 / 75 G')).toBeInTheDocument();
     expect(within(dlcGroupButton!).getByText('100 / 100 G')).toBeInTheDocument();
 
+    // The Base Game group no longer carries a Mythic label or icon.
+    expect(within(baseGroupButton!).queryByText('Mythic')).toBeNull();
+    expect(within(dlcGroupButton!).queryByText('Mythic')).toBeNull();
+    expect(within(baseGroupButton!).queryByRole('img', { name: /Mythic achievement/ })).toBeNull();
+
     // Group contents stay collapsed until the user opens the group.
     expect(screen.queryByText('Base Achievement')).toBeNull();
     expect(screen.queryByText('DLC Achievement')).toBeNull();
@@ -297,7 +302,9 @@ describe('Xbox Game detail page — app/xbox/game/[id]/page.tsx (T021)', () => {
       expect(screen.getByText(/Halo Infinite/i)).toBeInTheDocument();
     });
 
-    expect(screen.queryByText('Mythic')).toBeNull();
+    const gameHeader = screen.getByRole('heading', { name: 'Halo Infinite' }).closest('div');
+    expect(gameHeader).not.toHaveTextContent('Mythic');
+    expect(within(screen.getByText('Base Game').closest('button')!).queryByText('Mythic')).toBeNull();
   });
 
   it('scrolls to the top when the page opens', async () => {

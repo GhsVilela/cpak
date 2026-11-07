@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const pushMock = vi.fn();
@@ -211,7 +211,7 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
     });
   });
 
-  it('shows the Mythic achievement total alongside Gamerscore', async () => {
+  it('shows Mythic, Gamerscore and achievement totals with Xbox 360 splits', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path.startsWith('/profiles')) return Promise.resolve([mockXboxProfile]);
       if (path.includes('device=Xbox360')) {
@@ -223,6 +223,7 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
             offset: 0,
             hasMore: false,
             totalCurrentGamerscore: 400,
+            totalAchievementsUnlocked: 50,
           },
         });
       }
@@ -235,6 +236,7 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
             offset: 0,
             hasMore: false,
             totalCurrentGamerscore: 3400,
+            totalAchievementsUnlocked: 125,
             mythicAchievementsUnlocked: 12,
           },
         });
@@ -263,8 +265,25 @@ describe('Xbox page — app/xbox/page.tsx (T020)', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Mythic')).toBeInTheDocument();
+      expect(
+        screen.getByTitle('Total achievements unlocked across all Xbox games.'),
+      ).toBeInTheDocument();
     });
     expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getByText('3,400')).toBeInTheDocument();
     expect(screen.getByText('400')).toBeInTheDocument();
+    expect(screen.getByText('Xbox 360 Gamerscore')).toBeInTheDocument();
+
+    const achievementsTile = screen.getByTitle(
+      'Total achievements unlocked across all Xbox games.',
+    );
+    expect(within(achievementsTile).getByText('Achievements')).toBeInTheDocument();
+    expect(within(achievementsTile).getByText('125')).toBeInTheDocument();
+
+    const xbox360AchievementsTile = screen.getByTitle(
+      'Achievements unlocked from Xbox 360 games only.',
+    );
+    expect(within(xbox360AchievementsTile).getByText('Xbox 360 Achievements')).toBeInTheDocument();
+    expect(within(xbox360AchievementsTile).getByText('50')).toBeInTheDocument();
   });
 });

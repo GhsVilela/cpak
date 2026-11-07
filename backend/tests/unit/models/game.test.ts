@@ -31,6 +31,7 @@ describe('Game model', () => {
     expect(paths).toContain('trophySilver');
     expect(paths).toContain('trophyGold');
     expect(paths).toContain('trophyPlatinum');
+    expect(paths).toContain('hasPlatinum');
     expect(paths).toContain('lastSyncedAt');
   });
 
@@ -91,5 +92,6 @@ describe('Game model', () => {
     expect(game.trophySilver).toBeNull();
     expect(game.trophyGold).toBeNull();
     expect(game.trophyPlatinum).toBeNull();
+    expect(game.hasPlatinum).toBe(false);
   });
 });

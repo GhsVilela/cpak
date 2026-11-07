@@ -2,10 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import TrophyCounts from './TrophyCounts';
-import MythicIcon from './MythicIcon';
-import PlatinumBadge from './PlatinumBadge';
-import SteamCompletionIcon from './SteamCompletionIcon';
-import { isPlatinumUnlocked, isSteamBaseGameCompleted } from '../lib/completion';
 import { getCurrentListReturnTo } from '../lib/navigation';
 
 interface GameHeroCardProps {
@@ -26,6 +22,8 @@ interface GameHeroCardProps {
     trophySilver?: number;
     trophyGold?: number;
     trophyPlatinum?: number;
+    /** PlayStation: true when the game defines a Platinum trophy. */
+    hasPlatinum?: boolean;
     /** Xbox: true when the game's Mythic achievement has been earned. */
     isMythic?: boolean;
     /** True when achievements/trophies are split into base-game and DLC sets. */
@@ -81,6 +79,7 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
     }
 
     const hasTrophyCounts =
+      game.hasPlatinum === true ||
       game.trophyPlatinum != null ||
       game.trophyGold != null ||
       game.trophySilver != null ||
@@ -96,6 +95,7 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
             gold={game.trophyGold}
             silver={game.trophySilver}
             bronze={game.trophyBronze}
+            showPlatinum={game.hasPlatinum === true}
             size={14}
             className="text-sm text-gray-200"
           />
@@ -138,52 +138,21 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
 
         {/* Title & Info overlay */}
         <div className="absolute bottom-0 left-0 right-0 flex flex-col items-start gap-2 px-4 py-3 sm:px-6" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-          <div className="relative flex w-fit max-w-full items-center gap-2">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 backdrop-blur-[2px]"
-              style={{
-                WebkitMaskImage: 'radial-gradient(ellipse at center, black 50%, transparent 90%)',
-                maskImage: 'radial-gradient(ellipse at center, black 50%, transparent 90%)',
-              }}
-            />
-            <h3 className="relative min-w-0 truncate font-bold text-lg sm:text-xl text-white drop-shadow-lg">
+          <div className="flex w-fit max-w-full items-center gap-2">
+            <h3 className="min-w-0 truncate font-extrabold text-lg sm:text-xl text-white drop-shadow-lg">
               {displayTitle}
             </h3>
-            {game.platform === 'xbox' && game.isMythic && (
-              <MythicIcon
-                size={16}
-                className="relative shrink-0 translate-y-[0.1em]"
-                title="Mythic achievement earned"
-              />
-            )}
-            {game.platform === 'playstation' && isPlatinumUnlocked(game) && (
-              <PlatinumBadge className="relative shrink-0 translate-y-[0.15em]" />
-            )}
-            {isSteamBaseGameCompleted(game) && (
-              <SteamCompletionIcon size={16} className="relative shrink-0 translate-y-[0.15em]" />
-            )}
           </div>
-          <div className="relative w-fit max-w-full">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 backdrop-blur-[2px]"
-              style={{
-                WebkitMaskImage: 'radial-gradient(ellipse at center, black 50%, transparent 90%)',
-                maskImage: 'radial-gradient(ellipse at center, black 50%, transparent 90%)',
-              }}
-            />
-            <div className="relative flex flex-wrap items-center gap-x-4 gap-y-1">
-              {/* Completion badge */}
-              <span
-                className={`${getCompletionColor(game.completionPercent)} px-2 py-0.5 rounded-full text-xs font-semibold text-white shadow-md`}
-              >
-                {game.completionPercent}%
-              </span>
-              <span className="text-gray-200 text-sm font-medium drop-shadow">
-                {renderProgressLabel()}
-              </span>
-            </div>
+          <div className="flex w-fit max-w-full flex-wrap items-center gap-x-4 gap-y-1">
+            {/* Completion badge */}
+            <span
+              className={`${getCompletionColor(game.completionPercent)} px-2 py-0.5 rounded-full text-xs font-semibold text-white shadow-md`}
+            >
+              {game.completionPercent}%
+            </span>
+            <span className="text-gray-200 text-sm font-semibold drop-shadow">
+              {renderProgressLabel()}
+            </span>
           </div>
         </div>
         {/* Edit Button */}
