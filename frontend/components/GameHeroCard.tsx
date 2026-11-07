@@ -161,14 +161,14 @@ export default function GameHeroCard({ game, onEdit, onHide, onActions }: GameHe
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onActions(); }}
-            className="absolute right-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full bg-gray-900/80 text-gray-200 shadow-md transition-colors active:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 md:hidden"
+            className="absolute right-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white/75 transition-colors active:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 md:hidden"
             aria-label={`Game options for ${displayTitle}`}
             aria-haspopup="dialog"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="5" r="1.75" />
-              <circle cx="12" cy="12" r="1.75" />
-              <circle cx="12" cy="19" r="1.75" />
+              <circle cx="12" cy="5" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="12" cy="19" r="2" />
             </svg>
           </button>
         )}
