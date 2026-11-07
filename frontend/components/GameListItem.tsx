@@ -68,9 +68,9 @@ export default function GameListItem({ game, onEdit, onHide, onActions }: GameLi
   const renderPlatformStats = () => {
     if (game.platform === 'xbox' && game.maxGamerscore !== undefined && game.maxGamerscore > 0) {
       return (
-        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-400 text-sm">
+        <span className="flex flex-col items-start gap-1 text-gray-400 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-1">
           <span>{game.achievementsUnlocked} / {game.achievementsTotal}</span>
-          <span className="text-gray-600">•</span>
+          <span className="hidden text-gray-600 sm:inline">•</span>
           <span>
             {(game.currentGamerscore ?? 0).toLocaleString()}&thinsp;/&thinsp;{game.maxGamerscore.toLocaleString()} G
           </span>
@@ -79,9 +79,9 @@ export default function GameListItem({ game, onEdit, onHide, onActions }: GameLi
     }
     if (game.platform === 'playstation' && hasTrophyCounts) {
       return (
-        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-400 text-sm">
+        <span className="flex flex-col items-start gap-1 text-gray-400 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-1">
           <span>{game.achievementsUnlocked} / {game.achievementsTotal}</span>
-          <span className="text-gray-600">•</span>
+          <span className="hidden text-gray-600 sm:inline">•</span>
           <TrophyCounts
             platinum={game.trophyPlatinum}
             gold={game.trophyGold}
