@@ -21,6 +21,7 @@ const profileSchema = z.object({
     refreshToken: z.string().optional(),
     tokenType: z.string().optional(),
     expiresAt: z.coerce.date().optional(),
+    refreshTokenExpiresAt: z.coerce.date().optional(),
     scopes: z.array(z.string()).optional(),
   }).optional(),
 });
@@ -35,6 +36,7 @@ const updateProfileSchema = z.object({
     refreshToken: z.string().optional(),
     tokenType: z.string().optional(),
     expiresAt: z.coerce.date().optional(),
+    refreshTokenExpiresAt: z.coerce.date().optional(),
     scopes: z.array(z.string()).optional(),
   }).optional(),
 });
@@ -109,6 +111,7 @@ export async function createProfile(req: FastifyRequest, reply: FastifyReply) {
           accessToken: psnTokens.accessToken,
           refreshToken: psnTokens.refreshToken,
           expiresAt: psnTokens.expiresAt,
+          refreshTokenExpiresAt: psnTokens.refreshTokenExpiresAt,
           tokenType: psnTokens.tokenType,
         },
       });
@@ -191,6 +194,7 @@ export async function updateProfile(req: FastifyRequest<{ Params: { id: string }
           accessToken: psnTokens.accessToken,
           refreshToken: psnTokens.refreshToken,
           expiresAt: psnTokens.expiresAt,
+          refreshTokenExpiresAt: psnTokens.refreshTokenExpiresAt,
           tokenType: psnTokens.tokenType,
         } as any;
         // Update profileId and displayName in case they changed

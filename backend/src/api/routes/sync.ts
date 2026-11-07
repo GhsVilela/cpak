@@ -86,55 +86,82 @@ export async function getSyncStatus(
       }).sort({ startedAt: -1 });
 
       if (activeSyncOp) {
-        // Calculate progress based on sync phase
-        let progress = 0;
-        let message = 'Preparing sync...';
+        // New progress tracker: phase + progress + message are planned and
+        // persisted by the sync service. Values are monotonic and already
+        // account for cached images, skipped games, etc.
+        //
+        // The extra guard keeps legacy operations created before this field
+        // existed on the fallback path. Mongoose may apply schema defaults when
+        // hydrating old documents, so a default 'preparing'/0/message trio must
+        // not hide an operation that already has real counters.
+        const hasTrackedProgress =
+          !!activeSyncOp.phase &&
+          (
+            (activeSyncOp.progress ?? 0) > 0 ||
+            activeSyncOp.phase !== 'preparing' ||
+            (activeSyncOp.message && activeSyncOp.message !== 'Preparing sync...')
+          );
 
-        if (activeSyncOp.totalGames > 0) {
-          // Phase 1: Downloading game images (0-33% progress)
-          // imagesCompleted is incremented per-title as each image resolves.
-          // gamesProcessed stays 0 until after all game images are fetched, so
-          // this phase naturally ends when gamesProcessed is set to totalGames.
-          if (activeSyncOp.gamesProcessed === 0) {
-            const imgProgress = Math.floor((activeSyncOp.imagesCompleted / activeSyncOp.totalGames) * 33);
-            progress = imgProgress;
-            message = `Downloading game images... (${activeSyncOp.imagesCompleted}/${activeSyncOp.totalGames})`;
+        if (hasTrackedProgress) {
+          result.current = {
+            operationId: activeSyncOp._id.toString(),
+            status: activeSyncOp.status,
+            phase: activeSyncOp.phase,
+            progress: Math.max(0, Math.min(100, Math.round(activeSyncOp.progress ?? 0))),
+            message: activeSyncOp.message || 'Syncing...',
+          };
+        } else {
+          // Legacy fallback for operations created before the progress tracker
+          // was introduced (or by older versions during an upgrade).
+          let progress = 0;
+          let message = 'Preparing sync...';
+
+          if (activeSyncOp.totalGames > 0) {
+            // Phase 1: Downloading game images (0-33% progress)
+            // imagesCompleted is incremented per-title as each image resolves.
+            // gamesProcessed stays 0 until after all game images are fetched, so
+            // this phase naturally ends when gamesProcessed is set to totalGames.
+            if (activeSyncOp.gamesProcessed === 0) {
+              const imgProgress = Math.floor((activeSyncOp.imagesCompleted / activeSyncOp.totalGames) * 33);
+              progress = imgProgress;
+              message = `Downloading game images... (${activeSyncOp.imagesCompleted}/${activeSyncOp.totalGames})`;
+            }
+            // Phase 2: Fetching achievements (33-66% progress)
+            else if (activeSyncOp.gamesProcessed < activeSyncOp.totalGames) {
+              const fetchProgress = Math.floor((activeSyncOp.gamesProcessed / activeSyncOp.totalGames) * 33);
+              progress = 33 + fetchProgress;
+              message = `Fetching achievements... (${activeSyncOp.gamesProcessed}/${activeSyncOp.totalGames})`;
+            }
+            // Phase 3: Downloading achievement icons — starting (66%)
+            else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted === 0) {
+              progress = 66;
+              message = `Fetching achievement icons... (0/${activeSyncOp.iconDownloadsPending})`;
+            }
+            // Phase 3: Downloading achievement icons — in progress (66-100%)
+            else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted < activeSyncOp.iconDownloadsPending) {
+              const iconProgress = Math.floor((activeSyncOp.iconDownloadsCompleted / activeSyncOp.iconDownloadsPending) * 34);
+              progress = 66 + iconProgress;
+              message = `Fetching achievement icons... (${activeSyncOp.iconDownloadsCompleted}/${activeSyncOp.iconDownloadsPending})`;
+            }
+            // Transitional: games done but icons not yet queued — hold at 66%
+            else if (activeSyncOp.iconDownloadsPending === 0 && activeSyncOp.status === 'running') {
+              progress = 66;
+              message = 'Processing achievements...';
+            }
+            // Phase 4: Finalizing
+            else {
+              progress = 100;
+              message = 'Finalizing sync...';
+            }
           }
-          // Phase 2: Fetching achievements (33-66% progress)
-          else if (activeSyncOp.gamesProcessed < activeSyncOp.totalGames) {
-            const fetchProgress = Math.floor((activeSyncOp.gamesProcessed / activeSyncOp.totalGames) * 33);
-            progress = 33 + fetchProgress;
-            message = `Fetching achievements... (${activeSyncOp.gamesProcessed}/${activeSyncOp.totalGames})`;
-          }
-          // Phase 3: Downloading achievement icons — starting (66%)
-          else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted === 0) {
-            progress = 66;
-            message = `Fetching achievement icons... (0/${activeSyncOp.iconDownloadsPending})`;
-          }
-          // Phase 3: Downloading achievement icons — in progress (66-100%)
-          else if (activeSyncOp.iconDownloadsPending > 0 && activeSyncOp.iconDownloadsCompleted < activeSyncOp.iconDownloadsPending) {
-            const iconProgress = Math.floor((activeSyncOp.iconDownloadsCompleted / activeSyncOp.iconDownloadsPending) * 34);
-            progress = 66 + iconProgress;
-            message = `Fetching achievement icons... (${activeSyncOp.iconDownloadsCompleted}/${activeSyncOp.iconDownloadsPending})`;
-          }
-          // Transitional: games done but icons not yet queued — hold at 66%
-          else if (activeSyncOp.iconDownloadsPending === 0 && activeSyncOp.status === 'running') {
-            progress = 66;
-            message = 'Processing achievements...';
-          }
-          // Phase 4: Finalizing
-          else {
-            progress = 100;
-            message = 'Finalizing sync...';
-          }
+
+          result.current = {
+            operationId: activeSyncOp._id.toString(),
+            status: activeSyncOp.status,
+            progress,
+            message,
+          };
         }
-
-        result.current = {
-          operationId: activeSyncOp._id.toString(),
-          status: activeSyncOp.status,
-          progress,
-          message
-        };
       }
 
       // Get last completed sync run

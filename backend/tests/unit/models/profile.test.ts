@@ -186,6 +186,7 @@ describe('Profile model: toJSON', () => {
           steamApiKey: 'enc_secret',
           tokenType: 'Bearer',
           expiresAt: new Date('2025-01-01'),
+          refreshTokenExpiresAt: new Date('2025-03-01'),
           scopes: ['read'],
         },
       }),
@@ -195,6 +196,8 @@ describe('Profile model: toJSON', () => {
     expect(result.credentials.steamApiKeyConfigured).toBe(true);
     expect(result.credentials.tokenType).toBe('Bearer');
     expect(result.credentials.scopes).toEqual(['read']);
+    expect(result.credentials.refreshTokenConfigured).toBe(false);
+    expect(result.credentials.refreshTokenExpiresAt).toEqual(new Date('2025-03-01'));
     // Should NOT expose the raw key
     expect(result.credentials.steamApiKey).toBeUndefined();
     expect(result.credentials.accessToken).toBeUndefined();

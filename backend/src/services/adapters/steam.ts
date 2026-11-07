@@ -9,6 +9,7 @@ import { SyncOperation } from '../../models/syncOperation.js';
 import { imageStorage } from '../../utils/imageStorage.js';
 import type { SteamGridDBAdapter } from './steamgriddb.js';
 import { createIGDBAdapter } from './igdb.js';
+import type { SyncProgressTracker } from '../syncProgress.js';
 
 interface SteamGame {
   appid: number;
@@ -479,12 +480,20 @@ export class SteamAdapter {
       userMap.set(ua.internal_key, { unlocked: !!ua.unlocked, unlockTime: ua.unlock_time });
     }
 
-    // GetGameAchievements returns bare icon hashes (e.g. "abc123.jpg"), unlike
-    // GetSchemaForGame which returns fully-qualified URLs. Rebuild the CDN URL.
+    // GetGameAchievements returns bare icon filenames (e.g. "abc123.jpg"),
+    // unlike GetSchemaForGame which returns fully-qualified URLs. Rebuild the
+    // CDN URL.
+    //
+    // Steam now serves modern achievement icons from the shared community
+    // assets host. The old steamcommunity/public/images/apps path still works
+    // for some older titles but returns 404 for newer achievements (for
+    // example Rust, PAYDAY 2 and Marauders), so use the current host first.
     const iconUrl = (value?: string): string | undefined => {
       if (!value) return undefined;
-      if (/^https?:\/\//i.test(value)) return value;
-      return `https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/${appId}/${value}`;
+      const normalized = value.trim();
+      if (!normalized) return undefined;
+      if (/^https?:\/\//i.test(normalized)) return normalized;
+      return `https://shared.akamai.steamstatic.com/community_assets/images/apps/${appId}/${normalized}`;
     };
 
     let earnedAchievements = 0;
@@ -606,7 +615,12 @@ export class SteamAdapter {
     }
   }
 
-  async syncGamesAndAchievements(steamId: string, syncOperation?: any, knownGameIds?: number[]): Promise<{
+  async syncGamesAndAchievements(
+    steamId: string,
+    syncOperation?: any,
+    knownGameIds?: number[],
+    progress?: SyncProgressTracker,
+  ): Promise<{
     games: Array<{
       appId: number;
       name: string;
@@ -708,6 +722,17 @@ export class SteamAdapter {
       syncOperation.totalGames = games.length;
       await syncOperation.save();
       logger.info({ syncOperationId: syncOperation._id, totalGames: games.length }, 'Set totalGames for progress tracking');
+    }
+
+    // The library is now known, so the achievement-fetch phase can report an
+    // exact denominator for the rest of the discovery work.
+    if (progress) {
+      await progress.begin(
+        'achievements',
+        games.length,
+        `Fetching achievement data... (0/${games.length})`,
+        { totalGames: games.length },
+      );
     }
     
     const result: {
@@ -965,14 +990,22 @@ export class SteamAdapter {
           throw new Error('Sync cancelled by user');
         }
         
-        // Atomic update after every batch for real-time progress tracking
-        // This ensures the most up-to-date progress is visible to users via polling
-        await SyncOperation.findByIdAndUpdate(syncOperation._id, {
-          gamesProcessed: processedCount
-        });
-        
         // Update in-memory copy for accurate final stats
         syncOperation.gamesProcessed = processedCount;
+
+        if (progress) {
+          await progress.update(
+            processedCount,
+            `Fetching achievement data... (${processedCount}/${games.length})`,
+            { gamesProcessed: processedCount },
+          );
+        } else {
+          // Atomic update after every batch for real-time progress tracking
+          // (legacy callers that do not use the progress tracker)
+          await SyncOperation.findByIdAndUpdate(syncOperation._id, {
+            gamesProcessed: processedCount
+          });
+        }
         
         logger.debug({ 
           syncOperationId: syncOperation._id,
@@ -1033,6 +1066,7 @@ export class SteamAdapter {
     games: Array<{ appId: number; name: string }>,
     syncOperation: any,
     steamGridDBAdapter: SteamGridDBAdapter | null,
+    progress?: SyncProgressTracker,
   ): Promise<Map<number, { capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string }>> {
     const concurrencyController = new AdaptiveConcurrencyController(
       syncOperation.adaptiveParams.concurrency,
@@ -1041,9 +1075,78 @@ export class SteamAdapter {
 
     logger.info({ total: games.length, syncOperationId: syncOperation._id }, 'Starting Steam game image downloads');
 
+    // Pre-flight: check the local cache for every game before starting the
+    // phase. This lets us report exactly how many games actually need a
+    // network download, and avoids saying "Downloading game images..." on a
+    // repeat sync where every image is already cached.
+    let gamesToDownload = games;
+    const cachedGameImages = new Map<number, {
+      capsuleImagePath?: string;
+      iconImagePath?: string;
+      heroImagePath?: string;
+    }>();
+
+    if (progress) {
+      const missing: typeof games = [];
+      logger.info(
+        { total: games.length, syncOperationId: syncOperation._id },
+        'Checking local Steam game image cache',
+      );
+
+      for (let index = 0; index < games.length; index++) {
+        const game = games[index];
+        const cached = imageStorage.checkCachedGameImages('steam', game.appId.toString());
+        if (cached.capsuleImagePath && cached.iconImagePath && cached.heroImagePath) {
+          cachedGameImages.set(game.appId, cached);
+        } else {
+          missing.push(game);
+        }
+
+        if ((index + 1) % 100 === 0 && index + 1 < games.length) {
+          logger.info(
+            { checked: index + 1, total: games.length, cached: cachedGameImages.size },
+            'Steam game image cache check progress',
+          );
+          // Yield so logs flush and the event loop stays responsive on large
+          // libraries / slow NAS storage.
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+      }
+
+      logger.info(
+        {
+          total: games.length,
+          cached: cachedGameImages.size,
+          missing: missing.length,
+          syncOperationId: syncOperation._id,
+        },
+        'Steam game image cache check complete',
+      );
+
+      gamesToDownload = missing;
+
+      await progress.begin(
+        'game-images',
+        missing.length,
+        missing.length === 0
+          ? 'Game images already up to date'
+          : `Downloading game images... (0/${missing.length})`,
+        { imagesCompleted: cachedGameImages.size },
+      );
+
+      if (missing.length === 0) {
+        await progress.complete('Game images already up to date', {
+          imagesCompleted: games.length,
+        });
+        return new Map(games.map((game) => [game.appId, cachedGameImages.get(game.appId)!]));
+      }
+    }
+
+    let imagesCompleted = 0;
+
     const gameImageResults = await Promise.all(
-      games.map((game) =>
-        concurrencyController.execute(async () => {
+      gamesToDownload.map(async (game) => {
+        const result = await concurrencyController.execute(async () => {
           let imagePath: string | undefined;
 
           // Priority 1: Check for any existing local files first (grid, header, or capsule)
@@ -1190,33 +1293,138 @@ export class SteamAdapter {
           ]);
 
           return { appId: game.appId, capsuleImagePath: imagePath, heroImagePath, iconImagePath };
-        }),
-      ),
+        });
+
+        imagesCompleted++;
+        if (progress && (imagesCompleted % 10 === 0 || imagesCompleted === gamesToDownload.length)) {
+          await progress.update(
+            imagesCompleted,
+            `Downloading game images... (${imagesCompleted}/${gamesToDownload.length})`,
+            { imagesCompleted: cachedGameImages.size + imagesCompleted },
+          );
+        }
+
+        return result;
+      }),
     );
 
     // Update imagesCompleted count on the sync operation
-    const imagesDownloaded = gameImageResults.filter((r) => r.capsuleImagePath).length;
-    await SyncOperation.updateOne(
-      { _id: syncOperation._id },
-      { $set: { imagesCompleted: imagesDownloaded } },
-    );
+    const imagesDownloaded = gameImageResults.filter((r) => r.capsuleImagePath).length + cachedGameImages.size;
+    const gameImageMap = new Map<number, {
+      capsuleImagePath?: string;
+      iconImagePath?: string;
+      heroImagePath?: string;
+    }>();
 
-    const gameImageMap = new Map(gameImageResults.map((r) => [r.appId, {
-      capsuleImagePath: r.capsuleImagePath,
-      iconImagePath: r.iconImagePath,
-      heroImagePath: r.heroImagePath,
-    }]));
+    for (const [appId, paths] of cachedGameImages) {
+      gameImageMap.set(appId, paths);
+    }
+    for (const result of gameImageResults) {
+      gameImageMap.set(result.appId, {
+        capsuleImagePath: result.capsuleImagePath,
+        iconImagePath: result.iconImagePath,
+        heroImagePath: result.heroImagePath,
+      });
+    }
+
+    if (progress) {
+      await progress.complete('Game images ready', { imagesCompleted: imagesDownloaded });
+    } else {
+      await SyncOperation.updateOne(
+        { _id: syncOperation._id },
+        { $set: { imagesCompleted: imagesDownloaded } },
+      );
+    }
+
     logger.info({ total: games.length, syncOperationId: syncOperation._id }, 'All Steam game images downloaded');
     return gameImageMap;
   }
 
   /**
+   * Convert a current shared community-asset URL back to the legacy CDN path.
+   * Steam serves modern achievement icons from
+   * `shared.akamai.steamstatic.com/community_assets/images/apps/...`, while
+   * older icons may only exist on the legacy
+   * `cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/...` path.
+   */
+  private toLegacySteamCommunityImageUrl(url: string, appId: number): string | undefined {
+    try {
+      const parsed = new URL(url);
+      const marker = '/community_assets/images/apps/';
+      const index = parsed.pathname.indexOf(marker);
+      if (index === -1) return undefined;
+
+      const filename = parsed.pathname.slice(index + marker.length).split('/').pop();
+      if (!filename) return undefined;
+
+      return `https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/${appId}/${filename}`;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Download a Steam achievement image, trying the current shared CDN first
+   * and falling back to the legacy community image path when needed.
+   */
+  private async downloadSteamAchievementImage(
+    url: string,
+    appId: number,
+    achievementId: string,
+    imageType: 'icon' | 'iconGray',
+  ): Promise<string | undefined> {
+    try {
+      return await imageStorage.downloadAndStore(
+        url, 'steam', appId.toString(), achievementId, imageType,
+      );
+    } catch (primaryError) {
+      const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      const legacyUrl = this.toLegacySteamCommunityImageUrl(url, appId);
+
+      if (legacyUrl) {
+        try {
+          logger.debug(
+            { appId, achievementId, imageType, primaryUrl: url, legacyUrl },
+            'Current Steam image URL failed — retrying legacy CDN path',
+          );
+          return await imageStorage.downloadAndStore(
+            legacyUrl, 'steam', appId.toString(), achievementId, imageType,
+          );
+        } catch (fallbackError) {
+          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          logger.warn(
+            {
+              appId,
+              achievementId,
+              imageType,
+              primaryUrl: url,
+              legacyUrl,
+              primaryError: primaryMessage,
+              fallbackError: fallbackMessage,
+            },
+            'Failed to download Steam image from both CDN paths',
+          );
+          return imageStorage.checkLocalFile('steam', appId.toString(), achievementId, imageType);
+        }
+      }
+
+      logger.warn({ appId, achievementId, imageType, error: primaryMessage }, 'Failed to download Steam image');
+      return imageStorage.checkLocalFile('steam', appId.toString(), achievementId, imageType);
+    }
+  }
+
+  /**
    * Download achievement icons with adaptive concurrency control.
-   * Updates syncOperation progress every 50 icons.
+   *
+   * The local cache is checked before the phase starts so the reported total is
+   * the number of achievement icons that actually need downloading. A repeat
+   * sync with a warm cache therefore completes this phase instantly instead of
+   * pretending to download every icon again.
    */
   async downloadAchievementIcons(
     achievements: Array<{ appId: number; achievementId: string; icon?: string; iconGray?: string }>,
     syncOperation: any,
+    progress?: SyncProgressTracker,
   ): Promise<{
     iconMap: Map<string, { iconPath?: string; iconGrayPath?: string }>;
     completed: number;
@@ -1230,23 +1438,104 @@ export class SteamAdapter {
 
     let completed = 0;
     let failed = 0;
+    const iconMap = new Map<string, { iconPath?: string; iconGrayPath?: string }>();
+
+    let achievementsToDownload = achievements;
+    if (progress) {
+      const missing: typeof achievements = [];
+      logger.info(
+        { total: achievements.length, syncOperationId: syncOperation._id },
+        'Checking Steam achievement icon cache',
+      );
+
+      // Group by app so we read each game image directory only once. A Steam
+      // library can easily contain tens of thousands of achievements; doing
+      // two directory scans per achievement made this preflight very slow on
+      // NAS/WSL setups.
+      const achievementsByApp = new Map<number, typeof achievements>();
+      for (const achievement of achievements) {
+        const appAchievements = achievementsByApp.get(achievement.appId);
+        if (appAchievements) {
+          appAchievements.push(achievement);
+        } else {
+          achievementsByApp.set(achievement.appId, [achievement]);
+        }
+      }
+
+      for (const [appId, appAchievements] of achievementsByApp) {
+        const checks: Array<{ achievementId: string; imageType: 'icon' | 'iconGray' }> = [];
+        for (const achievement of appAchievements) {
+          checks.push({ achievementId: achievement.achievementId, imageType: 'icon' });
+          checks.push({ achievementId: achievement.achievementId, imageType: 'iconGray' });
+        }
+
+        const cachedPaths = imageStorage.checkLocalFiles('steam', appId.toString(), checks);
+
+        appAchievements.forEach((achievement, index) => {
+          const key = `${achievement.appId}:${achievement.achievementId}`;
+          const iconPath = cachedPaths[index * 2];
+          const iconGrayPath = cachedPaths[index * 2 + 1];
+
+          const needsIcon = !!achievement.icon && !iconPath;
+          const needsGray = !!achievement.iconGray && !iconGrayPath;
+
+          if (needsIcon || needsGray) {
+            missing.push(achievement);
+          } else {
+            iconMap.set(key, { iconPath, iconGrayPath });
+          }
+        });
+      }
+
+      achievementsToDownload = missing;
+
+      logger.info(
+        {
+          total: achievements.length,
+          applications: achievementsByApp.size,
+          cachedAchievements: iconMap.size,
+          missingAchievements: missing.length,
+          syncOperationId: syncOperation._id,
+        },
+        'Steam achievement icon cache check complete',
+      );
+
+      await progress.begin(
+        'icons',
+        missing.length,
+        missing.length === 0
+          ? 'Achievement icons already up to date'
+          : `Downloading achievement icons... (0/${missing.length})`,
+        {
+          iconDownloadsPending: achievements.length,
+          iconDownloadsCompleted: iconMap.size,
+          iconDownloadsFailed: 0,
+        },
+      );
+
+      if (missing.length === 0) {
+        await progress.complete('Achievement icons already up to date', {
+          iconDownloadsPending: achievements.length,
+          iconDownloadsCompleted: achievements.length,
+          iconDownloadsFailed: 0,
+        });
+        return { iconMap, completed: achievements.length, failed: 0 };
+      }
+    }
 
     const iconResults = await Promise.all(
-      achievements.map((achievement) =>
-        concurrencyController.execute(async () => {
+      achievementsToDownload.map(async (achievement) => {
+        const result = await concurrencyController.execute(async () => {
           const downloads: Promise<string | undefined>[] = [];
 
           if (achievement.icon) {
             downloads.push(
-              imageStorage
-                .downloadAndStore(
-                  achievement.icon, 'steam', achievement.appId.toString(), achievement.achievementId, 'icon',
-                )
-                .catch((error) => {
-                  const errorMessage = error instanceof Error ? error.message : String(error);
-                  logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download icon');
-                  return imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'icon');
-                }),
+              this.downloadSteamAchievementImage(
+                achievement.icon,
+                achievement.appId,
+                achievement.achievementId,
+                'icon',
+              ),
             );
           } else {
             downloads.push(Promise.resolve(undefined));
@@ -1254,15 +1543,12 @@ export class SteamAdapter {
 
           if (achievement.iconGray) {
             downloads.push(
-              imageStorage
-                .downloadAndStore(
-                  achievement.iconGray, 'steam', achievement.appId.toString(), achievement.achievementId, 'iconGray',
-                )
-                .catch((error) => {
-                  const errorMessage = error instanceof Error ? error.message : String(error);
-                  logger.warn({ error: errorMessage, appId: achievement.appId, achievementId: achievement.achievementId }, 'Failed to download iconGray');
-                  return imageStorage.checkLocalFile('steam', achievement.appId.toString(), achievement.achievementId, 'iconGray');
-                }),
+              this.downloadSteamAchievementImage(
+                achievement.iconGray,
+                achievement.appId,
+                achievement.achievementId,
+                'iconGray',
+              ),
             );
           } else {
             downloads.push(Promise.resolve(undefined));
@@ -1270,21 +1556,6 @@ export class SteamAdapter {
 
           try {
             const [iconPath, iconGrayPath] = await Promise.all(downloads);
-            completed++;
-
-            if (completed % 50 === 0 || completed === achievements.length) {
-              await SyncOperation.findByIdAndUpdate(syncOperation._id, {
-                iconDownloadsCompleted: completed,
-                iconDownloadsFailed: failed,
-              });
-              logger.info({
-                completed,
-                total: achievements.length,
-                progress: `${Math.round((completed / achievements.length) * 100)}%`,
-                syncOperationId: syncOperation._id,
-              }, 'Achievement icon download progress');
-            }
-
             return {
               key: `${achievement.appId}:${achievement.achievementId}`,
               iconPath,
@@ -1294,15 +1565,50 @@ export class SteamAdapter {
             failed++;
             return null;
           }
-        }),
-      ),
+        });
+
+        completed++;
+        if (progress && (completed % 50 === 0 || completed === achievementsToDownload.length)) {
+          await progress.update(
+            completed,
+            `Downloading achievement icons... (${completed}/${achievementsToDownload.length})`,
+            {
+              iconDownloadsCompleted: iconMap.size + completed,
+              iconDownloadsFailed: failed,
+            },
+          );
+        } else if (!progress && (completed % 50 === 0 || completed === achievements.length)) {
+          await SyncOperation.findByIdAndUpdate(syncOperation._id, {
+            iconDownloadsCompleted: completed,
+            iconDownloadsFailed: failed,
+          });
+          logger.info({
+            completed,
+            total: achievements.length,
+            progress: `${Math.round((completed / achievements.length) * 100)}%`,
+            syncOperationId: syncOperation._id,
+          }, 'Achievement icon download progress');
+        }
+
+        return result;
+      }),
     );
 
-    const iconMap = new Map(
-      iconResults
-        .filter((r): r is NonNullable<typeof r> => r !== null)
-        .map((r) => [r.key, { iconPath: r.iconPath, iconGrayPath: r.iconGrayPath }]),
-    );
+    for (const result of iconResults) {
+      if (!result) continue;
+      iconMap.set(result.key, {
+        iconPath: result.iconPath,
+        iconGrayPath: result.iconGrayPath,
+      });
+    }
+
+    if (progress) {
+      await progress.complete('Achievement icons ready', {
+        iconDownloadsPending: achievements.length,
+        iconDownloadsCompleted: Math.max(0, achievements.length - failed),
+        iconDownloadsFailed: failed,
+      });
+    }
 
     logger.info({
       totalAchievements: achievements.length,
@@ -1312,7 +1618,7 @@ export class SteamAdapter {
       syncOperationId: syncOperation._id,
     }, 'Steam achievement icon download completed');
 
-    return { iconMap, completed, failed };
+    return { iconMap, completed: Math.max(0, achievements.length - failed), failed };
   }
 
   /**

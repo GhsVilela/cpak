@@ -74,7 +74,7 @@ export default function GameToolbar({
       className="sticky top-0 z-20 -mx-4 mb-3 px-4 pt-2 pb-3 bg-[#0d1117]/95 backdrop-blur-md md:static md:z-auto md:mx-0 md:mb-0 md:px-0 md:pt-0 md:pb-0 md:bg-transparent md:backdrop-blur-none"
       style={{ '--toolbar-accent': accent } as CSSProperties}
     >
-      <div className="flex flex-col gap-3 md:flex-row md:flex-nowrap md:items-center md:gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:gap-4 xl:flex-nowrap">
         {/* Search row: filter icon (mobile) + search input */}
         <div className="flex items-center gap-2 w-full md:w-auto md:flex-none">
           <button
@@ -114,10 +114,10 @@ export default function GameToolbar({
 
         <ViewModeSelector viewMode={viewMode} onViewModeChange={onViewModeChange} />
 
-        <div className={`${filtersOpen ? 'block' : 'hidden'} md:block w-full md:w-auto md:min-w-0 md:flex-1`}>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-wrap md:gap-4 border-t border-[var(--border)] md:border-t-0 pt-3 md:pt-0">
+        <div className={`${filtersOpen ? 'block' : 'hidden'} md:block w-full md:basis-full md:min-w-0 xl:basis-auto xl:flex-1`}>
+          <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:gap-x-4 md:gap-y-3 border-t border-[var(--border)] md:border-t-0 pt-3 md:pt-0">
             {/* 100% Only toggle */}
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-3">
               <button
                 role="switch"
                 aria-label="100% Only"
@@ -132,12 +132,12 @@ export default function GameToolbar({
                   }`}
                 />
               </button>
-              <span className="text-sm">100% Only</span>
+              <span className="whitespace-nowrap text-sm">100% Only</span>
             </div>
 
             {/* Optional platform-specific filter (Mythic / Platinum / Completed) */}
             {secondaryFilterLabel && onSecondaryFilterChange && (
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-3">
                 <button
                   role="switch"
                   aria-label={secondaryFilterLabel}
@@ -153,7 +153,7 @@ export default function GameToolbar({
                   />
                 </button>
                 <span
-                  className="text-sm cursor-default"
+                  className="whitespace-nowrap text-sm cursor-default"
                   title={secondaryFilterTitle}
                 >
                   {secondaryFilterLabel}
@@ -162,7 +162,7 @@ export default function GameToolbar({
             )}
 
             {/* Show Hidden toggle */}
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-3">
               <button
                 role="switch"
                 aria-checked={showHidden}
@@ -177,7 +177,7 @@ export default function GameToolbar({
                 />
               </button>
               <span
-                className="text-sm cursor-default"
+                className="whitespace-nowrap text-sm cursor-default"
                 title={showHiddenTitle}
               >
                 Show Hidden
@@ -186,8 +186,8 @@ export default function GameToolbar({
 
             {/* Generation/platform filter */}
             {generationOptions && (
-              <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
-                <label className="text-sm text-gray-400">Platform:</label>
+              <div className="flex shrink-0 flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
+                <label className="whitespace-nowrap text-sm text-gray-400">Platform:</label>
                 <select
                   value={generationFilter}
                   onChange={(e) => onGenerationFilterChange(e.target.value)}
@@ -201,8 +201,8 @@ export default function GameToolbar({
             )}
 
             {/* Sort */}
-            <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
-              <label className="text-sm text-gray-400">Sort:</label>
+            <div className="flex shrink-0 flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
+              <label className="whitespace-nowrap text-sm text-gray-400">Sort:</label>
               <select
                 value={sortBy}
                 onChange={(e) => onSortByChange(e.target.value)}

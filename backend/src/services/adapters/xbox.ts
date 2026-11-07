@@ -12,6 +12,7 @@ import { AdaptiveThrottler } from '../adaptiveThrottler.js';
 import { AdaptiveConcurrencyController } from '../adaptiveConcurrencyController.js';
 import { SYNC_DEFAULTS } from '../syncDefaults.js';
 import type { SteamGridDBAdapter } from './steamgriddb.js';
+import type { SyncProgressTracker } from '../syncProgress.js';
 
 // ---------------------------------------------------------------------------
 // Microsoft Store search — rate-limit / anti-bot protection
@@ -138,6 +139,10 @@ export interface XboxTitleHubMeta {
   /** `baseGameCount` is a 0/1 group-presence flag, not an achievement count. */
   hasBaseGameGroup?: boolean;
   baseGameCompleted?: boolean;
+  /** Number of achievements the user has earned for this title. */
+  currentAchievements?: number;
+  /** Total achievements in the title's catalog (used to plan icon work). */
+  totalAchievements?: number;
 }
 
 /** Aggregate Mythic / achievement stats returned by the TitleHub API. */
@@ -1027,6 +1032,8 @@ export class XboxAdapter {
       isMythic?: boolean | number;
       baseGameCount?: number;
       baseGameCompleted?: boolean | number;
+      currentAchievements?: number | string;
+      totalAchievements?: number | string;
       achievementSummary?: XboxAchievementSummary;
     };
     type TitleHubTitle = TitleHubAchievement & {
@@ -1095,17 +1102,21 @@ export class XboxAdapter {
 
           const readBoolean = (key: 'isMythic' | 'baseGameCompleted') =>
             toBoolean(sources.find((source) => source[key] !== undefined)?.[key]);
-          const readNumber = (key: 'baseGameCount') =>
+          const readNumber = (key: 'baseGameCount' | 'currentAchievements' | 'totalAchievements') =>
             toFiniteNumber(sources.find((source) => source[key] !== undefined)?.[key]);
 
           const meta: XboxTitleHubMeta = {};
           const isMythic = readBoolean('isMythic');
           const baseGameCount = readNumber('baseGameCount');
           const baseGameCompleted = readBoolean('baseGameCompleted');
+          const currentAchievements = readNumber('currentAchievements');
+          const totalAchievements = readNumber('totalAchievements');
 
           if (isMythic !== undefined) meta.isMythic = isMythic;
           if (baseGameCount !== undefined) meta.hasBaseGameGroup = baseGameCount > 0;
           if (baseGameCompleted !== undefined) meta.baseGameCompleted = baseGameCompleted;
+          if (currentAchievements !== undefined) meta.currentAchievements = currentAchievements;
+          if (totalAchievements !== undefined) meta.totalAchievements = totalAchievements;
 
           if ((baseGameCompleted ?? isMythic) === true) {
             earnedMythicsFromTitles++;
@@ -2436,6 +2447,7 @@ export class XboxAdapter {
     titles: XboxTitleHistory[],
     syncOperation: any,
     steamGridDBAdapter: SteamGridDBAdapter | null,
+    progress?: SyncProgressTracker,
   ): Promise<Map<string, { capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string }>> {
     const concurrencyController = new AdaptiveConcurrencyController(
       syncOperation.adaptiveParams.concurrency,
@@ -2453,9 +2465,74 @@ export class XboxAdapter {
 
     logger.info({ total: eligibleTitles.length, syncOperationId: syncOperation._id }, 'Starting Xbox game image downloads');
 
+    // Pre-flight cache check: only report/download games that are missing at
+    // least one of their standard images. This keeps repeat syncs honest.
+    let titlesToDownload = eligibleTitles;
+    const cachedGameImages = new Map<string, {
+      capsuleImagePath?: string;
+      iconImagePath?: string;
+      heroImagePath?: string;
+    }>();
+
+    if (progress) {
+      const missing: XboxTitleHistory[] = [];
+      logger.info(
+        { total: eligibleTitles.length, syncOperationId: syncOperation._id },
+        'Checking local Xbox game image cache',
+      );
+
+      for (let index = 0; index < eligibleTitles.length; index++) {
+        const title = eligibleTitles[index];
+        const cached = imageStorage.checkCachedGameImages('xbox', title.titleId);
+        if (cached.capsuleImagePath && cached.iconImagePath && cached.heroImagePath) {
+          cachedGameImages.set(title.titleId, cached);
+        } else {
+          missing.push(title);
+        }
+
+        if ((index + 1) % 100 === 0 && index + 1 < eligibleTitles.length) {
+          logger.info(
+            { checked: index + 1, total: eligibleTitles.length, cached: cachedGameImages.size },
+            'Xbox game image cache check progress',
+          );
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+      }
+
+      logger.info(
+        {
+          total: eligibleTitles.length,
+          cached: cachedGameImages.size,
+          missing: missing.length,
+          syncOperationId: syncOperation._id,
+        },
+        'Xbox game image cache check complete',
+      );
+
+      titlesToDownload = missing;
+
+      await progress.begin(
+        'game-images',
+        missing.length,
+        missing.length === 0
+          ? 'Game images already up to date'
+          : `Downloading game images... (0/${missing.length})`,
+        { imagesCompleted: cachedGameImages.size },
+      );
+
+      if (missing.length === 0) {
+        await progress.complete('Game images already up to date', {
+          imagesCompleted: eligibleTitles.length,
+        });
+        return new Map(eligibleTitles.map((title) => [title.titleId, cachedGameImages.get(title.titleId)!]));
+      }
+    }
+
+    let imagesCompleted = 0;
+
     const gameImageResults = await Promise.all(
-      eligibleTitles.map((title) =>
-        concurrencyController.execute(async () => {
+      titlesToDownload.map(async (title) => {
+        const result = await concurrencyController.execute(async () => {
           let imagePath: string | undefined;
           let imageSource = 'none';
 
@@ -2760,22 +2837,48 @@ export class XboxAdapter {
           ]);
 
           return { titleId: title.titleId, capsuleImagePath: imagePath, heroImagePath, iconImagePath };
-        }),
-      ),
+        });
+
+        imagesCompleted++;
+        if (progress && (imagesCompleted % 5 === 0 || imagesCompleted === titlesToDownload.length)) {
+          await progress.update(
+            imagesCompleted,
+            `Downloading game images... (${imagesCompleted}/${titlesToDownload.length})`,
+            { imagesCompleted: cachedGameImages.size + imagesCompleted },
+          );
+        }
+
+        return result;
+      }),
     );
 
-    const gameImageMap = new Map(gameImageResults.map((r) => [r.titleId, {
-      capsuleImagePath: r.capsuleImagePath,
-      iconImagePath: r.iconImagePath,
-      heroImagePath: r.heroImagePath,
-    }]));
+    const gameImageMap = new Map<string, {
+      capsuleImagePath?: string;
+      iconImagePath?: string;
+      heroImagePath?: string;
+    }>();
+
+    for (const [titleId, paths] of cachedGameImages) {
+      gameImageMap.set(titleId, paths);
+    }
+    for (const result of gameImageResults) {
+      gameImageMap.set(result.titleId, {
+        capsuleImagePath: result.capsuleImagePath,
+        iconImagePath: result.iconImagePath,
+        heroImagePath: result.heroImagePath,
+      });
+    }
 
     // Update imagesCompleted count on the sync operation
-    const imagesDownloaded = gameImageResults.filter((r) => r.capsuleImagePath).length;
-    await SyncOperation.updateOne(
-      { _id: syncOperation._id },
-      { $set: { imagesCompleted: imagesDownloaded } },
-    );
+    const imagesDownloaded = gameImageResults.filter((r) => r.capsuleImagePath).length + cachedGameImages.size;
+    if (progress) {
+      await progress.complete('Game images ready', { imagesCompleted: imagesDownloaded });
+    } else {
+      await SyncOperation.updateOne(
+        { _id: syncOperation._id },
+        { $set: { imagesCompleted: imagesDownloaded } },
+      );
+    }
 
     logger.info({ total: eligibleTitles.length, imagesDownloaded, skipped, syncOperationId: syncOperation._id }, 'All Xbox game images downloaded');
     return gameImageMap;
@@ -2783,7 +2886,14 @@ export class XboxAdapter {
 
   /**
    * Sync achievements for all titles with adaptive batch/throttle/concurrency control.
-   * Handles: achievement fetching, icon downloads, game stat updates, DB upserts, and cancellation.
+   *
+   * The sync is split into explicit passes:
+   *  1. Fetch every title's achievement catalog (exact work is now known).
+   *  2. Pre-check icon caches, then download only the missing icons.
+   *  3. Save games and achievements.
+   *
+   * This avoids the old behaviour where the icon denominator grew while icons
+   * were already being downloaded, which could make progress move backwards.
    */
   async syncAchievements(
     titles: XboxTitleHistory[],
@@ -2792,6 +2902,8 @@ export class XboxAdapter {
     userHash: string,
     syncOperation: any,
     gameIdToMongoId: Map<string, any>,
+    gameImageMap?: Map<string, { capsuleImagePath?: string; iconImagePath?: string; heroImagePath?: string }>,
+    progress?: SyncProgressTracker,
   ): Promise<number> {
     const { isSyncCancelled } = await import('../syncCancellation.js');
 
@@ -2801,15 +2913,28 @@ export class XboxAdapter {
     const throttler = new AdaptiveThrottler(SYNC_DEFAULTS.DELAY);
     const concurrencyController = new AdaptiveConcurrencyController(SYNC_DEFAULTS.CONCURRENCY, SYNC_DEFAULTS.MAX_CONCURRENCY, SYNC_DEFAULTS.MIN_CONCURRENCY);
 
-    // Separate concurrency limiter for icon downloads within each title.
+    // Separate concurrency limiter for icon downloads.
     // Capped at 5 because modern Xbox icons are 1080p+ (5-10 MB each) and
     // higher concurrency saturates bandwidth, causing timeouts on NAS/server setups.
     const iconLimit = pLimit(Math.min(SYNC_DEFAULTS.CONCURRENCY, 5));
 
+    interface FetchedTitle {
+      title: XboxTitleHistory;
+      achievements: XboxAchievement[];
+      totalInCatalog: number;
+      storeProductId?: string;
+    }
+
+    const fetchedTitles: FetchedTitle[] = [];
     let achievementsSynced = 0;
     let titlesProcessed = 0;
+    let plannedAchievements = 0;
 
     logger.info({ startBatchSize: SYNC_DEFAULTS.BATCH_SIZE, maxBatchSize: SYNC_DEFAULTS.MAX_BATCH_SIZE, startConcurrency: SYNC_DEFAULTS.CONCURRENCY, maxConcurrency: SYNC_DEFAULTS.MAX_CONCURRENCY, syncOperationId: syncOperation._id }, 'Xbox adaptive controllers initialized for achievement sync');
+
+    // -----------------------------------------------------------------------
+    // Pass 1: fetch every title's achievement catalog.
+    // -----------------------------------------------------------------------
 
     for (let batchOffset = 0; batchOffset < titles.length;) {
       if (isSyncCancelled(syncOperation._id.toString())) {
@@ -2841,6 +2966,7 @@ export class XboxAdapter {
               const gId = gameIdToMongoId.get(title.titleId);
               if (gId) await Game.deleteOne({ _id: gId }).catch(() => {});
             }
+            titlesProcessed++;
             return;
           }
 
@@ -2851,10 +2977,6 @@ export class XboxAdapter {
           );
 
           const gameMongoId = gameIdToMongoId.get(title.titleId);
-          if (!gameMongoId) {
-            logger.warn({ titleId: title.titleId }, 'Xbox game not found after upsert, skipping achievements');
-            return;
-          }
 
           if (achievements.length === 0) {
             if (title.inEarnedScan) {
@@ -2864,11 +2986,13 @@ export class XboxAdapter {
               );
               return;
             }
-            logger.info(
-              { titleId: title.titleId, name: title.name },
-              'Removing game — per-title achievements API returned 0 achievements',
-            );
-            await Game.deleteOne({ _id: gameMongoId });
+            if (gameMongoId) {
+              logger.info(
+                { titleId: title.titleId, name: title.name },
+                'Removing game — per-title achievements API returned 0 achievements',
+              );
+              await Game.deleteOne({ _id: gameMongoId });
+            }
             return;
           }
 
@@ -2883,15 +3007,295 @@ export class XboxAdapter {
               );
               return;
             }
-            logger.info(
-              { titleId: title.titleId, name: title.name, totalInCatalog: realTotal },
-              'Removing game — achievements API confirms 0 earned achievements',
-            );
-            await Game.deleteOne({ _id: gameMongoId });
+            if (gameMongoId) {
+              logger.info(
+                { titleId: title.titleId, name: title.name, totalInCatalog: realTotal },
+                'Removing game — achievements API confirms 0 earned achievements',
+              );
+              await Game.deleteOne({ _id: gameMongoId });
+            }
             return;
           }
 
-          const realCompletionPercent = Math.round((unlockedCount / realTotal) * 100);
+          plannedAchievements += realTotal;
+          fetchedTitles.push({
+            title,
+            achievements,
+            totalInCatalog: realTotal,
+            storeProductId: achievementStoreProductId,
+          });
+
+          // Titles finish concurrently, so keep the legacy counter monotonic.
+          syncOperation.gamesProcessed = Math.max(syncOperation.gamesProcessed ?? 0, titlesProcessed);
+
+          if (progress && (titlesProcessed % 5 === 0 || titlesProcessed === titles.length)) {
+            await progress.update(
+              titlesProcessed,
+              `Fetching achievement data... (${titlesProcessed}/${titles.length})`,
+              {
+                gamesProcessed: syncOperation.gamesProcessed,
+                totalAchievements: plannedAchievements,
+              },
+            );
+          }
+        }),
+      ));
+
+      const batchDuration = Date.now() - batchStartTime;
+      const batchStats = batchController.getStats();
+      logger.info({
+        batchOffset,
+        batchSize: currentBatchSize,
+        batchDuration,
+        concurrency: concurrencyController.getConcurrency(),
+        avgResponseTime: batchStats.averageResponseTime,
+        total: titles.length,
+        syncOperationId: syncOperation._id,
+      }, 'Xbox achievement fetch batch progress');
+
+      batchController.adjustBatchSize(batchDuration);
+
+      // Keep concurrency in sync — never exceed batch size
+      concurrencyController.capConcurrency(batchController.getBatchSize());
+
+      if (batchOffset + currentBatchSize < titles.length) {
+        await throttler.throttle(batchDuration);
+      }
+
+      batchOffset += currentBatchSize;
+    }
+
+    if (progress) {
+      await progress.complete('Achievement data fetched', {
+        totalGames: fetchedTitles.length,
+        totalAchievements: plannedAchievements,
+        gamesProcessed: titlesProcessed,
+      });
+    }
+
+    syncOperation.totalGames = fetchedTitles.length;
+    syncOperation.totalAchievements = plannedAchievements;
+    await syncOperation.save();
+
+    // -----------------------------------------------------------------------
+    // Pass 2: download achievement icons (after an exact cache pre-check).
+    // -----------------------------------------------------------------------
+
+    if (!isSyncCancelled(syncOperation._id.toString())) {
+      interface IconWork {
+        title: XboxTitleHistory;
+        achievement: XboxAchievement;
+        isXbox360: boolean;
+      }
+
+      const iconWork: IconWork[] = [];
+      const iconMap = new Map<string, string | undefined>();
+      const iconKey = (titleId: string, achievementId: string) => `${titleId}:${achievementId}`;
+
+      logger.info(
+        {
+          totalTitles: fetchedTitles.length,
+          totalAchievements: fetchedTitles.reduce((sum, fetched) => sum + fetched.achievements.length, 0),
+          syncOperationId: syncOperation._id,
+        },
+        'Checking Xbox achievement icon cache',
+      );
+
+      for (const fetched of fetchedTitles) {
+        const isXbox360 = (fetched.title.platform ?? '').toLowerCase().includes('360');
+        const achievementsWithIcons = fetched.achievements.filter((achievement) => !!achievement.iconUrl);
+        if (achievementsWithIcons.length === 0) continue;
+
+        const cachedPaths = imageStorage.checkLocalFiles(
+          'xbox',
+          fetched.title.titleId,
+          achievementsWithIcons.map((achievement) => ({
+            achievementId: achievement.achievementId,
+            imageType: 'icon' as const,
+          })),
+        );
+
+        achievementsWithIcons.forEach((achievement, index) => {
+          const key = iconKey(fetched.title.titleId, achievement.achievementId);
+          const cached = cachedPaths[index];
+          if (cached) {
+            iconMap.set(key, cached);
+          } else {
+            iconWork.push({ title: fetched.title, achievement, isXbox360 });
+          }
+        });
+      }
+
+      const plannedIcons = iconMap.size + iconWork.length;
+      syncOperation.iconDownloadsPending = plannedIcons;
+      syncOperation.iconDownloadsCompleted = iconMap.size;
+
+      logger.info(
+        {
+          totalTitles: fetchedTitles.length,
+          cachedIcons: iconMap.size,
+          missingIcons: iconWork.length,
+          syncOperationId: syncOperation._id,
+        },
+        'Xbox achievement icon cache check complete',
+      );
+
+      if (progress) {
+        await progress.begin(
+          'icons',
+          iconWork.length,
+          iconWork.length === 0
+            ? 'Achievement icons already up to date'
+            : `Downloading achievement icons... (0/${iconWork.length})`,
+          {
+            iconDownloadsPending: plannedIcons,
+            iconDownloadsCompleted: iconMap.size,
+            iconDownloadsFailed: 0,
+          },
+        );
+      }
+
+      if (iconWork.length > 0) {
+        // Xbox Live auth headers for non-360 icon downloads. The CDN may
+        // throttle/block unauthenticated requests from server IPs.
+        const xblIconHeaders: Record<string, string> = {
+          Authorization: `XBL3.0 x=${userHash};${xstsToken}`,
+        };
+        const ICON_CONCURRENCY = Math.min(SYNC_DEFAULTS.CONCURRENCY, 5);
+        const ICON_TIMEOUT_SECS = 120; // 2 minutes per icon
+
+        let iconsCompleted = 0;
+        let iconIndex = 0;
+        const iconResults = await Promise.all(
+          iconWork.map((work) => iconLimit(async () => {
+            // Stagger concurrent requests: 100ms per slot to spread CDN load.
+            const myIndex = iconIndex++;
+            if (myIndex > 0) {
+              await new Promise((r) => setTimeout(r, 100 * (myIndex % ICON_CONCURRENCY)));
+            }
+
+            let iconPath: string | undefined;
+            try {
+              iconPath = work.isXbox360
+                ? await imageStorage.downloadAndStoreViaWget(
+                    work.achievement.iconUrl!, 'xbox', work.title.titleId, work.achievement.achievementId, 'icon',
+                  )
+                : await imageStorage.downloadAndStoreViaWget(
+                    work.achievement.iconUrl!, 'xbox', work.title.titleId, work.achievement.achievementId, 'icon',
+                    xblIconHeaders,
+                    ICON_TIMEOUT_SECS,
+                  );
+              logger.debug({ url: work.achievement.iconUrl, titleId: work.title.titleId, achievementId: work.achievement.achievementId, isXbox360: work.isXbox360 }, 'Xbox achievement icon downloaded');
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              logger.warn({ url: work.achievement.iconUrl, titleId: work.title.titleId, achievementId: work.achievement.achievementId, isXbox360: work.isXbox360, err: msg }, 'Xbox achievement icon download failed');
+              iconPath = imageStorage.checkLocalFile('xbox', work.title.titleId, work.achievement.achievementId, 'icon') || undefined;
+            }
+
+            iconsCompleted++;
+            if (progress && (iconsCompleted % 50 === 0 || iconsCompleted === iconWork.length)) {
+              await progress.update(
+                iconsCompleted,
+                `Downloading achievement icons... (${iconsCompleted}/${iconWork.length})`,
+                {
+                  iconDownloadsCompleted: iconMap.size + iconsCompleted,
+                },
+              );
+            }
+
+            return {
+              key: iconKey(work.title.titleId, work.achievement.achievementId),
+              iconPath,
+            };
+          })),
+        );
+
+        for (const result of iconResults) {
+          iconMap.set(result.key, result.iconPath);
+        }
+
+        if (progress) {
+          await progress.complete('Achievement icons ready', {
+            iconDownloadsPending: plannedIcons,
+            iconDownloadsCompleted: plannedIcons,
+          });
+        }
+      } else if (progress) {
+        await progress.complete('Achievement icons already up to date', {
+          iconDownloadsPending: plannedIcons,
+          iconDownloadsCompleted: plannedIcons,
+        });
+      }
+
+      // ---------------------------------------------------------------------
+      // Pass 3: save games and achievements.
+      // ---------------------------------------------------------------------
+
+      if (progress) {
+        await progress.begin(
+          'saving',
+          fetchedTitles.length,
+          `Saving games and achievements... (0/${fetchedTitles.length})`,
+          { iconDownloadsPending: plannedIcons, iconDownloadsCompleted: plannedIcons },
+        );
+      }
+
+      let savedTitles = 0;
+
+      for (const fetched of fetchedTitles) {
+        if (isSyncCancelled(syncOperation._id.toString())) {
+          logger.info({ syncOperationId: syncOperation._id }, 'Xbox sync cancelled before saving');
+          break;
+        }
+
+        const { title, achievements, totalInCatalog, storeProductId } = fetched;
+        const realTotal = totalInCatalog || achievements.length;
+        const unlockedCount = achievements.filter((a) => a.isUnlocked).length;
+        const realCompletionPercent = Math.round((unlockedCount / realTotal) * 100);
+
+        try {
+          let gameMongoId = gameIdToMongoId.get(title.titleId);
+
+          // The title passed the authoritative achievement check, so create the
+          // library entry now.
+          if (!gameMongoId) {
+            const cleanTitle = title.name
+              .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, '')
+              .replace(/\s{2,}/g, ' ')
+              .trim();
+            const imagePaths = gameImageMap?.get(title.titleId);
+            const createdGame = await Game.findOneAndUpdate(
+              { profileId: syncOperation.profileId, platform: 'xbox', gameId: title.titleId },
+              {
+                $setOnInsert: {
+                  profileId: syncOperation.profileId,
+                  platform: 'xbox',
+                  gameId: title.titleId,
+                  title: cleanTitle,
+                  achievementsTotal: realTotal,
+                  achievementsUnlocked: unlockedCount,
+                  completionPercent: realCompletionPercent,
+                  devices: title.devices,
+                  currentGamerscore: title.currentGamerscore ?? 0,
+                  maxGamerscore: title.maxGamerscore ?? 0,
+                  ...(title.isMythic !== undefined && { isMythic: title.isMythic }),
+                  ...(title.hasBaseGameGroup !== undefined && {
+                    hasAchievementGroups: title.hasBaseGameGroup,
+                  }),
+                  ...(title.lastPlayed !== undefined && { lastPlayed: new Date(title.lastPlayed) }),
+                  lastSyncedAt: new Date(),
+                  ...(imagePaths?.capsuleImagePath && { capsuleImagePath: imagePaths.capsuleImagePath }),
+                  ...(imagePaths?.iconImagePath && { iconImagePath: imagePaths.iconImagePath }),
+                  ...(imagePaths?.heroImagePath && { heroImagePath: imagePaths.heroImagePath }),
+                },
+              },
+              { upsert: true, new: true },
+            );
+            gameMongoId = createdGame._id;
+            gameIdToMongoId.set(title.titleId, gameMongoId);
+            logger.info({ titleId: title.titleId, name: title.name }, 'Created Xbox game after confirming achievements');
+          }
+
           const maxGS = achievements.reduce((s, a) => s + (a.gamerscore ?? 0), 0);
           const currentGS = achievements
             .filter((a) => a.isUnlocked)
@@ -2913,9 +3317,8 @@ export class XboxAdapter {
             gsUpdate.baseGameAchievementsUnlocked = baseGameUnlocked;
             gsUpdate.hasAchievementGroups = true;
             // The BaseGame group is the source of truth for Mythic status.
-            // Mark the game as earned as soon as the group is complete, even
-            // when TitleHub's flags are missing or stale. Mythic is permanent,
-            // so an incomplete group never clears an existing earned flag.
+            // Mythic is permanent, so an incomplete group never clears an
+            // existing earned flag.
             if (baseGameUnlocked === baseGameAchievements.length) {
               gsUpdate.isMythic = true;
             }
@@ -2934,12 +3337,12 @@ export class XboxAdapter {
           await Game.findByIdAndUpdate(gameMongoId, gameUpdate);
 
           // Authenticated image fallback: use GS5 productId for Emerald lookup
-          if (achievementStoreProductId) {
+          if (storeProductId) {
             const existingGame = await Game.findById(gameMongoId).select('capsuleImagePath').lean();
             if (!existingGame?.capsuleImagePath) {
-              logger.info({ titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId }, '[IMG P6-auth] No image yet — trying Emerald with GS5 productId');
+              logger.info({ titleId: title.titleId, name: title.name, storeProductId }, '[IMG P6-auth] No image yet — trying Emerald with GS5 productId');
               try {
-                const emeraldUrl = await this.fetchEmeraldImageUrl(achievementStoreProductId);
+                const emeraldUrl = await this.fetchEmeraldImageUrl(storeProductId);
                 if (emeraldUrl) {
                   const emeraldPath = await imageStorage.downloadAndStore(
                     emeraldUrl, 'xbox', title.titleId, 'game', 'grid',
@@ -2947,18 +3350,18 @@ export class XboxAdapter {
                   if (emeraldPath) {
                     await Game.findByIdAndUpdate(gameMongoId, { $set: { capsuleImagePath: emeraldPath } });
                     logger.info(
-                      { titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId, capsuleImagePath: emeraldPath },
+                      { titleId: title.titleId, name: title.name, storeProductId, capsuleImagePath: emeraldPath },
                       '[IMG P6-auth] Image fetched from Emerald via authenticated GS5 productId',
                     );
                   } else {
                     logger.warn({ titleId: title.titleId, name: title.name, emeraldUrl }, '[IMG P6-auth] Emerald image download returned no path');
                   }
                 } else {
-                  logger.warn({ titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId }, '[IMG P6-auth] Emerald returned no URL for GS5 productId');
+                  logger.warn({ titleId: title.titleId, name: title.name, storeProductId }, '[IMG P6-auth] Emerald returned no URL for GS5 productId');
                 }
               } catch (err) {
                 logger.warn(
-                  { titleId: title.titleId, name: title.name, storeProductId: achievementStoreProductId, err: String(err) },
+                  { titleId: title.titleId, name: title.name, storeProductId, err: String(err) },
                   '[IMG P6-auth] Emerald authenticated fallback threw',
                 );
               }
@@ -2969,88 +3372,9 @@ export class XboxAdapter {
             logger.debug({ titleId: title.titleId, name: title.name }, '[IMG P6-auth] Skipped — no GS5 productId available (Xbox 360 title or GS5 achievement response was empty)');
           }
 
-          syncOperation.totalAchievements += realTotal;
-          syncOperation.iconDownloadsPending += realTotal;
-          await SyncOperation.findByIdAndUpdate(syncOperation._id, {
-            totalAchievements: syncOperation.totalAchievements,
-            iconDownloadsPending: syncOperation.iconDownloadsPending,
-          });
-
-          const isXbox360Title = (title.platform ?? '').toLowerCase().includes('360');
-
-          if (isXbox360Title) {
-            logger.debug({ titleId: title.titleId, name: title.name, achievementCount: achievements.length }, 'GS4 title — icon URLs generated from public CDN, downloading below');
-          }
-
-          // Build Xbox Live auth headers for non-360 icon downloads.
-          // The images-eds-ssl.xboxlive.com CDN may throttle/block unauthenticated
-          // requests from server IPs; passing the XBL3.0 token prevents timeouts.
-          const xblIconHeaders: Record<string, string> = {
-            Authorization: `XBL3.0 x=${userHash};${xstsToken}`,
-          };
-
-          // Download achievement icons concurrently with staggered starts
-          // to avoid overwhelming the Xbox CDN (images-eds-ssl.xboxlive.com).
-          // All Xbox icons (360 and modern) use wget — it streams directly to disk
-          // which is far better for modern 1080p+ images (5-10 MB each) than
-          // buffering in Node.js memory via fetch.
-          const ICON_CONCURRENCY = Math.min(SYNC_DEFAULTS.CONCURRENCY, 5);
-          const ICON_TIMEOUT_SECS = 120; // 2 minutes per icon
-          let iconIndex = 0;
-          const iconPromises = achievements.map((ach) =>
-            iconLimit(async () => {
-              // Stagger concurrent requests: 100ms per slot to spread CDN load
-              const myIndex = iconIndex++;
-              if (myIndex > 0) {
-                await new Promise((r) => setTimeout(r, 100 * (myIndex % ICON_CONCURRENCY)));
-              }
-              let iconPath: string | undefined;
-
-              if (ach.iconUrl) {
-                try {
-                  iconPath = isXbox360Title
-                    ? await imageStorage.downloadAndStoreViaWget(
-                        ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
-                      )
-                    : await imageStorage.downloadAndStoreViaWget(
-                        ach.iconUrl, 'xbox', title.titleId, ach.achievementId, 'icon',
-                        xblIconHeaders,
-                        ICON_TIMEOUT_SECS,
-                      );
-                  logger.debug({ url: ach.iconUrl, titleId: title.titleId, achievementId: ach.achievementId, isXbox360Title }, 'Xbox achievement icon downloaded');
-                } catch (err) {
-                  const msg = err instanceof Error ? err.message : String(err);
-                  logger.warn({ url: ach.iconUrl, titleId: title.titleId, achievementId: ach.achievementId, isXbox360Title, err: msg }, 'Xbox achievement icon download failed');
-                  iconPath = imageStorage.checkLocalFile('xbox', title.titleId, ach.achievementId, 'icon') || undefined;
-                }
-              }
-
-              syncOperation.iconDownloadsCompleted++;
-              if (syncOperation.iconDownloadsCompleted % 50 === 0) {
-                await SyncOperation.findByIdAndUpdate(syncOperation._id, {
-                  iconDownloadsCompleted: syncOperation.iconDownloadsCompleted,
-                });
-                logger.info(
-                  {
-                    syncOperationId: syncOperation._id,
-                    iconDownloadsCompleted: syncOperation.iconDownloadsCompleted,
-                    iconDownloadsPending: syncOperation.iconDownloadsPending,
-                  },
-                  'Xbox icon download progress',
-                );
-              }
-              return { achievementId: ach.achievementId, iconPath };
-            }),
-          );
-
-          const iconResults = await Promise.all(iconPromises.map((p) => p.catch(() => null)));
-          const iconMap = new Map(
-            iconResults.filter(Boolean).map((r) => [r!.achievementId, r!.iconPath]),
-          );
-
           // Bulk upsert achievements for this title
           const bulkOps = achievements.map((ach) => {
-            const iconPath = iconMap.get(ach.achievementId);
+            const iconPath = iconMap.get(iconKey(title.titleId, ach.achievementId));
             const updateFields: any = {
               platform: 'xbox',
               profileId: syncOperation.profileId,
@@ -3080,37 +3404,37 @@ export class XboxAdapter {
             try {
               await Achievement.bulkWrite(bulkOps, { ordered: false });
               achievementsSynced += bulkOps.length;
-              await SyncOperation.findByIdAndUpdate(syncOperation._id, { achievementsSynced });
               syncOperation.achievementsSynced = achievementsSynced;
             } catch (error) {
               logger.error({ error, titleId: title.titleId }, 'Failed to upsert Xbox achievements');
             }
           }
-        }),
-      ));
+        } catch (error) {
+          logger.error({ error, titleId: title.titleId, name: title.name }, 'Failed to save Xbox title');
+        }
 
-      const batchDuration = Date.now() - batchStartTime;
-      const batchStats = batchController.getStats();
-      logger.info({
-        batchOffset,
-        batchSize: currentBatchSize,
-        batchDuration,
-        concurrency: concurrencyController.getConcurrency(),
-        avgResponseTime: batchStats.averageResponseTime,
-        total: titles.length,
-        syncOperationId: syncOperation._id,
-      }, 'Xbox achievement sync batch progress');
-
-      batchController.adjustBatchSize(batchDuration);
-
-      // Keep concurrency in sync — never exceed batch size
-      concurrencyController.capConcurrency(batchController.getBatchSize());
-
-      if (batchOffset + currentBatchSize < titles.length) {
-        await throttler.throttle(batchDuration);
+        savedTitles++;
+        if (progress && (savedTitles % 5 === 0 || savedTitles === fetchedTitles.length)) {
+          await progress.update(
+            savedTitles,
+            `Saving games and achievements... (${savedTitles}/${fetchedTitles.length})`,
+            {
+              gamesProcessed: savedTitles,
+              achievementsSynced,
+              iconDownloadsCompleted: plannedIcons,
+            },
+          );
+        }
       }
 
-      batchOffset += currentBatchSize;
+      if (progress) {
+        await progress.complete('Games and achievements saved', {
+          gamesProcessed: fetchedTitles.length,
+          achievementsSynced,
+          iconDownloadsPending: plannedIcons,
+          iconDownloadsCompleted: plannedIcons,
+        });
+      }
     }
 
     // Update adaptive params with final values
@@ -3130,6 +3454,7 @@ export class XboxAdapter {
       logger.info({ syncOperationId: syncOperation._id }, 'Xbox sync cancelled');
     }
 
+    await syncOperation.save();
     return achievementsSynced;
   }
 }

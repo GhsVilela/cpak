@@ -52,6 +52,7 @@ interface SyncStatus {
     status: string;
     progress: number;
     message: string;
+    phase?: string;
   };
   lastCompleted?: {
     completedAt: string;
@@ -75,7 +76,12 @@ interface PSNProfile {
   displayName: string;
   platform: string;
   credentials?: {
+    configured?: boolean;
+    /** Access-token expiry. */
     expiresAt?: string;
+    /** Refresh-token expiry — the actual PSN login lifetime. */
+    refreshTokenExpiresAt?: string;
+    refreshTokenConfigured?: boolean;
   };
 }
 
@@ -100,8 +106,14 @@ function PlayStationPageContent() {
   const [totalCount, setTotalCount] = useState(0);
   const [sortBy, setSortBy] = useState<string>('completionPercent');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(100);
+  const [currentPage, setCurrentPage] = useState(() => {
+    const page = Number(searchParams.get('page'));
+    return Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  });
+  const [itemsPerPage, setItemsPerPage] = useState(() => {
+    const perPage = Number(searchParams.get('perPage'));
+    return [50, 100, 200, 500].includes(perPage) ? perPage : 100;
+  });
   const [reloadTrigger, setReloadTrigger] = useState(0);
   const [generationFilter, setGenerationFilter] = useState('');
   const [trophySummary, setTrophySummary] = useState<TrophySummary | undefined>(undefined);
@@ -150,10 +162,21 @@ function PlayStationPageContent() {
     }).catch(() => {/* ignore */});
   }, [selectedProfileId]);
 
-  // Check if token is expired
+  // Check if the PSN login is actually expired.
+  //
+  // `expiresAt` is only the short-lived access-token expiry (about one hour).
+  // The account is still usable as long as the long-lived refresh token is
+  // valid, so only fall back to `expiresAt` when no refresh token exists.
+  const psnCredentials = selectedProfile?.credentials;
   const tokenExpired =
-    selectedProfile?.credentials?.expiresAt &&
-    new Date(selectedProfile.credentials.expiresAt) < new Date();
+    !!psnCredentials &&
+    (
+      psnCredentials.refreshTokenExpiresAt
+        ? new Date(psnCredentials.refreshTokenExpiresAt) < new Date()
+        : psnCredentials.refreshTokenConfigured === false && !!psnCredentials.expiresAt
+          ? new Date(psnCredentials.expiresAt) < new Date()
+          : false
+    );
 
   useEffect(() => {
     if (selectedProfileId) {
@@ -180,6 +203,23 @@ function PlayStationPageContent() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProfileId, sortBy, sortOrder, currentPage, itemsPerPage, reloadTrigger, generationFilter, searchQuery]);
+
+  // Keep the current page/per-page in the URL so returning from a game
+  // (browser back or the in-app back button) restores the same pagination.
+  useEffect(() => {
+    if (!selectedProfileId) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('profileId', selectedProfileId);
+    if (currentPage > 1) params.set('page', String(currentPage));
+    else params.delete('page');
+    if (itemsPerPage !== 100) params.set('perPage', String(itemsPerPage));
+    else params.delete('perPage');
+
+    const next = params.toString();
+    if (next !== searchParams.toString()) {
+      router.replace(`/playstation${next ? `?${next}` : ''}`, { scroll: false });
+    }
+  }, [currentPage, itemsPerPage, selectedProfileId, searchParams, router]);
 
   // Reload when toggle changes
   const toggleReloadRef = useRef(false);
@@ -251,6 +291,7 @@ function PlayStationPageContent() {
       setSyncPollInterval(null);
     }
     setSelectedProfileId(profileId);
+    setCurrentPage(1);
     router.push(`/playstation?profileId=${profileId}`, { scroll: false });
   };
 

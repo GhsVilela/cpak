@@ -105,10 +105,20 @@ describe('GameTile', () => {
     const game = { ...mockGame, platform: 'xbox' as const, isMythic: true };
     render(<GameTile game={game} />);
     const icon = screen.getByRole('img', { name: 'Mythic achievement earned' });
+    const titleRow = screen.getByText('Half-Life 3').closest('h3')!;
+    expect(titleRow).not.toHaveClass('flex-1');
+    expect(titleRow).toContainElement(icon);
+    expect(icon.closest('h3')).toBe(titleRow);
+  });
+
+  it('keeps the platform badge inline right after the title text', () => {
+    const game = { ...mockGame, platform: 'xbox' as const, isMythic: true };
+    render(<GameTile game={game} />);
     const title = screen.getByText('Half-Life 3');
-    expect(title).not.toHaveClass('flex-1');
-    expect(title).toContainElement(icon);
-    expect(icon.closest('h3')).toBe(title);
+    const icon = screen.getByRole('img', { name: 'Mythic achievement earned' });
+    expect(title).not.toHaveClass('flex');
+    expect(icon.parentElement).toHaveClass('inline-flex');
+    expect(icon.parentElement).toHaveClass('align-middle');
   });
 
   it('does not show the Mythic icon when the Mythic is locked', () => {
@@ -122,10 +132,10 @@ describe('GameTile', () => {
     render(<GameTile game={game} />);
     const icon = screen.getByRole('img', { name: 'Platinum trophy earned' });
     const badge = icon.parentElement!;
-    const title = screen.getByText('Half-Life 3');
+    const titleRow = screen.getByText('Half-Life 3').closest('h3')!;
     expect(badge).toHaveClass('rounded-full');
-    expect(title).toContainElement(badge);
-    expect(badge.closest('h3')).toBe(title);
+    expect(titleRow).toContainElement(badge);
+    expect(badge.closest('h3')).toBe(titleRow);
   });
 
   it('does not show the platinum icon when the Platinum is locked', () => {
@@ -144,9 +154,9 @@ describe('GameTile', () => {
     };
     render(<GameTile game={game} />);
     const icon = screen.getByRole('img', { name: 'Completed game' });
-    const title = screen.getByText('Half-Life 3');
-    expect(title).toContainElement(icon);
-    expect(icon.closest('h3')).toBe(title);
+    const titleRow = screen.getByText('Half-Life 3').closest('h3')!;
+    expect(titleRow).toContainElement(icon);
+    expect(icon.closest('h3')).toBe(titleRow);
   });
 
   it('does not show the Steam completion icon when the base game is incomplete', () => {

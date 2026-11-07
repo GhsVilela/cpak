@@ -9,6 +9,10 @@ export interface PlayStationImageBackfillOptions {
   gameIds?: string[];
   /** Skip these game ids (e.g. the ones the sync loop already handled). */
   excludeGameIds?: string[];
+  /** Called after the set of games needing images is known. */
+  onPlan?: (total: number) => Promise<void>;
+  /** Called after each game has been processed. */
+  onProgress?: (completed: number, total: number) => Promise<void>;
 }
 
 /**
@@ -43,15 +47,22 @@ export async function backfillPlayStationGameImages(
   const games = await Game.find(filter).select('gameId title capsuleImagePath heroImagePath');
   if (games.length === 0) return 0;
 
+  // Nothing to do when both the cover art and hero are already in place.
+  const pendingGames = games.filter((game) => !(game.capsuleImagePath && game.heroImagePath));
+  if (pendingGames.length === 0) {
+    if (options.onPlan) await options.onPlan(0);
+    return 0;
+  }
+
+  if (options.onPlan) await options.onPlan(pendingGames.length);
+
   const adapter = createPlayStationAdapter();
   const steamGridDB = await createSteamGridDBAdapter();
 
   let updated = 0;
+  let processed = 0;
 
-  for (const game of games) {
-    // Nothing to do when the cover art is already in place.
-    if (game.capsuleImagePath && game.heroImagePath) continue;
-
+  for (const game of pendingGames) {
     try {
       const imagePaths = await adapter.downloadGameImage(
         game.title,
@@ -64,19 +75,25 @@ export async function backfillPlayStationGameImages(
       if (imagePaths.capsuleImagePath) update.capsuleImagePath = imagePaths.capsuleImagePath;
       if (imagePaths.iconImagePath) update.iconImagePath = imagePaths.iconImagePath;
       if (imagePaths.heroImagePath) update.heroImagePath = imagePaths.heroImagePath;
-      if (Object.keys(update).length === 0) continue;
 
-      await Game.updateOne({ _id: game._id }, { $set: update });
-      updated++;
-      logger.info(
-        { profileId: String(profileId), gameId: game.gameId, title: game.title },
-        '[PlayStation] Downloaded images for game missing from the PSN response',
-      );
+      if (Object.keys(update).length > 0) {
+        await Game.updateOne({ _id: game._id }, { $set: update });
+        updated++;
+        logger.info(
+          { profileId: String(profileId), gameId: game.gameId, title: game.title },
+          '[PlayStation] Downloaded images for game missing from the PSN response',
+        );
+      }
     } catch (err) {
       logger.warn(
         { err, profileId: String(profileId), gameId: game.gameId, title: game.title },
         '[PlayStation] Failed to download images for game missing from the PSN response',
       );
+    }
+
+    processed++;
+    if (options.onProgress) {
+      await options.onProgress(processed, pendingGames.length);
     }
   }
 

@@ -4,6 +4,7 @@ import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
 import SteamCompletionIcon from '../../../../components/SteamCompletionIcon';
+import { isPlatformListUrl } from '../../../../lib/navigation';
 
 interface Game {
   _id: string;
@@ -185,7 +186,7 @@ function AchievementGroupSection({
               {isBaseGame && (
                 <SteamCompletionIcon
                   size={16}
-                  className="shrink-0"
+                  className="shrink-0 translate-y-[0.15em]"
                   muted={!baseGameCompleted}
                   title={baseGameCompleted ? 'Completed game' : 'Base game not completed'}
                 />
@@ -241,6 +242,13 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
   const router = useRouter();
   const searchParams = useSearchParams();
   const profileId = searchParams.get('profileId');
+  const returnTo = searchParams.get('returnTo');
+  const backHref =
+    isPlatformListUrl(returnTo, 'steam')
+      ? returnTo
+      : profileId
+        ? `/steam?profileId=${profileId}`
+        : '/steam';
   const [game, setGame] = useState<Game | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -298,7 +306,7 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
           {error || 'Game not found'}
         </div>
         <button
-          onClick={() => router.push(profileId ? `/steam?profileId=${profileId}` : '/steam')}
+          onClick={() => router.push(backHref)}
           className="text-[var(--steam-accent)] hover:underline"
         >
           ← Back to games
@@ -326,7 +334,7 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
     <div className="mx-auto max-w-4xl">
       {/* Back button */}
       <button
-        onClick={() => router.push(profileId ? `/steam?profileId=${profileId}` : '/steam')}
+        onClick={() => router.push(backHref)}
         className="mb-6 flex items-center gap-2 text-sm text-[var(--steam-accent)] transition hover:underline"
       >
         <span>←</span> Back to games

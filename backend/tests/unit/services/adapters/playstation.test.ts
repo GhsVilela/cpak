@@ -197,6 +197,11 @@ describe('PlayStationAdapter', () => {
       const diff = result.expiresAt.getTime() - Date.now();
       expect(diff).toBeGreaterThan(0);
       expect(diff).toBeLessThan(4_000_000);
+      // The long-lived refresh token expiry must also be preserved (~60 days).
+      expect(result.refreshTokenExpiresAt).toBeInstanceOf(Date);
+      const refreshDiff = result.refreshTokenExpiresAt!.getTime() - Date.now();
+      expect(refreshDiff).toBeGreaterThan(50 * 24 * 60 * 60 * 1000);
+      expect(refreshDiff).toBeLessThan(70 * 24 * 60 * 60 * 1000);
     });
 
     it('throws when exchangeNpssoForAccessCode fails', async () => {
