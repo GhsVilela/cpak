@@ -1146,6 +1146,7 @@ class SyncService {
               trophySilver: title.earnedTrophies.silver,
               trophyGold: title.earnedTrophies.gold,
               trophyPlatinum: title.earnedTrophies.platinum,
+              hasPlatinum: title.definedTrophies.platinum > 0,
               hasAchievementGroups: title.hasTrophyGroups || false,
               lastPlayed: title.lastUpdatedDateTime ? new Date(title.lastUpdatedDateTime) : undefined,
               ...(imagePaths.capsuleImagePath && { capsuleImagePath: imagePaths.capsuleImagePath }),

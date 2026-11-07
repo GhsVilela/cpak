@@ -172,9 +172,11 @@ export async function getGames(
     // Get total count for pagination metadata
     const totalCount = await Game.countDocuments(filter);
 
-    // For Xbox profiles, aggregate total gamerscore across all games (not just current page)
+    // For Xbox profiles, aggregate total gamerscore and achievements across all
+    // games (not just the current page).
     let totalCurrentGamerscore: number | undefined;
     let totalMaxGamerscore: number | undefined;
+    let totalAchievementsUnlocked: number | undefined;
     let mythicAchievementsUnlocked: number | undefined;
     if (filter.platform === 'xbox' && filter.profileId) {
       const gsAgg = await Game.aggregate([
@@ -184,12 +186,14 @@ export async function getGames(
             _id: null,
             totalCurrentGamerscore: { $sum: { $ifNull: ['$currentGamerscore', 0] } },
             totalMaxGamerscore: { $sum: { $ifNull: ['$maxGamerscore', 0] } },
+            totalAchievementsUnlocked: { $sum: { $ifNull: ['$achievementsUnlocked', 0] } },
           },
         },
       ]);
       if (gsAgg.length > 0) {
         totalCurrentGamerscore = gsAgg[0].totalCurrentGamerscore;
         totalMaxGamerscore = gsAgg[0].totalMaxGamerscore;
+        totalAchievementsUnlocked = gsAgg[0].totalAchievementsUnlocked;
       }
 
       // Prefer Xbox's own Mythic total from the TitleHub achievement summary.
@@ -209,7 +213,6 @@ export async function getGames(
     }
 
     // For Steam profiles, aggregate total achievements unlocked across all games
-    let totalAchievementsUnlocked: number | undefined;
     if (filter.platform === 'steam' && filter.profileId) {
       const achAgg = await Game.aggregate([
         { $match: filter },
@@ -374,6 +377,24 @@ export async function getGames(
         }
         return game;
       });
+    }
+
+    // PlayStation: expose whether each game defines a Platinum trophy. New
+    // syncs store this on the game, but fall back to the trophy records so
+    // libraries synced before the flag existed behave the same.
+    if (filter.platform === 'playstation' && filter.profileId && games.length > 0) {
+      const platinumGameIds = await Achievement.distinct('gameId', {
+        platform: 'playstation',
+        profileId: filter.profileId,
+        gameId: { $in: games.map((game) => game._id) },
+        trophyGrade: 'platinum',
+      });
+      const platinumGames = new Set(platinumGameIds.map((id) => String(id)));
+
+      responseGames = responseGames.map((game) => ({
+        ...game,
+        hasPlatinum: game.hasPlatinum === true || platinumGames.has(String(game._id)),
+      }));
     }
 
     reply.send({

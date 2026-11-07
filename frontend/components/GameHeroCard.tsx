@@ -2,10 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import TrophyCounts from './TrophyCounts';
-import MythicIcon from './MythicIcon';
-import PlatinumBadge from './PlatinumBadge';
-import SteamCompletionIcon from './SteamCompletionIcon';
-import { isPlatinumUnlocked, isSteamBaseGameCompleted } from '../lib/completion';
 import { getCurrentListReturnTo } from '../lib/navigation';
 
 interface GameHeroCardProps {
@@ -26,6 +22,8 @@ interface GameHeroCardProps {
     trophySilver?: number;
     trophyGold?: number;
     trophyPlatinum?: number;
+    /** PlayStation: true when the game defines a Platinum trophy. */
+    hasPlatinum?: boolean;
     /** Xbox: true when the game's Mythic achievement has been earned. */
     isMythic?: boolean;
     /** True when achievements/trophies are split into base-game and DLC sets. */
@@ -38,9 +36,10 @@ interface GameHeroCardProps {
   };
   onEdit?: () => void;
   onHide?: () => void;
+  onActions?: () => void;
 }
 
-export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps) {
+export default function GameHeroCard({ game, onEdit, onHide, onActions }: GameHeroCardProps) {
   const router = useRouter();
   const displayTitle = game.customTitle || game.title;
 
@@ -81,6 +80,7 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
     }
 
     const hasTrophyCounts =
+      game.hasPlatinum === true ||
       game.trophyPlatinum != null ||
       game.trophyGold != null ||
       game.trophySilver != null ||
@@ -96,6 +96,7 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
             gold={game.trophyGold}
             silver={game.trophySilver}
             bronze={game.trophyBronze}
+            showPlatinum={game.hasPlatinum === true}
             size={14}
             className="text-sm text-gray-200"
           />
@@ -138,59 +139,44 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
 
         {/* Title & Info overlay */}
         <div className="absolute bottom-0 left-0 right-0 flex flex-col items-start gap-2 px-4 py-3 sm:px-6" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-          <div className="relative flex w-fit max-w-full items-center gap-2">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 backdrop-blur-[2px]"
-              style={{
-                WebkitMaskImage: 'radial-gradient(ellipse at center, black 50%, transparent 90%)',
-                maskImage: 'radial-gradient(ellipse at center, black 50%, transparent 90%)',
-              }}
-            />
-            <h3 className="relative min-w-0 truncate font-bold text-lg sm:text-xl text-white drop-shadow-lg">
+          <div className="flex w-fit max-w-full items-center gap-2">
+            <h3 className="min-w-0 truncate font-extrabold text-lg sm:text-xl text-white drop-shadow-lg">
               {displayTitle}
             </h3>
-            {game.platform === 'xbox' && game.isMythic && (
-              <MythicIcon
-                size={16}
-                className="relative shrink-0 translate-y-[0.1em]"
-                title="Mythic achievement earned"
-              />
-            )}
-            {game.platform === 'playstation' && isPlatinumUnlocked(game) && (
-              <PlatinumBadge className="relative shrink-0 translate-y-[0.15em]" />
-            )}
-            {isSteamBaseGameCompleted(game) && (
-              <SteamCompletionIcon size={16} className="relative shrink-0 translate-y-[0.15em]" />
-            )}
           </div>
-          <div className="relative w-fit max-w-full">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 backdrop-blur-[2px]"
-              style={{
-                WebkitMaskImage: 'radial-gradient(ellipse at center, black 50%, transparent 90%)',
-                maskImage: 'radial-gradient(ellipse at center, black 50%, transparent 90%)',
-              }}
-            />
-            <div className="relative flex flex-wrap items-center gap-x-4 gap-y-1">
-              {/* Completion badge */}
-              <span
-                className={`${getCompletionColor(game.completionPercent)} px-2 py-0.5 rounded-full text-xs font-semibold text-white shadow-md`}
-              >
-                {game.completionPercent}%
-              </span>
-              <span className="text-gray-200 text-sm font-medium drop-shadow">
-                {renderProgressLabel()}
-              </span>
-            </div>
+          <div className="flex w-fit max-w-full flex-wrap items-center gap-x-4 gap-y-1">
+            {/* Completion badge */}
+            <span
+              className={`${getCompletionColor(game.completionPercent)} px-2 py-0.5 rounded-full text-xs font-semibold text-white shadow-md`}
+            >
+              {game.completionPercent}%
+            </span>
+            <span className="text-gray-200 text-sm font-semibold drop-shadow">
+              {renderProgressLabel()}
+            </span>
           </div>
         </div>
-        {/* Edit Button */}
+        {/* Mobile actions */}
+        {onActions && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onActions(); }}
+            className="absolute right-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white/75 transition-colors active:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 md:hidden"
+            aria-label={`Game options for ${displayTitle}`}
+            aria-haspopup="dialog"
+          >
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="5" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="12" cy="19" r="2" />
+            </svg>
+          </button>
+        )}
+        {/* Desktop edit button */}
         {onEdit && (
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="absolute top-3 left-3 bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-3 left-3 hidden bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity md:inline-flex"
             aria-label="Edit game"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -198,11 +184,11 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
             </svg>
           </button>
         )}
-        {/* Hide Button */}
+        {/* Desktop hide button */}
         {onHide && (
           <button
             onClick={(e) => { e.stopPropagation(); onHide(); }}
-            className="absolute top-3 left-12 bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-3 left-12 hidden bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity md:inline-flex"
             aria-label={game.isHidden ? 'Unhide game' : 'Hide game'}
             title={game.isHidden ? 'Unhide game' : 'Hide game'}
           >

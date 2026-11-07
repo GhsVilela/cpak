@@ -79,7 +79,7 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
     });
   });
 
-  it('shows the completion icon on the base group when Steam has no explicit base id', async () => {
+  it('does not show completion icons on achievement group headers', async () => {
     apiGetMock.mockImplementation((path: string) => {
       if (path.includes('/games/')) {
         return Promise.resolve({
@@ -114,11 +114,11 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
     const extraGroup = screen.getByText('Extra').closest('button');
     expect(generalGroup).not.toBeNull();
     expect(extraGroup).not.toBeNull();
-    expect(within(generalGroup!).getByRole('img', { name: 'Completed game' })).toBeInTheDocument();
+    expect(within(generalGroup!).queryByRole('img', { name: 'Completed game' })).toBeNull();
     expect(within(extraGroup!).queryByRole('img', { name: 'Completed game' })).toBeNull();
   });
 
-  it('greys out the completion icon on a base group that is still locked', async () => {
+  it('does not show a muted completion icon on an incomplete base group', async () => {
     apiGetMock.mockImplementation((path: string) => {
       if (path.includes('/games/')) {
         return Promise.resolve({
@@ -153,7 +153,7 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
     const updateGroup = screen.getByText('Woolhaven').closest('button');
     expect(baseGroup).not.toBeNull();
     expect(updateGroup).not.toBeNull();
-    expect(within(baseGroup!).getByRole('img', { name: 'Base game not completed' })).toBeInTheDocument();
+    expect(within(baseGroup!).queryByRole('img', { name: 'Base game not completed' })).toBeNull();
     expect(within(baseGroup!).queryByRole('img', { name: 'Completed game' })).toBeNull();
     expect(within(updateGroup!).queryByRole('img', { name: 'Base game not completed' })).toBeNull();
   });
@@ -187,12 +187,12 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
     expect(screen.queryByText('Base Achievement')).toBeNull();
     expect(screen.queryByText('Update Achievement')).toBeNull();
 
-    // A completed base game shows the Steam completion icon; DLC sets do not.
+    // Completion icons are no longer shown on group headers.
     const baseGroupButton = screen.getByText('Base Game').closest('button');
     const dlcGroupButton = screen.getByText('Update 1').closest('button');
     expect(baseGroupButton).not.toBeNull();
     expect(dlcGroupButton).not.toBeNull();
-    expect(within(baseGroupButton!).getByRole('img', { name: 'Completed game' })).toBeInTheDocument();
+    expect(within(baseGroupButton!).queryByRole('img', { name: 'Completed game' })).toBeNull();
     expect(within(dlcGroupButton!).queryByRole('img', { name: 'Completed game' })).toBeNull();
 
     fireEvent.click(screen.getByText('Base Game'));

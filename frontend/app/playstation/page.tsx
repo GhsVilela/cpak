@@ -537,7 +537,7 @@ function PlayStationPageContent() {
                     label="Platinum"
                     icon={<TrophyIcon grade="platinum" size={14} />}
                     value={baseTrophySummary.totalPlatinum}
-                    valueClassName="text-white"
+                    valueClassName="text-[var(--playstation-accent)]"
                   />
                 )}
                 {baseTrophySummary.totalGold > 0 && (
@@ -546,7 +546,7 @@ function PlayStationPageContent() {
                     label="Gold"
                     icon={<TrophyIcon grade="gold" size={14} />}
                     value={baseTrophySummary.totalGold}
-                    valueClassName="text-white"
+                    valueClassName="text-[var(--playstation-accent)]"
                   />
                 )}
                 {baseTrophySummary.totalSilver > 0 && (
@@ -555,7 +555,7 @@ function PlayStationPageContent() {
                     label="Silver"
                     icon={<TrophyIcon grade="silver" size={14} />}
                     value={baseTrophySummary.totalSilver}
-                    valueClassName="text-white"
+                    valueClassName="text-[var(--playstation-accent)]"
                   />
                 )}
                 {baseTrophySummary.totalBronze > 0 && (
@@ -564,7 +564,7 @@ function PlayStationPageContent() {
                     label="Bronze"
                     icon={<TrophyIcon grade="bronze" size={14} />}
                     value={baseTrophySummary.totalBronze}
-                    valueClassName="text-white"
+                    valueClassName="text-[var(--playstation-accent)]"
                   />
                 )}
               </>

@@ -137,6 +137,7 @@ describe('POST /api/playstation/trophy-backup/import', () => {
     expect(game!.achievementsUnlocked).toBe(2);
     expect(game!.completionPercent).toBe(67);
     expect(game!.trophyPlatinum).toBe(1);
+    expect(game!.hasPlatinum).toBe(true);
     expect(game!.trophyBronze).toBe(1);
     expect(game!.iconImagePath).toContain('game_icon');
 
