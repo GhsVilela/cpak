@@ -5,6 +5,7 @@ import GameTile from './GameTile';
 import GameListItem from './GameListItem';
 import GameHeroCard from './GameHeroCard';
 import GameEditModal from './GameEditModal';
+import GameActionsSheet from './GameActionsSheet';
 import { apiClient } from '../services/apiClient';
 import type { ViewMode } from './ViewModeSelector';
 
@@ -27,6 +28,8 @@ interface Game {
   trophySilver?: number;
   trophyGold?: number;
   trophyPlatinum?: number;
+  /** PlayStation: true when the game defines a Platinum trophy. */
+  hasPlatinum?: boolean;
   /** Xbox: true when the game's Mythic achievement has been earned. */
   isMythic?: boolean;
   /** True when achievements/trophies are split into base-game and DLC sets. */
@@ -48,10 +51,24 @@ interface GameGridProps {
 
 export default function GameGrid({ games, loading = false, emptyMessage = 'No games found', viewMode = 'capsule', onGamesUpdated }: GameGridProps) {
   const [editingGame, setEditingGame] = useState<Game | null>(null);
+  const [actionGame, setActionGame] = useState<Game | null>(null);
 
   const handleHide = async (game: Game) => {
     await apiClient.patch(`/games/${game._id}/hidden`, {});
     onGamesUpdated?.();
+  };
+
+  const handleSheetEdit = () => {
+    if (!actionGame) return;
+    setEditingGame(actionGame);
+    setActionGame(null);
+  };
+
+  const handleSheetHide = () => {
+    if (!actionGame) return;
+    const game = actionGame;
+    setActionGame(null);
+    void handleHide(game);
   };
 
   const handleSave = async (updates: { customTitle?: string | null; images?: { type: string; file: File }[]; deleteImages?: string[] }) => {
@@ -82,6 +99,17 @@ export default function GameGrid({ games, loading = false, emptyMessage = 'No ga
 
     onGamesUpdated?.();
   };
+
+  const actionsSheet = actionGame ? (
+    <GameActionsSheet
+      title={actionGame.customTitle || actionGame.title}
+      isHidden={actionGame.isHidden}
+      onEdit={handleSheetEdit}
+      onHide={handleSheetHide}
+      onClose={() => setActionGame(null)}
+    />
+  ) : null;
+
   if (loading) {
     return (
       <div className={viewMode === 'list' ? 'space-y-2' : viewMode === 'hero' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4'}>
@@ -129,10 +157,17 @@ export default function GameGrid({ games, loading = false, emptyMessage = 'No ga
       <>
         <div className="space-y-2">
           {games.map((game) => (
-            <GameListItem key={game._id} game={game} onEdit={() => setEditingGame(game)} onHide={() => handleHide(game)} />
+            <GameListItem
+              key={game._id}
+              game={game}
+              onEdit={() => setEditingGame(game)}
+              onHide={() => handleHide(game)}
+              onActions={() => setActionGame(game)}
+            />
           ))}
         </div>
         {editingGame && <GameEditModal game={editingGame} onClose={() => setEditingGame(null)} onSave={handleSave} />}
+        {actionsSheet}
       </>
     );
   }
@@ -142,10 +177,17 @@ export default function GameGrid({ games, loading = false, emptyMessage = 'No ga
       <>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {games.map((game) => (
-            <GameHeroCard key={game._id} game={game} onEdit={() => setEditingGame(game)} onHide={() => handleHide(game)} />
+            <GameHeroCard
+              key={game._id}
+              game={game}
+              onEdit={() => setEditingGame(game)}
+              onHide={() => handleHide(game)}
+              onActions={() => setActionGame(game)}
+            />
           ))}
         </div>
         {editingGame && <GameEditModal game={editingGame} onClose={() => setEditingGame(null)} onSave={handleSave} />}
+        {actionsSheet}
       </>
     );
   }
@@ -154,10 +196,17 @@ export default function GameGrid({ games, loading = false, emptyMessage = 'No ga
     <>
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
         {games.map((game) => (
-          <GameTile key={game._id} game={game} onEdit={() => setEditingGame(game)} onHide={() => handleHide(game)} />
+          <GameTile
+            key={game._id}
+            game={game}
+            onEdit={() => setEditingGame(game)}
+            onHide={() => handleHide(game)}
+            onActions={() => setActionGame(game)}
+          />
         ))}
       </div>
       {editingGame && <GameEditModal game={editingGame} onClose={() => setEditingGame(null)} onSave={handleSave} />}
+      {actionsSheet}
     </>
   );
 }

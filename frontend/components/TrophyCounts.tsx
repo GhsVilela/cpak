@@ -7,6 +7,8 @@ interface TrophyCountsProps {
   silver?: number | null;
   gold?: number | null;
   platinum?: number | null;
+  /** Show the Platinum entry even when it has not been earned yet. */
+  showPlatinum?: boolean;
   size?: number;
   className?: string;
 }
@@ -16,6 +18,7 @@ export default function TrophyCounts({
   silver,
   gold,
   platinum,
+  showPlatinum = false,
   size = 14,
   className = '',
 }: TrophyCountsProps) {
@@ -26,16 +29,16 @@ export default function TrophyCounts({
     bronze,
   };
 
-  const hasTrophyData = Object.values(counts).some(
-    (value) => typeof value === 'number'
-  );
+  const hasTrophyData =
+    showPlatinum || Object.values(counts).some((value) => typeof value === 'number');
 
   if (!hasTrophyData) return null;
 
   const entries: { grade: TrophyGrade; count: number }[] = [];
 
-  // Platinum only appears once it has been earned, matching the PlayStation UI.
-  if ((platinum ?? 0) > 0) {
+  // Platinum normally only appears once it has been earned. Callers can opt in
+  // to showing a zeroed Platinum when the game/category defines one.
+  if ((platinum ?? 0) > 0 || showPlatinum) {
     entries.push({ grade: 'platinum', count: platinum ?? 0 });
   }
 

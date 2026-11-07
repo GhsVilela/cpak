@@ -41,6 +41,8 @@ export interface DemoGame {
   trophySilver?: number | null;
   trophyGold?: number | null;
   trophyPlatinum?: number | null;
+  /** PlayStation: true when the game defines a Platinum trophy. */
+  hasPlatinum?: boolean;
   hasAchievementGroups?: boolean;
   /** Xbox-specific Mythic support metadata. */
   isMythic?: boolean;
@@ -228,6 +230,7 @@ export const demoGames: DemoGame[] = [
     trophySilver: 12,
     trophyGold: 5,
     trophyPlatinum: 1,
+    hasPlatinum: true,
     hasAchievementGroups: true,
     baseGameAchievementsTotal: 36,
   }),
@@ -236,6 +239,7 @@ export const demoGames: DemoGame[] = [
     trophySilver: 8,
     trophyGold: 2,
     trophyPlatinum: 0,
+    hasPlatinum: false,
     hasAchievementGroups: true,
     baseGameAchievementsTotal: 32,
   }),
@@ -244,6 +248,7 @@ export const demoGames: DemoGame[] = [
     trophySilver: 4,
     trophyGold: 1,
     trophyPlatinum: 0,
+    hasPlatinum: false,
     hasAchievementGroups: true,
     baseGameAchievementsTotal: 40,
   }),
@@ -252,6 +257,7 @@ export const demoGames: DemoGame[] = [
     trophySilver: 9,
     trophyGold: 3,
     trophyPlatinum: 1,
+    hasPlatinum: true,
     hasAchievementGroups: true,
     baseGameAchievementsTotal: 30,
   }),

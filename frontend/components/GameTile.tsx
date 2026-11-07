@@ -1,12 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { getImageUrl, handleImageError } from '../services/imageUrl';
-import MythicIcon from './MythicIcon';
-import PlatinumBadge from './PlatinumBadge';
-import SteamCompletionIcon from './SteamCompletionIcon';
-import { isPlatinumUnlocked, isSteamBaseGameCompleted } from '../lib/completion';
 import { getCurrentListReturnTo } from '../lib/navigation';
+import { getImageUrl, handleImageError } from '../services/imageUrl';
 
 interface GameTileProps {
   game: {
@@ -31,9 +27,10 @@ interface GameTileProps {
   };
   onEdit?: () => void;
   onHide?: () => void;
+  onActions?: () => void;
 }
 
-export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
+export default function GameTile({ game, onEdit, onHide, onActions }: GameTileProps) {
   const router = useRouter();
 
   const displayTitle = game.customTitle || game.title;
@@ -101,11 +98,27 @@ export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
             </svg>
           </div>
         )}
-        {/* Edit Button */}
+        {/* Mobile actions */}
+        {onActions && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onActions(); }}
+            className="absolute right-2 top-2 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white/75 transition-colors active:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 md:hidden"
+            aria-label={`Game options for ${displayTitle}`}
+            aria-haspopup="dialog"
+          >
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="5" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="12" cy="19" r="2" />
+            </svg>
+          </button>
+        )}
+        {/* Desktop edit button */}
         {onEdit && (
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="absolute top-2 left-2 bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-2 left-2 hidden bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity md:inline-flex"
             aria-label="Edit game"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,11 +126,11 @@ export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
             </svg>
           </button>
         )}
-        {/* Hide Button */}
+        {/* Desktop hide button */}
         {onHide && (
           <button
             onClick={(e) => { e.stopPropagation(); onHide(); }}
-            className="absolute top-2 left-10 bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-2 left-10 hidden bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity md:inline-flex"
             aria-label={game.isHidden ? 'Unhide game' : 'Hide game'}
             title={game.isHidden ? 'Unhide game' : 'Hide game'}
           >
@@ -140,21 +153,6 @@ export default function GameTile({ game, onEdit, onHide }: GameTileProps) {
         <div className="mb-2">
           <h3 className="break-words font-semibold text-sm sm:text-base group-hover:text-white transition-colors">
             {displayTitle}
-            {game.platform === 'xbox' && game.isMythic && (
-              <span className="ml-1 inline-flex shrink-0 align-middle -translate-y-[0.05em]">
-                <MythicIcon size={14} title="Mythic achievement earned" />
-              </span>
-            )}
-            {game.platform === 'playstation' && isPlatinumUnlocked(game) && (
-              <span className="ml-1 inline-flex shrink-0 align-middle">
-                <PlatinumBadge iconSize={12} size={18} />
-              </span>
-            )}
-            {isSteamBaseGameCompleted(game) && (
-              <span className="ml-1 inline-flex shrink-0 align-middle">
-                <SteamCompletionIcon size={14} />
-              </span>
-            )}
           </h3>
         </div>
 

@@ -340,14 +340,14 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
     expect(name.className).not.toContain('break-words');
   });
 
-  it('shows the Platinum badge on the base game and trophy counts on every group', async () => {
+  it('shows trophy counts on every group and zeroed Platinum when the category defines one', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path.includes('/games/')) {
         return Promise.resolve({ ...mockGame, hasAchievementGroups: true });
       }
       if (path.includes('/achievements')) {
         return Promise.resolve([
-          { _id: 'p1', achievementId: '0', name: 'Platinum Trophy', trophyGrade: 'platinum', unlockedAt: '2026-01-01T00:00:00Z', groupId: 'default', groupName: 'Base Game', groupOrder: 0 },
+          { _id: 'p1', achievementId: '0', name: 'Platinum Trophy', trophyGrade: 'platinum', unlockedAt: null, groupId: 'default', groupName: 'Base Game', groupOrder: 0 },
           { _id: 'p2', achievementId: '1', name: 'Base Gold', trophyGrade: 'gold', unlockedAt: null, groupId: 'default', groupName: 'Base Game', groupOrder: 0 },
           { _id: 'p3', achievementId: '100', name: 'DLC Silver', trophyGrade: 'silver', unlockedAt: '2026-02-01T00:00:00Z', groupId: '001', groupName: 'New Game+', groupOrder: 1 },
           { _id: 'p4', achievementId: '101', name: 'DLC Bronze', trophyGrade: 'bronze', unlockedAt: null, groupId: '001', groupName: 'New Game+', groupOrder: 1 },
@@ -369,16 +369,14 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
     expect(baseGroupButton).not.toBeNull();
     expect(dlcGroupButton).not.toBeNull();
 
-    // Base game shows the Platinum trophy icon and its unlocked per-group breakdown.
-    const platinumIcon = within(baseGroupButton!).getByLabelText('Platinum trophy earned');
-    expect(platinumIcon).toBeInTheDocument();
-    expect(platinumIcon.parentElement).toHaveClass('rounded-full');
+    // Base game defines a Platinum, so its label shows the trophy icon at 0.
+    expect(within(baseGroupButton!).queryByLabelText('Platinum trophy earned')).toBeNull();
     expect(within(baseGroupButton!).getByTestId('trophy-counts')).toBeInTheDocument();
-    expect(within(baseGroupButton!).getAllByLabelText('Platinum trophy').length).toBeGreaterThan(0);
-    expect(within(baseGroupButton!).getByTitle('1 platinum trophy')).toBeInTheDocument();
+    expect(within(baseGroupButton!).getByLabelText('Platinum trophy')).toBeInTheDocument();
+    expect(within(baseGroupButton!).getByTitle('0 platinum trophies')).toBeInTheDocument();
     expect(within(baseGroupButton!).getByTitle('0 gold trophies')).toBeInTheDocument();
 
-    // DLC groups get their own unlocked breakdown without a Platinum badge.
+    // DLC groups get their own breakdown without a Platinum entry.
     expect(within(dlcGroupButton!).getByTestId('trophy-counts')).toBeInTheDocument();
     expect(within(dlcGroupButton!).queryByLabelText('Platinum trophy')).toBeNull();
     expect(within(dlcGroupButton!).getByLabelText('Silver trophy')).toBeInTheDocument();

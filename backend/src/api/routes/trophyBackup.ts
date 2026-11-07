@@ -286,6 +286,7 @@ async function importGameFromBackup(
     trophySilver: earnedSilver,
     trophyGold: earnedGold,
     trophyPlatinum: earnedPlatinum,
+    hasPlatinum: backup.trophies.some((t) => t.grade === 'platinum'),
     ...(iconImagePath && { iconImagePath }),
     ...(lastPlayed && { lastPlayed }),
     lastSyncedAt: new Date(),

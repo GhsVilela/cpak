@@ -35,7 +35,7 @@ describe('PlayStation game detail page — demo mode end to end', () => {
     delete (window as any).__DEMO_MODE__;
   });
 
-  it('shows the Platinum base game badge and per-category trophy counts', async () => {
+  it('shows per-category trophy counts without a Platinum badge', async () => {
     const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
 
     render(<GamePage params={Promise.resolve({ id: 'psn_001' })} />);
@@ -55,8 +55,8 @@ describe('PlayStation game detail page — demo mode end to end', () => {
     expect(dlcGroupButton).not.toBeNull();
 
     expect(
-      within(baseGroupButton!).getByLabelText('Platinum trophy earned')
-    ).toBeTruthy();
+      within(baseGroupButton!).queryByLabelText('Platinum trophy earned')
+    ).toBeNull();
     expect(
       within(baseGroupButton!).getByTitle('1 platinum trophy')
     ).toBeTruthy();

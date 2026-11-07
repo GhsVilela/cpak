@@ -258,6 +258,10 @@ function buildPagination(
       0
     );
     pagination.totalMaxGamerscore = allGames.reduce((sum, g) => sum + (g.maxGamerscore ?? 0), 0);
+    pagination.totalAchievementsUnlocked = allGames.reduce(
+      (sum, g) => sum + (g.achievementsUnlocked ?? 0),
+      0
+    );
     pagination.mythicAchievementsUnlocked = allGames.filter((g) => g.isMythic).length;
   }
 

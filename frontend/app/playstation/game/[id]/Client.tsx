@@ -4,7 +4,6 @@ import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
 import TrophyIcon from '../../../../components/TrophyIcon';
-import PlatinumBadge from '../../../../components/PlatinumBadge';
 import TrophyCounts from '../../../../components/TrophyCounts';
 import { isPlatformListUrl } from '../../../../lib/navigation';
 import { getImageUrl, handleImageError } from '../../../../services/imageUrl';
@@ -25,6 +24,8 @@ interface Game {
   trophySilver?: number | null;
   trophyGold?: number | null;
   trophyPlatinum?: number | null;
+  /** PlayStation: true when the game defines a Platinum trophy. */
+  hasPlatinum?: boolean;
   hasAchievementGroups?: boolean;
 }
 
@@ -104,8 +105,9 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
           {trophy.iconPath || trophy.iconGrayPath ? (
             <img
               src={getImageUrl(trophy.iconGrayPath ?? trophy.iconPath)}
-              onError={(e) => handleImageError(e, trophy.isHidden ? 'Hidden Trophy' : trophy.name)}
+              alt={trophy.isHidden ? 'Hidden Trophy' : trophy.name}
               className="h-full w-full object-cover grayscale"
+              onError={(e) => handleImageError(e, trophy.isHidden ? 'Hidden Trophy' : trophy.name)}
             />
           ) : (
             <span className="text-2xl">🔒</span>
@@ -135,8 +137,9 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
         {trophy.iconPath ? (
           <img
             src={getImageUrl(trophy.iconPath)}
-            onError={(e) => handleImageError(e, trophy.name)}
+            alt={trophy.name}
             className="h-full w-full object-cover"
+            onError={(e) => handleImageError(e, trophy.name)}
           />
         ) : (
           <span className="text-2xl">🏆</span>
@@ -172,8 +175,7 @@ function TrophyGroupSection({ group }: { group: TrophyGroup }) {
     },
     { bronze: 0, silver: 0, gold: 0, platinum: 0 },
   );
-  const platinumTrophy = group.items.find((trophy) => trophy.trophyGrade === 'platinum');
-  const baseGame = group.id === 'default' || group.id === '__default__' || /base game/i.test(group.name);
+  const hasPlatinumTrophy = group.items.some((trophy) => trophy.trophyGrade === 'platinum');
 
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] transition-colors">
@@ -192,12 +194,6 @@ function TrophyGroupSection({ group }: { group: TrophyGroup }) {
             >
               {group.name}
             </span>
-            {baseGame && platinumTrophy && (
-              <PlatinumBadge
-                className="translate-y-[0.15em]"
-                muted={!platinumTrophy.unlockedAt}
-              />
-            )}
           </span>
           <span className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <span
@@ -209,6 +205,7 @@ function TrophyGroupSection({ group }: { group: TrophyGroup }) {
                 gold={unlockedTotals.gold}
                 silver={unlockedTotals.silver}
                 bronze={unlockedTotals.bronze}
+                showPlatinum={hasPlatinumTrophy}
                 size={12}
                 className="text-[11px] font-semibold text-gray-300"
               />
@@ -334,6 +331,8 @@ export default function PlayStationGameDetailsPage({ params }: { params: Promise
   const lockedAchievements = achievements.filter((a) => !a.unlockedAt);
   const groups = groupTrophies(achievements);
   const showGroups = !!game.hasAchievementGroups && groups.length > 1;
+  const gameHasPlatinum =
+    game.hasPlatinum === true || achievements.some((trophy) => trophy.trophyGrade === 'platinum');
   const hasTrophyCounts =
     game.trophyPlatinum != null ||
     game.trophyGold != null ||
@@ -377,6 +376,7 @@ export default function PlayStationGameDetailsPage({ params }: { params: Promise
                   gold={game.trophyGold}
                   silver={game.trophySilver}
                   bronze={game.trophyBronze}
+                  showPlatinum={gameHasPlatinum}
                   size={14}
                   className="text-sm font-semibold"
                 />

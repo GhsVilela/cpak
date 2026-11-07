@@ -66,7 +66,7 @@ describe('Steam page — demo mode end to end', () => {
     expect(screen.getByText('Last Sync')).toBeTruthy();
   });
 
-  it('shows completion badges on base-complete games in every view mode', async () => {
+  it('does not show completion badges on base-complete games in any view mode', async () => {
     const { default: SteamPage } = await import('../../app/steam/page');
 
     render(<SteamPage />);
@@ -91,8 +91,8 @@ describe('Steam page — demo mode end to end', () => {
         const container = screen.getByText(title).closest('.group');
         expect(container).toBeTruthy();
         expect(
-          within(container as HTMLElement).getByRole('img', { name: 'Completed game' })
-        ).toBeTruthy();
+          within(container as HTMLElement).queryByRole('img', { name: 'Completed game' })
+        ).toBeNull();
       }
     }
   });

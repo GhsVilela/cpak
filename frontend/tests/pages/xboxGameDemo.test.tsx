@@ -36,7 +36,7 @@ describe('Xbox game detail page — demo mode end to end', () => {
     delete (window as any).__DEMO_MODE__;
   });
 
-  it('shows Mythic, base/DLC groups and per-category Gamerscore', async () => {
+  it('shows base/DLC groups and per-category Gamerscore without a Mythic icon', async () => {
     const { default: GamePage } = await import('../../app/xbox/game/[id]/page');
 
     render(<GamePage params={Promise.resolve({ id: 'xbox_001' })} />);
@@ -68,8 +68,8 @@ describe('Xbox game detail page — demo mode end to end', () => {
     const baseGroupButton = screen.getByText('Base Game').closest('button');
     expect(baseGroupButton).not.toBeNull();
     expect(
-      within(baseGroupButton!).getByLabelText('Mythic achievement earned')
-    ).toBeTruthy();
+      within(baseGroupButton!).queryByLabelText('Mythic achievement earned')
+    ).toBeNull();
     expect(
       within(baseGroupButton!).getByText(
         `${unlockedGamerscore.toLocaleString()} / ${totalGamerscore.toLocaleString()} G`
