@@ -43,6 +43,24 @@ describe('GameTile', () => {
     expect(pushMock).toHaveBeenCalled();
   });
 
+  it('opens mobile actions without navigating', async () => {
+    const user = userEvent.setup();
+    const onActions = vi.fn();
+    pushMock.mockClear();
+
+    render(<GameTile game={mockGame} onActions={onActions} />);
+    await user.click(screen.getByRole('button', { name: 'Game options for Half-Life 3' }));
+
+    expect(onActions).toHaveBeenCalledTimes(1);
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps desktop edit and hide actions available', () => {
+    render(<GameTile game={mockGame} onEdit={vi.fn()} onHide={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Edit game' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hide game' })).toBeInTheDocument();
+  });
+
   it('does not show a separate 100% badge for fully completed games', () => {
     const completedGame = { ...mockGame, completionPercent: 100, achievementsUnlocked: 20 };
     render(<GameTile game={completedGame} />);

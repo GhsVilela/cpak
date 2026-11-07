@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import GameGrid from '../../components/GameGrid';
 
 // GameTile uses next/navigation, so mock it
@@ -41,5 +42,17 @@ describe('GameGrid', () => {
   it('uses the default empty message when no emptyMessage prop is provided', () => {
     render(<GameGrid games={[]} />);
     expect(screen.getByText('No games found')).toBeInTheDocument();
+  });
+
+  it('opens the mobile game actions sheet', async () => {
+    const user = userEvent.setup();
+    render(<GameGrid games={[makeGame('1')]} />);
+
+    await user.click(screen.getByRole('button', { name: 'Game options for Game 1' }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Edit game' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Hide game' })).toBeInTheDocument();
   });
 });

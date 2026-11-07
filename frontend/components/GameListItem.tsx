@@ -36,9 +36,10 @@ interface GameListItemProps {
   };
   onEdit?: () => void;
   onHide?: () => void;
+  onActions?: () => void;
 }
 
-export default function GameListItem({ game, onEdit, onHide }: GameListItemProps) {
+export default function GameListItem({ game, onEdit, onHide, onActions }: GameListItemProps) {
   const router = useRouter();
   const displayTitle = game.customTitle || game.title;
   const hasTrophyCounts =
@@ -134,7 +135,7 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
         {onHide && (
           <button
             onClick={(e) => { e.stopPropagation(); onHide(); }}
-            className="hidden sm:inline-flex text-gray-500 hover:text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="hidden md:inline-flex text-gray-500 hover:text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
             aria-label={game.isHidden ? 'Unhide game' : 'Hide game'}
             title={game.isHidden ? 'Unhide game' : 'Hide game'}
           >
@@ -153,7 +154,7 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
         {onEdit && (
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="hidden sm:inline-flex text-gray-500 hover:text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="hidden md:inline-flex text-gray-500 hover:text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
             aria-label="Edit game"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -173,6 +174,21 @@ export default function GameListItem({ game, onEdit, onHide }: GameListItemProps
         <span className={`font-semibold text-sm ${getCompletionColor(game.completionPercent)}`}>
           {game.completionPercent}%
         </span>
+        {onActions && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onActions(); }}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-700 hover:text-white active:bg-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 md:hidden"
+            aria-label={`Game options for ${displayTitle}`}
+            aria-haspopup="dialog"
+          >
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="5" r="1.75" />
+              <circle cx="12" cy="12" r="1.75" />
+              <circle cx="12" cy="19" r="1.75" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

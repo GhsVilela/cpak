@@ -36,9 +36,10 @@ interface GameHeroCardProps {
   };
   onEdit?: () => void;
   onHide?: () => void;
+  onActions?: () => void;
 }
 
-export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps) {
+export default function GameHeroCard({ game, onEdit, onHide, onActions }: GameHeroCardProps) {
   const router = useRouter();
   const displayTitle = game.customTitle || game.title;
 
@@ -155,11 +156,27 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
             </span>
           </div>
         </div>
-        {/* Edit Button */}
+        {/* Mobile actions */}
+        {onActions && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onActions(); }}
+            className="absolute right-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full bg-gray-900/80 text-gray-200 shadow-md transition-colors active:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 md:hidden"
+            aria-label={`Game options for ${displayTitle}`}
+            aria-haspopup="dialog"
+          >
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="5" r="1.75" />
+              <circle cx="12" cy="12" r="1.75" />
+              <circle cx="12" cy="19" r="1.75" />
+            </svg>
+          </button>
+        )}
+        {/* Desktop edit button */}
         {onEdit && (
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="absolute top-3 left-3 bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-3 left-3 hidden bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity md:inline-flex"
             aria-label="Edit game"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -167,11 +184,11 @@ export default function GameHeroCard({ game, onEdit, onHide }: GameHeroCardProps
             </svg>
           </button>
         )}
-        {/* Hide Button */}
+        {/* Desktop hide button */}
         {onHide && (
           <button
             onClick={(e) => { e.stopPropagation(); onHide(); }}
-            className="absolute top-3 left-12 bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-3 left-12 hidden bg-gray-900/80 text-gray-300 hover:text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity md:inline-flex"
             aria-label={game.isHidden ? 'Unhide game' : 'Hide game'}
             title={game.isHidden ? 'Unhide game' : 'Hide game'}
           >
