@@ -243,4 +243,54 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
     });
     scrollToSpy.mockRestore();
   });
+
+  it('keeps current totals consistent and shows earned unavailable achievements separately', async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({
+          ...baseGame,
+          achievementsTotal: 135,
+          achievementsUnlocked: 2,
+          completionPercent: 1,
+        });
+      }
+      if (path.includes('/achievements')) {
+        const locked = Array.from({ length: 133 }, (_, index) => ({
+          _id: `locked-${index}`,
+          achievementId: `LOCKED_${index}`,
+          name: `Locked ${index}`,
+        }));
+        return Promise.resolve([
+          { _id: 'unlocked-1', achievementId: 'UNLOCKED_1', name: 'Unlocked One', unlockedAt: '2020-01-01T00:00:00Z' },
+          { _id: 'unlocked-2', achievementId: 'UNLOCKED_2', name: 'Unlocked Two', unlockedAt: '2020-01-02T00:00:00Z' },
+          ...locked,
+          {
+            _id: 'archived-1',
+            achievementId: 'ARCHIVED_1',
+            name: 'Archived One',
+            unlockedAt: '2020-01-03T00:00:00Z',
+            availability: 'archived',
+          },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+
+    const { default: GameDetailsPage } = await import(
+      // @ts-ignore
+      '../../app/steam/game/[id]/page'
+    );
+    render(<GameDetailsPage params={Promise.resolve({ id: '12345' })} />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Unlocked (2)')).toBeTruthy();
+    });
+    expect(screen.queryByText('Locked (133)')).toBeTruthy();
+    expect(screen.queryByText('Archived / No longer obtainable (1)')).toBeTruthy();
+    expect(screen.queryByText('Archived')).toBeTruthy();
+    expect(screen.queryByText('Archived One')).toBeTruthy();
+
+    // The header still reflects active achievements only.
+    expect(screen.getByText('2 / 135')).toBeTruthy();
+  });
 });

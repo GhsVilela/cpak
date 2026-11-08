@@ -466,4 +466,250 @@ describe('SyncService', () => {
     const op = await SyncOperation.findOne({ profileId: profile._id });
     expect(op?.status).toBe('completed');
   });
+
+  it('reconciles stale, archived and removed achievements without counting unavailable rows', async () => {
+    const { syncService } = await import('../../../src/services/syncService.js');
+    const { Profile } = await import('../../../src/models/profile.js');
+    const { Game } = await import('../../../src/models/game.js');
+    const { Achievement } = await import('../../../src/models/achievement.js');
+    const { createSteamAdapter } = await import('../../../src/services/adapters/steam.js');
+
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-reconcile-user',
+      displayName: 'Reconcile User',
+      credentials: { steamApiKey: 'test-api-key' },
+    });
+
+    const game = await Game.create({
+      platform: 'steam',
+      profileId: profile._id,
+      gameId: '269210',
+      title: 'Hero Siege',
+      achievementsTotal: 6,
+      achievementsUnlocked: 3,
+      completionPercent: 50,
+    });
+
+    const makeAchievement = (achievementId: string, unlockedAt?: Date) => ({
+      platform: 'steam',
+      profileId: profile._id,
+      gameId: game._id,
+      achievementId,
+      name: achievementId,
+      description: '',
+      groupId: '0',
+      groupName: 'Base Game',
+      groupOrder: 0,
+      ...(unlockedAt ? { unlockedAt } : {}),
+    });
+
+    await Achievement.create([
+      makeAchievement('ACTIVE_UNLOCKED', new Date('2020-01-01')),
+      makeAchievement('ACTIVE_LOCKED'),
+      makeAchievement('ARCHIVED_UNLOCKED', new Date('2020-01-02')),
+      makeAchievement('ARCHIVED_LOCKED'),
+      makeAchievement('REMOVED_UNLOCKED', new Date('2020-01-03')),
+      makeAchievement('REMOVED_LOCKED'),
+    ]);
+
+    vi.mocked(createSteamAdapter).mockReturnValueOnce({
+      getPlayerSummary: vi.fn().mockResolvedValue({ personaname: 'Reconcile User' }),
+      syncGamesAndAchievements: vi.fn().mockResolvedValue({
+        games: [{
+          appId: 269210,
+          name: 'Hero Siege',
+          playtimeMinutes: 100,
+          totalAchievements: 2,
+          earnedAchievements: 1,
+          ownershipSource: 'owned',
+          achievementsFetchFailed: false,
+          archivedAchievementIds: ['ARCHIVED_UNLOCKED', 'ARCHIVED_LOCKED'],
+        }],
+        achievements: [
+          {
+            appId: 269210,
+            achievementId: 'ACTIVE_UNLOCKED',
+            name: 'Active Unlocked',
+            description: '',
+            unlocked: true,
+            unlockTime: new Date('2020-01-01'),
+          },
+          {
+            appId: 269210,
+            achievementId: 'ACTIVE_LOCKED',
+            name: 'Active Locked',
+            description: '',
+            unlocked: false,
+          },
+          {
+            appId: 269210,
+            achievementId: 'ARCHIVED_UNLOCKED',
+            name: 'Archived Unlocked',
+            description: '',
+            unlocked: true,
+            unlockTime: new Date('2020-01-02'),
+            archived: true,
+          },
+        ],
+        adaptiveStats: null,
+      }),
+      downloadGameImages: vi.fn().mockResolvedValue(new Map()),
+      downloadAchievementIcons: vi.fn().mockResolvedValue({ iconMap: new Map(), completed: 0, failed: 0 }),
+    } as any);
+
+    await syncService.syncProfile(profile as any);
+
+    const savedGame = await Game.findById(game._id);
+    expect(savedGame?.achievementsTotal).toBe(2);
+    expect(savedGame?.achievementsUnlocked).toBe(1);
+    expect(savedGame?.completionPercent).toBe(50);
+
+    const activeUnlocked = await Achievement.findOne({ gameId: game._id, achievementId: 'ACTIVE_UNLOCKED' });
+    const activeLocked = await Achievement.findOne({ gameId: game._id, achievementId: 'ACTIVE_LOCKED' });
+    const archivedUnlocked = await Achievement.findOne({ gameId: game._id, achievementId: 'ARCHIVED_UNLOCKED' });
+    const removedUnlocked = await Achievement.findOne({ gameId: game._id, achievementId: 'REMOVED_UNLOCKED' });
+
+    expect(activeUnlocked?.availability).toBe('active');
+    expect(activeLocked?.availability).toBe('active');
+    expect(archivedUnlocked?.availability).toBe('archived');
+    expect(archivedUnlocked?.unlockedAt).toBeTruthy();
+    expect(removedUnlocked?.availability).toBe('removed');
+    expect(removedUnlocked?.unlockedAt).toBeTruthy();
+
+    expect(await Achievement.findOne({ gameId: game._id, achievementId: 'ARCHIVED_LOCKED' })).toBeNull();
+    expect(await Achievement.findOne({ gameId: game._id, achievementId: 'REMOVED_LOCKED' })).toBeNull();
+  });
+
+  it('keeps stale games that still have locally unlocked achievements', async () => {
+    const { syncService } = await import('../../../src/services/syncService.js');
+    const { Profile } = await import('../../../src/models/profile.js');
+    const { Game } = await import('../../../src/models/game.js');
+    const { Achievement } = await import('../../../src/models/achievement.js');
+    const { createSteamAdapter } = await import('../../../src/services/adapters/steam.js');
+
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-stale-history-user',
+      displayName: 'Stale History User',
+      credentials: { steamApiKey: 'test-api-key' },
+    });
+
+    const historicalGame = await Game.create({
+      platform: 'steam',
+      profileId: profile._id,
+      gameId: '999999',
+      title: 'Delisted Game',
+      achievementsTotal: 1,
+      achievementsUnlocked: 1,
+      completionPercent: 100,
+    });
+
+    await Achievement.create({
+      platform: 'steam',
+      profileId: profile._id,
+      gameId: historicalGame._id,
+      achievementId: 'HISTORY',
+      name: 'Historical Unlock',
+      description: '',
+      unlockedAt: new Date('2020-01-01'),
+    });
+
+    // The adapter returns a different game, making the historical one stale.
+    vi.mocked(createSteamAdapter).mockReturnValueOnce({
+      getPlayerSummary: vi.fn().mockResolvedValue({ personaname: 'Stale History User' }),
+      syncGamesAndAchievements: vi.fn().mockResolvedValue({
+        games: [{
+          appId: 440,
+          name: 'Team Fortress 2',
+          playtimeMinutes: 100,
+          totalAchievements: 1,
+          earnedAchievements: 1,
+          ownershipSource: 'owned',
+          achievementsFetchFailed: false,
+        }],
+        achievements: [{
+          appId: 440,
+          achievementId: 'TF_ACTIVE',
+          name: 'Active',
+          description: '',
+          unlocked: true,
+          unlockTime: new Date('2020-01-01'),
+        }],
+        adaptiveStats: null,
+      }),
+      downloadGameImages: vi.fn().mockResolvedValue(new Map()),
+      downloadAchievementIcons: vi.fn().mockResolvedValue({ iconMap: new Map(), completed: 0, failed: 0 }),
+    } as any);
+
+    await syncService.syncProfile(profile as any);
+
+    expect(await Game.findById(historicalGame._id)).toBeTruthy();
+    expect(await Achievement.findOne({ gameId: historicalGame._id, achievementId: 'HISTORY' })).toBeTruthy();
+  });
+
+  it('keeps stale achievements when the Steam fetch failed (revoked license safety guard)', async () => {
+    const { syncService } = await import('../../../src/services/syncService.js');
+    const { Profile } = await import('../../../src/models/profile.js');
+    const { Game } = await import('../../../src/models/game.js');
+    const { Achievement } = await import('../../../src/models/achievement.js');
+    const { createSteamAdapter } = await import('../../../src/services/adapters/steam.js');
+
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-revoked-user',
+      displayName: 'Revoked User',
+      credentials: { steamApiKey: 'test-api-key' },
+    });
+
+    const game = await Game.create({
+      platform: 'steam',
+      profileId: profile._id,
+      gameId: '777777',
+      title: 'Revoked Game',
+      achievementsTotal: 2,
+      achievementsUnlocked: 0,
+      completionPercent: 0,
+      ownershipSource: 'played_history',
+    });
+
+    await Achievement.create({
+      platform: 'steam',
+      profileId: profile._id,
+      gameId: game._id,
+      achievementId: 'STALE_LOCKED',
+      name: 'Stale Locked',
+      description: '',
+    });
+
+    vi.mocked(createSteamAdapter).mockReturnValueOnce({
+      getPlayerSummary: vi.fn().mockResolvedValue({ personaname: 'Revoked User' }),
+      syncGamesAndAchievements: vi.fn().mockResolvedValue({
+        games: [{
+          appId: 777777,
+          name: 'Revoked Game',
+          playtimeMinutes: 0,
+          totalAchievements: 1,
+          earnedAchievements: 0,
+          ownershipSource: 'played_history',
+          achievementsFetchFailed: true,
+        }],
+        achievements: [{
+          appId: 777777,
+          achievementId: 'SCHEMA_ONLY',
+          name: 'Schema Only',
+          description: '',
+          unlocked: false,
+        }],
+        adaptiveStats: null,
+      }),
+      downloadGameImages: vi.fn().mockResolvedValue(new Map()),
+      downloadAchievementIcons: vi.fn().mockResolvedValue({ iconMap: new Map(), completed: 0, failed: 0 }),
+    } as any);
+
+    await syncService.syncProfile(profile as any);
+
+    // The stale row is left untouched because the remote response is partial.
+    expect(await Achievement.findOne({ gameId: game._id, achievementId: 'STALE_LOCKED' })).toBeTruthy();
+  });
 });

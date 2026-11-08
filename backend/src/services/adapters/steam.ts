@@ -110,6 +110,8 @@ interface SteamMappedAchievement {
   groupOrder?: number;
   /** Global unlock percentage (0–100). Below 10 is considered rare by Steam. */
   globalPercent?: number;
+  /** True when Steam has archived the achievement (still visible to earners only). */
+  archived?: boolean;
 }
 
 export class SteamAdapter {
@@ -433,6 +435,8 @@ export class SteamAdapter {
   private async getAchievementsWithGroups(steamId: string, appId: number): Promise<{
     totalAchievements: number;
     earnedAchievements: number;
+    archivedEarnedAchievements: number;
+    archivedAchievementIds: string[];
     hasGroups: boolean;
     achievementsData: SteamMappedAchievement[];
   } | null> {
@@ -442,26 +446,41 @@ export class SteamAdapter {
     }
 
     const groupMap = new Map<number, { name: string; order: number }>();
+    const archivedGroupIds = new Set<number>();
+    const developerOnlyGroupIds = new Set<number>();
     gameSet.groups.forEach((g, index) => {
       const gid = g.groupid ?? 0;
       const name = g.localized_name
         || (gid === 0 ? 'Base Game' : (g.dlcappid ? `DLC ${g.dlcappid}` : `Set ${gid}`));
       groupMap.set(gid, { name, order: g.order ?? index });
+      if (g.archived) archivedGroupIds.add(gid);
+      if (g.developeronly) developerOnlyGroupIds.add(gid);
     });
 
-    // Archived achievements are no longer visible/earnable in Steam — exclude
-    // them so totals match what the Steam client reports.
-    const visible = gameSet.achievements.filter((a) => !a.archived && !!a.internal_name);
+    // Developer-only sets are never shown to players. Archived achievements
+    // (and achievements in archived sets) are only visible to players who
+    // already unlocked them, so they are tracked separately from active ones.
+    const allAchievements = gameSet.achievements.filter(
+      (a) => !!a.internal_name && !developerOnlyGroupIds.has(a.groupid ?? 0),
+    );
+    const activeAchievements = allAchievements.filter(
+      (a) => !a.archived && !archivedGroupIds.has(a.groupid ?? 0),
+    );
+    const archivedAchievements = allAchievements.filter(
+      (a) => a.archived || archivedGroupIds.has(a.groupid ?? 0),
+    );
 
     const activeGroups = gameSet.groups.filter((g) => !g.archived && !g.developeronly);
     const hasGroups = activeGroups.length > 1;
 
     // A valid response with no achievements means the app has none — the caller
     // should not fall back to the legacy endpoints in this case.
-    if (visible.length === 0) {
+    if (activeAchievements.length === 0 && archivedAchievements.length === 0) {
       return {
         totalAchievements: 0,
         earnedAchievements: 0,
+        archivedEarnedAchievements: 0,
+        archivedAchievementIds: [],
         hasGroups: false,
         achievementsData: [],
       };
@@ -469,15 +488,35 @@ export class SteamAdapter {
 
     // Fetch per-user unlock state and global rarity in parallel. Rarity is
     // supplementary: a failure returns an empty map and never blocks the sync.
-    const [userSet, globalPercentages] = await Promise.all([
+    //
+    // GetUserAchievements omits archived achievements entirely, so when the
+    // schema has archived entries we also consult the legacy player endpoint,
+    // which still returns their achieved/unlock-time state.
+    const legacyAchievementsPromise = archivedAchievements.length > 0
+      ? this.getPlayerAchievements(steamId, appId).catch((error) => {
+          logger.warn({
+            error: error instanceof Error ? error.message : String(error),
+            appId,
+          }, 'Failed to fetch archived achievement unlock state');
+          return [] as SteamAchievement[];
+        })
+      : Promise.resolve([] as SteamAchievement[]);
+
+    const [userSet, globalPercentages, legacyAchievements] = await Promise.all([
       this.getUserAchievements(steamId, appId),
       this.getGlobalAchievementPercentages(appId),
+      legacyAchievementsPromise,
     ]);
 
     const userMap = new Map<number, { unlocked: boolean; unlockTime?: number }>();
     for (const ua of userSet?.achievements ?? []) {
       if (ua.internal_key == null) continue;
       userMap.set(ua.internal_key, { unlocked: !!ua.unlocked, unlockTime: ua.unlock_time });
+    }
+
+    const legacyMap = new Map<string, SteamAchievement>();
+    for (const achievement of legacyAchievements) {
+      legacyMap.set(achievement.apiname, achievement);
     }
 
     // GetGameAchievements returns bare icon filenames (e.g. "abc123.jpg"),
@@ -496,37 +535,65 @@ export class SteamAdapter {
       return `https://shared.akamai.steamstatic.com/community_assets/images/apps/${appId}/${normalized}`;
     };
 
-    let earnedAchievements = 0;
-    const achievementsData: SteamMappedAchievement[] = visible.map((a) => {
-      const key = a.internal_key;
+    const mapAchievement = (
+      achievement: SteamGameAchievementsResponse['achievements'][number],
+      archived: boolean,
+    ): SteamMappedAchievement => {
+      const key = achievement.internal_key;
       const user = key != null ? userMap.get(key) : undefined;
-      const unlocked = !!user?.unlocked;
-      if (unlocked) earnedAchievements++;
+      const legacy = archived ? legacyMap.get(achievement.internal_name as string) : undefined;
 
-      const gid = a.groupid ?? 0;
+      const unlocked = archived
+        ? legacy?.achieved === 1 || !!user?.unlocked
+        : !!user?.unlocked;
+      const unlockTimestamp = legacy?.achieved === 1 && legacy.unlocktime > 0
+        ? legacy.unlocktime
+        : user?.unlockTime;
+
+      const gid = achievement.groupid ?? 0;
       const group = groupMap.get(gid);
 
       return {
         appId,
-        achievementId: a.internal_name as string,
-        name: a.localized_name || (a.internal_name as string),
-        description: a.localized_desc || '',
+        achievementId: achievement.internal_name as string,
+        name: achievement.localized_name || (achievement.internal_name as string),
+        description: achievement.localized_desc || '',
         unlocked,
-        unlockTime: unlocked && user?.unlockTime ? new Date(user.unlockTime * 1000) : undefined,
-        icon: iconUrl(a.icon),
-        iconGray: iconUrl(a.icon_gray),
+        unlockTime: unlocked && unlockTimestamp ? new Date(unlockTimestamp * 1000) : undefined,
+        icon: iconUrl(achievement.icon),
+        iconGray: iconUrl(achievement.icon_gray),
         groupId: String(gid),
         groupName: group?.name ?? 'Base Game',
         groupOrder: group?.order ?? 0,
-        globalPercent: globalPercentages.get(a.internal_name as string),
+        globalPercent: globalPercentages.get(achievement.internal_name as string),
+        archived,
       };
+    };
+
+    let earnedAchievements = 0;
+    const activeData = activeAchievements.map((achievement) => {
+      const mapped = mapAchievement(achievement, false);
+      if (mapped.unlocked) earnedAchievements++;
+      return mapped;
     });
 
+    let archivedEarnedAchievements = 0;
+    const archivedData = archivedAchievements.map((achievement) => {
+      const mapped = mapAchievement(achievement, true);
+      if (mapped.unlocked) archivedEarnedAchievements++;
+      return mapped;
+    }).filter((achievement) => achievement.unlocked);
+
     return {
-      totalAchievements: visible.length,
+      // Game totals only include currently obtainable achievements. Archived
+      // achievements are returned separately so the UI can show earned history
+      // without counting it toward completion.
+      totalAchievements: activeAchievements.length,
       earnedAchievements,
+      archivedEarnedAchievements,
+      archivedAchievementIds: archivedAchievements.map((a) => a.internal_name as string),
       hasGroups,
-      achievementsData,
+      achievementsData: [...activeData, ...archivedData],
     };
   }
 
@@ -620,6 +687,7 @@ export class SteamAdapter {
     syncOperation?: any,
     knownGameIds?: number[],
     progress?: SyncProgressTracker,
+    historicalGameIds?: number[],
   ): Promise<{
     games: Array<{
       appId: number;
@@ -632,6 +700,7 @@ export class SteamAdapter {
       ownershipSource?: 'owned' | 'played_history';
       achievementsFetchFailed?: boolean;
       hasAchievementGroups?: boolean;
+      archivedAchievementIds?: string[];
     }>;
     achievements: Array<{
       appId: number;
@@ -646,6 +715,7 @@ export class SteamAdapter {
       groupName?: string;
       groupOrder?: number;
       globalPercent?: number;
+      archived?: boolean;
     }>;
     adaptiveStats?: {
       finalBatchSize: number;
@@ -653,6 +723,8 @@ export class SteamAdapter {
       finalDelay: number;
     };
   }> {
+    const historicalGameIdSet = new Set(historicalGameIds ?? []);
+
     // Fetch owned games with performance monitoring
     const ownedGames = await performanceMonitor.measureApiCall(
       'steam.getOwnedGames',
@@ -747,6 +819,7 @@ export class SteamAdapter {
         ownershipSource?: 'owned' | 'played_history';
         achievementsFetchFailed?: boolean;
         hasAchievementGroups?: boolean;
+        archivedAchievementIds?: string[];
       }>;
       achievements: Array<{
         appId: number;
@@ -761,6 +834,7 @@ export class SteamAdapter {
         groupName?: string;
         groupOrder?: number;
         globalPercent?: number;
+        archived?: boolean;
       }>;
     } = { games: [], achievements: [] };
 
@@ -809,17 +883,23 @@ export class SteamAdapter {
 
                 if (modern) {
                   // Games with no unlocked achievements are normally filtered out
-                  // (matching the legacy path). The exception is games the player
-                  // has in their play history but no longer owns (refunded,
-                  // limited-time free-to-play, or removed from family sharing) —
-                  // those are surfaced with a "revoked license" notice so the
-                  // user understands why no achievement data could be loaded.
+                  // (matching the legacy path). Exceptions:
+                  // - games the player has in their play history but no longer
+                  //   owns (refunded, limited-time free-to-play, or removed from
+                  //   family sharing), surfaced with a "revoked license" notice;
+                  // - games with archived achievements the player earned;
+                  // - games with locally known historical unlocks, so previous
+                  //   progress is not lost when Steam stops exposing it.
                   const fetchFailed =
                     modern.earnedAchievements === 0 &&
+                    modern.archivedEarnedAchievements === 0 &&
                     modern.totalAchievements > 0 &&
                     ownershipSource === 'played_history';
+                  const hasHistoricalUnlocks = historicalGameIdSet.has(game.appid);
+                  const hasEarnedAchievements =
+                    modern.earnedAchievements > 0 || modern.archivedEarnedAchievements > 0;
 
-                  if (modern.earnedAchievements === 0 && !fetchFailed) {
+                  if (!hasEarnedAchievements && !fetchFailed && !hasHistoricalUnlocks) {
                     return null;
                   }
 
@@ -830,9 +910,11 @@ export class SteamAdapter {
                     name: gameName,
                     totalAchievements: modern.totalAchievements,
                     earnedAchievements: modern.earnedAchievements,
+                    archivedEarnedAchievements: modern.archivedEarnedAchievements,
                     hasAchievementGroups: modern.hasGroups,
                     ownershipSource,
                     achievementsFetchFailed: fetchFailed,
+                    hasHistoricalUnlocks,
                   }, 'Found game with unlocked achievements (group-aware)');
 
                   const gameData = {
@@ -846,6 +928,7 @@ export class SteamAdapter {
                     ownershipSource,
                     hasAchievementGroups: modern.hasGroups || undefined,
                     achievementsFetchFailed: fetchFailed || undefined,
+                    archivedAchievementIds: modern.archivedAchievementIds,
                   };
 
                   return { game: gameData, achievements: modern.achievementsData };
@@ -882,9 +965,11 @@ export class SteamAdapter {
                 const achievementsFetchFailed = playerAchievements.length === 0 && schemaTotalAchievements > 0;
 
                 // Skip games where the user hasn't unlocked any achievements AND the
-                // achievement fetch didn't fail.  When the fetch failed (revoked license),
-                // we still want the game to appear in the list so the user gets feedback.
-                if (earnedAchievements === 0 && !achievementsFetchFailed) {
+                // achievement fetch didn't fail. When the fetch failed (revoked license)
+                // or the game has known historical unlocks, we still want the game to
+                // appear so the user gets feedback / keeps earned history.
+                const hasHistoricalUnlocks = historicalGameIdSet.has(game.appid);
+                if (earnedAchievements === 0 && !achievementsFetchFailed && !hasHistoricalUnlocks) {
                   return null;
                 }
 

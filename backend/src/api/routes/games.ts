@@ -143,6 +143,7 @@ export async function getGames(
               platform: 'steam',
               profileId: filter.profileId,
               groupId: '0',
+              availability: { $nin: ['archived', 'removed'] },
             },
           },
           {
@@ -239,6 +240,7 @@ export async function getGames(
             platform: 'steam',
             profileId: filter.profileId,
             groupId: { $exists: true, $nin: [null, ''] },
+            availability: { $nin: ['archived', 'removed'] },
           },
         },
         {
@@ -260,6 +262,7 @@ export async function getGames(
           platform: 'steam',
           unlockedAt: { $exists: true, $ne: null },
           globalPercent: { $lt: 10 },
+          availability: { $nin: ['archived', 'removed'] },
         }),
         // Steam's average game completion rate averages each game's exact
         // unlocked/total fraction. Games with zero unlocked achievements are
@@ -344,6 +347,7 @@ export async function getGames(
             profileId: filter.profileId,
             gameId: { $in: games.map((game) => game._id) },
             groupId: '0',
+            availability: { $nin: ['archived', 'removed'] },
           },
         },
         {
