@@ -119,6 +119,8 @@ const mockTitleTrophiesResponse = {
       trophyName: 'God of War Platinum',
       trophyDetail: 'Earn all trophies',
       trophyIconUrl: 'https://image.api.playstation.com/trophy/0.png',
+      trophyEarnedRate: '2.9',
+      trophyRare: 0,
     },
     {
       trophyId: 1,
@@ -127,6 +129,8 @@ const mockTitleTrophiesResponse = {
       trophyName: 'Secret Gold',
       trophyDetail: 'A secret achievement',
       trophyIconUrl: 'https://image.api.playstation.com/trophy/1.png',
+      trophyEarnedRate: '15.4',
+      trophyRare: 2,
     },
     {
       trophyId: 2,
@@ -135,15 +139,17 @@ const mockTitleTrophiesResponse = {
       trophyName: 'First Steps',
       trophyDetail: 'Begin the journey',
       trophyIconUrl: 'https://image.api.playstation.com/trophy/2.png',
+      trophyEarnedRate: '55.2',
+      trophyRare: 3,
     },
   ],
 };
 
 const mockEarnedTrophiesResponse = {
   trophies: [
-    { trophyId: 0, earned: true, earnedDateTime: '2026-01-15T18:30:00Z' },
-    { trophyId: 1, earned: false },
-    { trophyId: 2, earned: true, earnedDateTime: '2026-01-10T12:00:00Z' },
+    { trophyId: 0, earned: true, earnedDateTime: '2026-01-15T18:30:00Z', trophyRare: 0, trophyEarnedRate: '2.9' },
+    { trophyId: 1, earned: false, trophyRare: 2, trophyEarnedRate: '15.4' },
+    { trophyId: 2, earned: true, earnedDateTime: '2026-01-10T12:00:00Z', trophyRare: 3, trophyEarnedRate: '55.2' },
   ],
 };
 
@@ -453,10 +459,25 @@ describe('PlayStationAdapter', () => {
       const result = await adapter.getEarnedTrophies('mock-access-token', 'me', 'NPWR12345_00', 'trophy2');
 
       expect(result).toHaveLength(3);
-      expect(result[0]).toMatchObject({ trophyId: '0', earned: true });
+      expect(result[0]).toMatchObject({
+        trophyId: '0',
+        earned: true,
+        globalPercent: 2.9,
+        rarityCategory: 'Ultra Rare',
+      });
       expect(result[0].earnedDateTime).toBeInstanceOf(Date);
-      expect(result[1]).toMatchObject({ trophyId: '1', earned: false });
+      expect(result[1]).toMatchObject({
+        trophyId: '1',
+        earned: false,
+        globalPercent: 15.4,
+        rarityCategory: 'Rare',
+      });
       expect(result[1].earnedDateTime).toBeUndefined();
+      expect(result[2]).toMatchObject({
+        trophyId: '2',
+        globalPercent: 55.2,
+        rarityCategory: 'Common',
+      });
     });
 
     it('passes npServiceName=trophy for legacy platforms', async () => {

@@ -1424,6 +1424,30 @@ class SyncService {
             );
             const group = def.groupId ? groupMap.get(def.groupId) : undefined;
 
+            const updateFields: any = {
+              platform: 'playstation',
+              profileId: profile._id,
+              gameId: game._id,
+              achievementId: def.trophyId,
+              name: def.name,
+              description: def.description,
+              unlockedAt: earnStatus?.earned ? earnStatus.earnedDateTime : undefined,
+              iconPath: iconPath,
+              iconGrayPath: iconPath, // Same icon, frontend applies CSS grayscale for locked
+              trophyGrade: def.type,
+              isHidden: def.isHidden,
+              groupId: def.groupId,
+              groupName: group?.groupName,
+              groupOrder: group?.order,
+            };
+
+            if (earnStatus?.globalPercent !== undefined) {
+              updateFields.globalPercent = earnStatus.globalPercent;
+            }
+            if (earnStatus?.rarityCategory) {
+              updateFields.rarityCategory = earnStatus.rarityCategory;
+            }
+
             return {
               updateOne: {
                 filter: {
@@ -1432,24 +1456,7 @@ class SyncService {
                   gameId: game._id,
                   achievementId: def.trophyId,
                 },
-                update: {
-                  $set: {
-                    platform: 'playstation' as const,
-                    profileId: profile._id,
-                    gameId: game._id,
-                    achievementId: def.trophyId,
-                    name: def.name,
-                    description: def.description,
-                    unlockedAt: earnStatus?.earned ? earnStatus.earnedDateTime : undefined,
-                    iconPath: iconPath,
-                    iconGrayPath: iconPath, // Same icon, frontend applies CSS grayscale for locked
-                    trophyGrade: def.type,
-                    isHidden: def.isHidden,
-                    groupId: def.groupId,
-                    groupName: group?.groupName,
-                    groupOrder: group?.order,
-                  },
-                },
+                update: { $set: updateFields },
                 upsert: true,
               },
             };

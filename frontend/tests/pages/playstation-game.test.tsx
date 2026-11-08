@@ -51,6 +51,8 @@ const mockAchievements = [
     trophyGrade: 'platinum',
     isHidden: false,
     gamerscore: null,
+    globalPercent: 2.9,
+    rarityCategory: 'Ultra Rare',
   },
   {
     _id: 'ach-2',
@@ -62,6 +64,8 @@ const mockAchievements = [
     trophyGrade: 'gold',
     isHidden: true,
     gamerscore: null,
+    globalPercent: 15.4,
+    rarityCategory: 'Rare',
   },
   {
     _id: 'ach-3',
@@ -73,6 +77,8 @@ const mockAchievements = [
     trophyGrade: 'bronze',
     isHidden: false,
     gamerscore: null,
+    globalPercent: 55.2,
+    rarityCategory: 'Common',
   },
 ];
 
@@ -127,6 +133,24 @@ describe('PlayStation game detail page — app/playstation/game/[id]/page.tsx (T
           document.body.firstChild,
       ).toBeTruthy();
     }, { timeout: 3000 });
+  });
+
+  it('shows PlayStation trophy rarity percentage and category', async () => {
+    const { default: GamePage } = await import('../../app/playstation/game/[id]/page');
+    render(<GamePage params={Promise.resolve({ id: 'NPWR12345_00' })} />);
+    await waitFor(() => {
+      expect(screen.getByText('2.9%')).toBeTruthy();
+    }, { timeout: 3000 });
+
+    const ultraRareText = screen.getByText('2.9%').closest('p')?.textContent ?? '';
+    expect(ultraRareText).toContain('2.9% of players unlocked this · Ultra Rare');
+
+    const rareText = screen.getByText('15.4%').closest('p')?.textContent ?? '';
+    expect(rareText).toContain('15.4% of players unlocked this · Rare');
+
+    const commonText = screen.getByText('55.2%').closest('p')?.textContent ?? '';
+    expect(commonText).toContain('55.2% of players unlocked this');
+    expect(commonText).not.toContain('Common');
   });
 
   it('shows locked trophies section', async () => {

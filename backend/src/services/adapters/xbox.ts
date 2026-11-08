@@ -122,6 +122,9 @@ export interface XboxAchievement {
    *   No authentication required for this endpoint.
    */
   iconUrl?: string;
+  /** Global unlock percentage (Xbox One/Series only). */
+  globalPercent?: number;
+  /** Platform-provided rarity label ("Rare" / "Common"). */
   rarityCategory?: string;
   /** Gamerscore value for this individual achievement */
   gamerscore?: number;
@@ -1212,6 +1215,11 @@ export class XboxAdapter {
       achievementType: string;
       participationType: string;
       rewards: Array<{ name?: string; description?: string; value?: string; type: string; valueType: string }>;
+      rarity?: {
+        currentCategory?: string;
+        currentPercentage?: number | string;
+      };
+      /** Older/flat rarity shape observed in some responses. */
       rarityCurrentCategory?: string;
       /** Contract 6+: achievement group ids this achievement belongs to. */
       groupIds?: string[];
@@ -1577,6 +1585,14 @@ export class XboxAdapter {
             ? new Date(ach.progression.timeUnlocked)
             : undefined;
           const isUnlocked = ach.progressState === 'Achieved';
+          const rarityPercentRaw = ach.rarity?.currentPercentage;
+          const rarityPercent = rarityPercentRaw == null || rarityPercentRaw === ''
+            ? undefined
+            : Number(String(rarityPercentRaw).replace('%', '').trim());
+          const rawRarityCategory = ach.rarity?.currentCategory ?? ach.rarityCurrentCategory;
+          const rarityCategory = rawRarityCategory && !/^unset$/i.test(rawRarityCategory)
+            ? rawRarityCategory
+            : undefined;
 
           allAchievements.push({
             achievementId: ach.id,
@@ -1587,6 +1603,10 @@ export class XboxAdapter {
             isUnlocked,
             unlockedAt: isUnlocked && unlockedAt ? unlockedAt : undefined,
             iconUrl: iconAsset?.url,
+            globalPercent: rarityPercent !== undefined && Number.isFinite(rarityPercent)
+              ? rarityPercent
+              : undefined,
+            rarityCategory,
             gamerscore: ach.rewards?.find((r) => r.type === 'Gamerscore')
               ? (parseInt(ach.rewards.find((r) => r.type === 'Gamerscore')!.value ?? '0', 10) || undefined)
               : undefined,
@@ -3387,6 +3407,8 @@ export class XboxAdapter {
               groupOrder: ach.groupOrder,
             };
             if (ach.gamerscore !== undefined) updateFields.gamerscore = ach.gamerscore;
+            if (ach.globalPercent !== undefined) updateFields.globalPercent = ach.globalPercent;
+            if (ach.rarityCategory) updateFields.rarityCategory = ach.rarityCategory;
             if (iconPath) {
               updateFields.iconPath = iconPath;
               updateFields.iconGrayPath = iconPath;

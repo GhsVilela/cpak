@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
 import TrophyIcon from '../../../../components/TrophyIcon';
 import TrophyCounts from '../../../../components/TrophyCounts';
+import AchievementRarity from '../../../../components/AchievementRarity';
 import { isPlatformListUrl } from '../../../../lib/navigation';
 
 interface Game {
@@ -39,6 +40,10 @@ interface Achievement {
   trophyGrade?: 'bronze' | 'silver' | 'gold' | 'platinum' | null;
   isHidden?: boolean;
   gamerscore?: number | null;
+  /** Percentage of PSN users who earned this trophy. */
+  globalPercent?: number;
+  /** Platform rarity label: Ultra Rare, Very Rare, Rare, Common. */
+  rarityCategory?: string;
   groupId?: string;
   groupName?: string;
   groupOrder?: number;
@@ -124,6 +129,11 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
           {trophy.isHidden && !trophy.unlockedAt && (
             <p className="mt-1 text-sm italic text-gray-600">Secret trophy</p>
           )}
+          <AchievementRarity
+            globalPercent={trophy.globalPercent}
+            rarityCategory={trophy.rarityCategory}
+            muted
+          />
         </div>
       </div>
     );
@@ -150,6 +160,10 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
         {trophy.description && (
           <p className="mt-1 text-sm text-gray-400">{trophy.description}</p>
         )}
+        <AchievementRarity
+          globalPercent={trophy.globalPercent}
+          rarityCategory={trophy.rarityCategory}
+        />
         {trophy.unlockedAt && (
           <p className="mt-2 text-xs text-gray-500">
             Unlocked: {new Date(trophy.unlockedAt).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}

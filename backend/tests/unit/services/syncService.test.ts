@@ -86,6 +86,8 @@ vi.mock('../../../src/services/adapters/playstation.js', () => ({
       trophyHidden: false,
       earned: true,
       earnedDateTime: new Date().toISOString(),
+      globalPercent: 2.9,
+      rarityCategory: 'Ultra Rare',
     }]),
     getTrophyDefinitions: vi.fn().mockResolvedValue([{
       trophyId: 1,
@@ -420,6 +422,7 @@ describe('SyncService', () => {
     const { Profile } = await import('../../../src/models/profile.js');
     const { SyncOperation } = await import('../../../src/models/syncOperation.js');
     const { Game } = await import('../../../src/models/game.js');
+    const { Achievement } = await import('../../../src/models/achievement.js');
 
     const profile = await Profile.create({
       platform: 'playstation',
@@ -442,6 +445,14 @@ describe('SyncService', () => {
     const game = await Game.findOne({ profileId: profile._id, platform: 'playstation' });
     expect(game).toBeTruthy();
     expect(game?.title).toBe('Test PS Game');
+
+    const trophy = await Achievement.findOne({
+      profileId: profile._id,
+      platform: 'playstation',
+      achievementId: '1',
+    });
+    expect(trophy?.globalPercent).toBe(2.9);
+    expect(trophy?.rarityCategory).toBe('Ultra Rare');
   });
 
   it('syncProfile refreshes expired PlayStation token', async () => {

@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
+import AchievementRarity from '../../../../components/AchievementRarity';
 import { isPlatformListUrl } from '../../../../lib/navigation';
 
 interface Game {
@@ -34,6 +35,8 @@ interface Achievement {
   groupOrder?: number;
   /** Global unlock percentage (0–100). Below 10 is rare on Steam. */
   globalPercent?: number;
+  /** Platform-provided rarity label when available. */
+  rarityCategory?: string;
   /** Steam: whether the achievement can still be obtained. Missing = active. */
   availability?: 'active' | 'archived' | 'removed';
 }
@@ -110,16 +113,12 @@ function groupAchievements(achievements: Achievement[]): AchievementGroup[] {
 }
 
 function GlobalPercent({ achievement, muted = false }: { achievement: Achievement; muted?: boolean }) {
-  if (achievement.globalPercent === undefined || achievement.globalPercent === null) return null;
-  const rare = achievement.globalPercent < 10;
-
   return (
-    <p className={`mt-1 text-xs ${muted ? 'text-gray-600' : 'text-gray-500'}`}>
-      <span className={rare ? 'font-semibold text-amber-400' : ''}>
-        {achievement.globalPercent.toFixed(1)}%
-      </span>{' '}
-      of players unlocked this{rare ? ' · Rare' : ''}
-    </p>
+    <AchievementRarity
+      globalPercent={achievement.globalPercent}
+      rarityCategory={achievement.rarityCategory}
+      muted={muted}
+    />
   );
 }
 
