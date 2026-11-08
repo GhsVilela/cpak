@@ -491,7 +491,7 @@ describe('SyncService', () => {
       completionPercent: 50,
     });
 
-    const makeAchievement = (achievementId: string, unlockedAt?: Date) => ({
+    const makeAchievement = (achievementId: string, unlockedAt?: Date, globalPercent?: number) => ({
       platform: 'steam',
       profileId: profile._id,
       gameId: game._id,
@@ -502,10 +502,11 @@ describe('SyncService', () => {
       groupName: 'Base Game',
       groupOrder: 0,
       ...(unlockedAt ? { unlockedAt } : {}),
+      ...(globalPercent !== undefined ? { globalPercent } : {}),
     });
 
     await Achievement.create([
-      makeAchievement('ACTIVE_UNLOCKED', new Date('2020-01-01')),
+      makeAchievement('ACTIVE_UNLOCKED', new Date('2020-01-01'), 5),
       makeAchievement('ACTIVE_LOCKED'),
       makeAchievement('ARCHIVED_UNLOCKED', new Date('2020-01-02')),
       makeAchievement('ARCHIVED_LOCKED'),
@@ -534,6 +535,7 @@ describe('SyncService', () => {
             description: '',
             unlocked: true,
             unlockTime: new Date('2020-01-01'),
+            globalPercent: 12.5,
           },
           {
             appId: 269210,
@@ -571,6 +573,7 @@ describe('SyncService', () => {
     const removedUnlocked = await Achievement.findOne({ gameId: game._id, achievementId: 'REMOVED_UNLOCKED' });
 
     expect(activeUnlocked?.availability).toBe('active');
+    expect(activeUnlocked?.globalPercent).toBe(12.5);
     expect(activeLocked?.availability).toBe('active');
     expect(archivedUnlocked?.availability).toBe('archived');
     expect(archivedUnlocked?.unlockedAt).toBeTruthy();

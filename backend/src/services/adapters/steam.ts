@@ -63,6 +63,8 @@ interface SteamGameAchievementsResponse {
     hidden?: boolean;
     archived?: boolean;
     groupid?: number;
+    /** More precise global unlock percentage returned by the modern schema. */
+    player_percent_unlocked?: string | number;
   }>;
   groups: Array<{
     groupid?: number;
@@ -553,6 +555,18 @@ export class SteamAdapter {
       const gid = achievement.groupid ?? 0;
       const group = groupMap.get(gid);
 
+      // GetGameAchievements includes a more precise player_percent_unlocked
+      // value than GetGlobalAchievementPercentagesForApp, which rounds very
+      // low values down to 0.0 (e.g. 0.1% becomes 0.0%). Prefer the schema
+      // value and fall back to the global endpoint when it is unavailable.
+      const schemaPercentRaw = achievement.player_percent_unlocked;
+      const schemaPercent = schemaPercentRaw == null || schemaPercentRaw === ''
+        ? undefined
+        : Number(schemaPercentRaw);
+      const globalPercent = schemaPercent !== undefined && Number.isFinite(schemaPercent)
+        ? schemaPercent
+        : globalPercentages.get(achievement.internal_name as string);
+
       return {
         appId,
         achievementId: achievement.internal_name as string,
@@ -565,7 +579,7 @@ export class SteamAdapter {
         groupId: String(gid),
         groupName: group?.name ?? 'Base Game',
         groupOrder: group?.order ?? 0,
-        globalPercent: globalPercentages.get(achievement.internal_name as string),
+        globalPercent,
         archived,
       };
     };

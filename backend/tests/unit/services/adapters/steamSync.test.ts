@@ -633,4 +633,45 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
       unlocked: true,
     });
   });
+
+  it('prefers the precise player_percent_unlocked value from the modern schema', async () => {
+    stubFetch({
+      GetOwnedGames: {
+        response: {
+          games: [{ appid: 504, name: 'Precise Percent Game', playtime_forever: 10 }],
+        },
+      },
+      GetGameAchievements: {
+        response: {
+          achievements: [
+            {
+              internal_name: 'ACH_TINY',
+              internal_key: 1,
+              localized_name: 'Tiny Percent',
+              groupid: 0,
+              player_percent_unlocked: '0.1',
+            },
+          ],
+          groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+        },
+      },
+      GetUserAchievements: {
+        response: {
+          achievements: [{ internal_key: 1, unlocked: true, unlock_time: 1700000000 }],
+          groups: [],
+        },
+      },
+      // The legacy endpoint rounds this down to 0.0.
+      GetGlobalAchievementPercentages: {
+        achievementpercentages: {
+          achievements: [{ name: 'ACH_TINY', percent: '0.0' }],
+        },
+      },
+    });
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+    const achievement = result.achievements.find((a) => a.achievementId === 'ACH_TINY');
+
+    expect(achievement?.globalPercent).toBe(0.1);
+  });
 });
