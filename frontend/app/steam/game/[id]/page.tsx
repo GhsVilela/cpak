@@ -118,6 +118,7 @@ function GlobalPercent({ achievement, muted = false }: { achievement: Achievemen
       globalPercent={achievement.globalPercent}
       rarityCategory={achievement.rarityCategory}
       muted={muted}
+      platform="steam"
     />
   );
 }

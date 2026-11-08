@@ -97,6 +97,7 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
             globalPercent={achievement.globalPercent}
             rarityCategory={achievement.rarityCategory}
             muted
+            platform="xbox"
           />
         </div>
       </div>
@@ -131,6 +132,7 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
         <AchievementRarity
           globalPercent={achievement.globalPercent}
           rarityCategory={achievement.rarityCategory}
+          platform="xbox"
         />
         {achievement.unlockedAt && (
           <p className="mt-2 text-xs text-gray-500">

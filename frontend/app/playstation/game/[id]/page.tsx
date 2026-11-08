@@ -133,6 +133,7 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
             globalPercent={trophy.globalPercent}
             rarityCategory={trophy.rarityCategory}
             muted
+            platform="playstation"
           />
         </div>
       </div>
@@ -163,6 +164,7 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
         <AchievementRarity
           globalPercent={trophy.globalPercent}
           rarityCategory={trophy.rarityCategory}
+          platform="playstation"
         />
         {trophy.unlockedAt && (
           <p className="mt-2 text-xs text-gray-500">

@@ -2,6 +2,20 @@ interface AchievementRarityProps {
   globalPercent?: number | null;
   rarityCategory?: string | null;
   muted?: boolean;
+  platform?: 'steam' | 'xbox' | 'playstation';
+}
+
+function getPlayStationRarityClass(rarity?: string): string | undefined {
+  switch (rarity?.toLowerCase()) {
+    case 'ultra rare':
+      return 'font-extrabold text-yellow-300';
+    case 'very rare':
+      return 'font-bold text-yellow-400';
+    case 'rare':
+      return 'font-semibold text-yellow-400/60';
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -14,6 +28,7 @@ export default function AchievementRarity({
   globalPercent,
   rarityCategory,
   muted = false,
+  platform,
 }: AchievementRarityProps) {
   const percent = typeof globalPercent === 'number' && Number.isFinite(globalPercent)
     ? globalPercent
@@ -24,21 +39,26 @@ export default function AchievementRarity({
     ? normalizedCategory
     : undefined;
 
-  const rare = rareCategory ?? (percent !== undefined && percent < 10 ? 'Rare' : undefined);
+  const rarityForStyle = rareCategory ?? (percent !== undefined && percent < 10 ? 'Rare' : undefined);
+  const playStationRarityClass = platform === 'playstation'
+    ? getPlayStationRarityClass(rarityForStyle)
+    : undefined;
+  const percentClass = playStationRarityClass
+    ?? (rarityForStyle ? 'font-semibold text-amber-400' : '');
 
-  if (percent === undefined && !rare) return null;
+  if (percent === undefined && !rarityForStyle) return null;
 
   return (
     <p className={`mt-1 text-xs ${muted ? 'text-gray-600' : 'text-gray-500'}`}>
       {percent !== undefined && (
         <>
-          <span className={rare ? 'font-semibold text-amber-400' : ''}>
+          <span className={percentClass}>
             {percent.toFixed(1)}%
           </span>{' '}
           of players unlocked this
         </>
       )}
-      {rare ? `${percent !== undefined ? ' · ' : ''}${rare}` : ''}
+      {rarityForStyle ? `${percent !== undefined ? ' · ' : ''}${rarityForStyle}` : ''}
     </p>
   );
 }
