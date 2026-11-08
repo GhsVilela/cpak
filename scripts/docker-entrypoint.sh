@@ -59,7 +59,25 @@ fi
 # Database Mode Detection
 # ============================================================================
 
-if [ -n "$EXTERNAL_DB" ] || [ -n "$MONGO_URI" ]; then
+# Normalize EXTERNAL_DB: empty/false/0/no/off => bundled, true/1/yes/on => external
+# (accepts values in any case; an invalid value is a configuration error)
+EXTERNAL_DB_NORMALIZED=$(printf '%s' "${EXTERNAL_DB:-}" | tr '[:upper:]' '[:lower:]')
+
+case "$EXTERNAL_DB_NORMALIZED" in
+    true|1|yes|on)
+        EXTERNAL_DB_ENABLED=true
+        ;;
+    ""|false|0|no|off)
+        EXTERNAL_DB_ENABLED=false
+        ;;
+    *)
+        echo "❌ ERROR: Invalid EXTERNAL_DB value '$EXTERNAL_DB' (use true or false)"
+        exit 1
+        ;;
+esac
+
+if [ "$EXTERNAL_DB_ENABLED" = "true" ] || [ -n "$MONGO_URI" ]; then
+    DB_MODE="External"
     echo "📦 External database mode enabled"
     
     # Validate MONGO_URI is set
@@ -74,6 +92,7 @@ if [ -n "$EXTERNAL_DB" ] || [ -n "$MONGO_URI" ]; then
     
     echo "   Using external MongoDB: $MONGO_URI"
 else
+    DB_MODE="Bundled"
     echo "📦 Bundled database mode (default)"
     
     # Ensure database directory exists
@@ -129,7 +148,7 @@ fi
 echo "   ✓ Images directory writable: $IMAGES_PATH"
 
 # Test database directory (only in bundled mode)
-if [ -z "$EXTERNAL_DB" ]; then
+if [ "$DB_MODE" = "Bundled" ]; then
     if [ ! -w "$DB_PATH" ]; then
         echo "❌ ERROR: Database directory is not writable: $DB_PATH"
         exit 1
@@ -149,7 +168,7 @@ export BACKUP_DIR="$BACKUP_PATH"
 # MongoDB Health Check (Bundled Mode)
 # ============================================================================
 
-if [ -z "$EXTERNAL_DB" ]; then
+if [ "$DB_MODE" = "Bundled" ]; then
     echo ""
     echo "🔍 MongoDB health check will be performed after startup"
     echo "   (supervisord will manage MongoDB process)"
@@ -161,8 +180,7 @@ fi
 
 echo ""
 echo "📋 Configuration Summary:"
-   DB_MODE="${EXTERNAL_DB:+External}";
-   echo "   Database Mode:    ${DB_MODE:-Bundled}"
+echo "   Database Mode:    $DB_MODE"
 echo "   Volume Mode:      $(mountpoint -q /app/data/db 2>/dev/null && echo 'Split' || echo 'Unified')"
 echo "   Images Path:      $IMAGES_PATH"
 echo "   MongoDB URI:      ${MONGO_URI}"
@@ -177,13 +195,10 @@ echo ""
 echo "🚀 Starting services via supervisord..."
 echo "   - Caddy (web server + reverse proxy)"
 echo "   - Backend API (Fastify)"
-if [ -z "$EXTERNAL_DB" ]; then
+if [ "$DB_MODE" = "Bundled" ]; then
     echo "   - MongoDB (database)"
 fi
 echo ""
-
-# Execute supervisord (replaces this process)
-exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
 
 # Execute supervisord (replaces this process)
 exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
