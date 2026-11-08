@@ -64,7 +64,7 @@ function formatPlaytime(minutes: number): string {
 function AchievementCard({ achievement, locked = false }: { achievement: Achievement; locked?: boolean }) {
   if (locked) {
     return (
-      <div className="flex items-start gap-4 rounded-xl border border-[var(--border-muted)] bg-[var(--surface-muted)] p-4 opacity-70 transition-colors">
+      <div className="flex items-center gap-4 rounded-xl border border-[var(--border-muted)] bg-[var(--surface-muted)] p-4 opacity-70 transition-colors">
         <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
           {/* Xbox stores a single icon; locked icons use CSS grayscale */}
           {achievement.iconPath || achievement.iconGrayPath ? (
@@ -96,7 +96,7 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
   }
 
   return (
-    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+    <div className="flex items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
         {achievement.iconPath ? (
           <img

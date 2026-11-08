@@ -518,10 +518,10 @@ function SteamPageContent() {
         {/* Sync Status Banner */}
         {selectedProfileId && syncStatus?.current && (
           <div className="mb-4 p-3 bg-sky-900/20 border border-sky-500/30 rounded">
-            <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-sky-400 font-medium">{syncStatus.current.message}</span>
-              <div className="flex items-center gap-3">
-                <span className="text-sky-400 font-bold">{syncStatus.current.progress}%</span>
+            <div className="mb-2 flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <span className="min-w-0 break-words text-sky-400 font-medium">{syncStatus.current.message}</span>
+              <div className="flex items-center justify-between gap-3 sm:shrink-0 sm:justify-end">
+                <span className="whitespace-nowrap text-sky-400 font-bold">{syncStatus.current.progress}%</span>
                 <button
                   onClick={cancelSync}
                   className="text-sm px-3 py-1.5 bg-red-600/20 hover:bg-red-600/40 border border-red-500/50 rounded text-red-400 transition font-medium"

@@ -21,6 +21,7 @@ describe('Achievement model', () => {
     expect(paths).toContain('gamerscore');
     expect(paths).toContain('trophyGrade');
     expect(paths).toContain('isHidden');
+    expect(paths).toContain('availability');
   });
 
   it('platform field has correct enum values', () => {
@@ -73,6 +74,31 @@ describe('Achievement model', () => {
     });
     expect(achievement.isHidden).toBe(false);
     expect(achievement.trophyGrade).toBeNull();
+    expect(achievement.availability).toBe('active');
+  });
+
+  it('accepts archived and removed availability values', () => {
+    const archived = new Achievement({
+      platform: 'steam',
+      profileId: '507f1f77bcf86cd799439011',
+      gameId: '507f1f77bcf86cd799439012',
+      achievementId: 'steam-archived',
+      name: 'Archived',
+      availability: 'archived',
+    });
+    const removed = new Achievement({
+      platform: 'steam',
+      profileId: '507f1f77bcf86cd799439011',
+      gameId: '507f1f77bcf86cd799439012',
+      achievementId: 'steam-removed',
+      name: 'Removed',
+      availability: 'removed',
+    });
+
+    expect(archived.availability).toBe('archived');
+    expect(removed.availability).toBe('removed');
+    const availabilityPath = Achievement.schema.path('availability') as any;
+    expect(availabilityPath.enumValues).toEqual(['active', 'archived', 'removed']);
   });
 
   it('accepts PlayStation trophy grades', () => {
