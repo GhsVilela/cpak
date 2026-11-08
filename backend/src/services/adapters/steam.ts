@@ -709,8 +709,21 @@ export class SteamAdapter {
    * Resolve a display name for a game using the fallback chain:
    * existing name → Steam Store → Steam Community → SteamCMD PICS → schema.
    */
-  private async resolveGameName(game: SteamGame, schemaGameName?: string): Promise<string> {
-    return (await this.resolveGameNameByAppId(game.appid, game.name, schemaGameName)) ?? '';
+  private async resolveGameName(
+    game: SteamGame,
+    schemaGameName?: string,
+    knownTitle?: string,
+  ): Promise<string> {
+    const steamName = cleanGameName(game.name);
+    if (steamName) return steamName;
+
+    const localName = cleanGameName(knownTitle);
+    if (localName) {
+      logger.debug({ appId: game.appid, name: localName }, 'Using local game title');
+      return localName;
+    }
+
+    return (await this.resolveGameNameByAppId(game.appid, undefined, schemaGameName)) ?? '';
   }
 
   /**
@@ -938,6 +951,7 @@ export class SteamAdapter {
     knownGameIds?: number[],
     progress?: SyncProgressTracker,
     historicalGameIds?: number[],
+    knownGameTitles?: Map<string, string>,
   ): Promise<{
     games: Array<{
       appId: number;
@@ -1119,6 +1133,7 @@ export class SteamAdapter {
             batch.map(async (game) => {
               try {
                 const ownershipSource = ownershipSourceMap.get(game.appid);
+                const knownTitle = knownGameTitles?.get(String(game.appid));
 
                 // Prefer the modern group-aware IPlayerService endpoints. They are
                 // the only source of achievement sets (base game vs DLC/updates).
@@ -1153,7 +1168,7 @@ export class SteamAdapter {
                     return null;
                   }
 
-                  const gameName = await this.resolveGameName(game);
+                  const gameName = await this.resolveGameName(game, undefined, knownTitle);
 
                   logger.debug({
                     appId: game.appid,
@@ -1242,7 +1257,7 @@ export class SteamAdapter {
                 // 2. Steam Store API (reliable for F2P, early access, family-shared games)
                 // 3. Steam Community hub page (persists for delisted/removed games)
                 // 4. GetSchemaForGame (last resort — may return outdated or test names)
-                const gameName = await this.resolveGameName(game, gameSchema?.gameName);
+                const gameName = await this.resolveGameName(game, gameSchema?.gameName, knownTitle);
 
                 const gameData = {
                   appId: game.appid,

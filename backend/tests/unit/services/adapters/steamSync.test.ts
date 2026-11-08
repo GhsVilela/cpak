@@ -634,6 +634,62 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
     });
   });
 
+  it('reuses a valid local title for unowned play-history games without remote name lookups', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        if (url.includes('GetOwnedGames')) {
+          return { response: { games: [] } };
+        }
+        if (url.includes('ClientGetLastPlayedTimes')) {
+          return { response: { games: [{ appid: 700, playtime_forever: 60 }] } };
+        }
+        if (url.includes('GetGameAchievements')) {
+          return {
+            response: {
+              achievements: [
+                { internal_name: 'ACH_ONE', internal_key: 1, localized_name: 'One', groupid: 0 },
+              ],
+              groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+            },
+          };
+        }
+        if (url.includes('GetUserAchievements')) {
+          return { response: { achievements: [{ internal_key: 1, unlocked: true }], groups: [] } };
+        }
+        if (url.includes('GetGlobalAchievementPercentages')) {
+          return { achievementpercentages: { achievements: [{ name: 'ACH_ONE', percent: '10.0' }] } };
+        }
+        return {};
+      },
+      text: async () => '',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await adapter.syncGamesAndAchievements(
+      'steamid123',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new Map([['700', 'Local Known Title']]),
+    );
+
+    expect(result.games).toHaveLength(1);
+    expect(result.games[0]).toMatchObject({
+      appId: 700,
+      name: 'Local Known Title',
+      ownershipSource: 'played_history',
+    });
+
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes('store.steampowered.com/api/appdetails'))).toBe(false);
+    expect(urls.some((url) => url.includes('steamcommunity.com/app/700'))).toBe(false);
+    expect(urls.some((url) => url.includes('api.steamcmd.net'))).toBe(false);
+    expect(urls.some((url) => url.includes('GetSchemaForGame'))).toBe(false);
+  });
+
   it('marks family-shared games from GetOwnedGames with include_family_licenses', async () => {
     stubFetch({
       GetOwnedGames: {

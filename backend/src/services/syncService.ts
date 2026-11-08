@@ -188,6 +188,7 @@ class SyncService {
       knownGameIds,
       progress,
       historicalGameIds,
+      previousTitles,
     );
 
     // T031: Update SyncOperation with final counts
