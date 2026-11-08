@@ -98,7 +98,7 @@ function groupTrophies(achievements: Achievement[]): TrophyGroup[] {
 function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: boolean }) {
   if (locked) {
     return (
-      <div className="flex items-start gap-4 rounded-xl border border-[var(--border-muted)] bg-[var(--surface-muted)] p-4 opacity-70 transition-colors">
+      <div className="flex items-center gap-4 rounded-xl border border-[var(--border-muted)] bg-[var(--surface-muted)] p-4 opacity-70 transition-colors">
         <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
           {/* PSN stores a single icon URL; lock state uses CSS grayscale */}
           {trophy.iconPath || trophy.iconGrayPath ? (
@@ -130,7 +130,7 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
   }
 
   return (
-    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+    <div className="flex items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
         {trophy.iconPath ? (
           <img
