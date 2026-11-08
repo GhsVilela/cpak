@@ -22,6 +22,7 @@ describe('Achievement model', () => {
     expect(paths).toContain('trophyGrade');
     expect(paths).toContain('isHidden');
     expect(paths).toContain('availability');
+    expect(paths).toContain('rarityCategory');
   });
 
   it('platform field has correct enum values', () => {

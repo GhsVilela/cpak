@@ -73,8 +73,10 @@ export interface DemoAchievement {
   groupId?: string;
   groupName?: string;
   groupOrder?: number;
-  /** Steam-specific global unlock percentage (0–100). */
+  /** Global unlock percentage (0–100), supplied by Steam/Xbox/PlayStation. */
   globalPercent?: number;
+  /** Platform rarity label (Xbox: Rare/Common; PlayStation: Ultra Rare/Very Rare/Rare/Common). */
+  rarityCategory?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -283,13 +285,29 @@ function generateAchievements(game: DemoGame): DemoAchievement[] {
               : 'bronze'
         : null;
     const isUnlocked = i < unlocked;
-    // Steam rarity: every sixth achievement is below Steam's 10% rare cutoff.
-    const globalPercent =
-      game.platform === 'steam'
-        ? i % 6 === 0
-          ? 3.5 + (i % 5)
-          : 20 + (i % 70)
-        : undefined;
+    // Rarity data mirrors the backend adapters:
+    // - Steam: only the global unlock percentage (the UI derives the "Rare" label).
+    // - Xbox: a percentage plus "Rare" (<10%) / "Common".
+    // - PlayStation: a percentage plus Sony's Ultra Rare / Very Rare / Rare / Common.
+    let globalPercent: number | undefined;
+    let rarityCategory: string | undefined;
+    if (game.platform === 'steam') {
+      // Every sixth achievement is below Steam's 10% rare cutoff.
+      globalPercent = i % 6 === 0 ? 3.5 + (i % 5) : 20 + (i % 70);
+    } else if (game.platform === 'xbox') {
+      globalPercent = i % 5 === 0 ? 5.5 + (i % 4) : 30 + (i % 55);
+      rarityCategory = globalPercent < 10 ? 'Rare' : 'Common';
+    } else if (game.platform === 'playstation' && trophyGrade) {
+      const psnRarity: Record<string, { percent: number; category: string }> = {
+        platinum: { percent: 3.4, category: 'Ultra Rare' },
+        gold: { percent: 11.8, category: 'Very Rare' },
+        silver: { percent: 24.6, category: 'Rare' },
+        bronze: { percent: 57.2, category: 'Common' },
+      };
+      const rarity = psnRarity[trophyGrade];
+      globalPercent = rarity.percent + (i % 5) * 0.3;
+      rarityCategory = rarity.category;
+    }
 
     achievements.push({
       _id: `ach_${game._id}_${i}`,
@@ -311,6 +329,7 @@ function generateAchievements(game: DemoGame): DemoAchievement[] {
       groupName: hasGroups ? (isBaseGame ? 'Base Game' : 'DLC / Update') : 'Base Game',
       groupOrder: hasGroups && !isBaseGame ? 1 : 0,
       globalPercent,
+      rarityCategory,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });

@@ -24,7 +24,7 @@ interface Game {
   iconImagePath?: string;
   heroImagePath?: string;
   profileId: string;
-  ownershipSource?: 'owned' | 'played_history';
+  ownershipSource?: 'owned' | 'family_shared' | 'played_history';
   achievementsFetchFailed?: boolean;
   hasAchievementGroups?: boolean;
   baseGameAchievementsTotal?: number;

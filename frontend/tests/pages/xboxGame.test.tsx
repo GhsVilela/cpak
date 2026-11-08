@@ -51,6 +51,8 @@ const baseAchievements = [
     unlockedAt: '2024-01-15T12:00:00Z',
     iconPath: 'xbox/title-123/ach-1.png',
     gamerscore: 50,
+    globalPercent: 4.2,
+    rarityCategory: 'Rare',
   },
   {
     _id: 'ach-2',
@@ -60,6 +62,8 @@ const baseAchievements = [
     // no unlockedAt → locked
     iconPath: 'xbox/title-123/ach-2.png',
     gamerscore: 25,
+    globalPercent: 63.7,
+    rarityCategory: 'Common',
   },
 ];
 
@@ -111,6 +115,20 @@ describe('Xbox Game detail page — app/xbox/game/[id]/page.tsx (T021)', () => {
       const ach = screen.queryByText(/First Blood/i);
       expect(ach || document.body.firstChild).toBeTruthy();
     }, { timeout: 3000 });
+  });
+
+  it('shows Xbox rarity percentage and category', async () => {
+    await renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('4.2%')).toBeTruthy();
+    }, { timeout: 3000 });
+
+    const rareText = screen.getByText('4.2%').closest('p')?.textContent ?? '';
+    expect(rareText).toContain('4.2% of players unlocked this · Rare');
+
+    const commonText = screen.getByText('63.7%').closest('p')?.textContent ?? '';
+    expect(commonText).toContain('63.7% of players unlocked this');
+    expect(commonText).not.toContain('Common');
   });
 
   it('shows locked achievements in the locked section', async () => {

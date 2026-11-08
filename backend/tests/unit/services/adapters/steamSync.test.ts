@@ -634,6 +634,130 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
     });
   });
 
+  it('reuses a valid local title for unowned play-history games without remote name lookups', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        if (url.includes('GetOwnedGames')) {
+          return { response: { games: [] } };
+        }
+        if (url.includes('ClientGetLastPlayedTimes')) {
+          return { response: { games: [{ appid: 700, playtime_forever: 60 }] } };
+        }
+        if (url.includes('GetGameAchievements')) {
+          return {
+            response: {
+              achievements: [
+                { internal_name: 'ACH_ONE', internal_key: 1, localized_name: 'One', groupid: 0 },
+              ],
+              groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+            },
+          };
+        }
+        if (url.includes('GetUserAchievements')) {
+          return { response: { achievements: [{ internal_key: 1, unlocked: true }], groups: [] } };
+        }
+        if (url.includes('GetGlobalAchievementPercentages')) {
+          return { achievementpercentages: { achievements: [{ name: 'ACH_ONE', percent: '10.0' }] } };
+        }
+        return {};
+      },
+      text: async () => '',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await adapter.syncGamesAndAchievements(
+      'steamid123',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new Map([['700', 'Local Known Title']]),
+    );
+
+    expect(result.games).toHaveLength(1);
+    expect(result.games[0]).toMatchObject({
+      appId: 700,
+      name: 'Local Known Title',
+      ownershipSource: 'played_history',
+    });
+
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes('store.steampowered.com/api/appdetails'))).toBe(false);
+    expect(urls.some((url) => url.includes('steamcommunity.com/app/700'))).toBe(false);
+    expect(urls.some((url) => url.includes('api.steamcmd.net'))).toBe(false);
+    expect(urls.some((url) => url.includes('GetSchemaForGame'))).toBe(false);
+  });
+
+  it('marks family-shared games from GetOwnedGames with include_family_licenses', async () => {
+    stubFetch({
+      GetOwnedGames: {
+        response: {
+          games: [
+            { appid: 600, name: 'Shared Game', playtime_forever: 100, family_shared: true },
+          ],
+        },
+      },
+      GetGameAchievements: {
+        response: {
+          achievements: [
+            { internal_name: 'SHARED_ACH', internal_key: 1, localized_name: 'Shared Achievement', groupid: 0 },
+          ],
+          groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+        },
+      },
+      GetUserAchievements: {
+        response: {
+          achievements: [{ internal_key: 1, unlocked: true, unlock_time: 1700000000 }],
+          groups: [],
+        },
+      },
+      GetGlobalAchievementPercentages: {
+        achievementpercentages: {
+          achievements: [{ name: 'SHARED_ACH', percent: '12.0' }],
+        },
+      },
+    });
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+
+    expect(result.games).toHaveLength(1);
+    expect(result.games[0]).toMatchObject({
+      appId: 600,
+      name: 'Shared Game',
+      ownershipSource: 'family_shared',
+      totalAchievements: 1,
+      earnedAchievements: 1,
+    });
+  });
+
+  it('filters out family-shared games with no unlocked achievements', async () => {
+    stubFetch({
+      GetOwnedGames: {
+        response: {
+          games: [
+            { appid: 601, name: 'Shared Unplayed', playtime_forever: 30, family_shared: true },
+          ],
+        },
+      },
+      GetGameAchievements: {
+        response: {
+          achievements: [
+            { internal_name: 'SHARED_LOCKED', internal_key: 1, localized_name: 'Locked', groupid: 0 },
+          ],
+          groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+        },
+      },
+      GetUserAchievements: { response: { groups: [{ groupid: 0, completed_achievements: 0 }] } },
+    });
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+
+    expect(result.games).toEqual([]);
+    expect(result.achievements).toEqual([]);
+  });
+
   it('prefers the precise player_percent_unlocked value from the modern schema', async () => {
     stubFetch({
       GetOwnedGames: {

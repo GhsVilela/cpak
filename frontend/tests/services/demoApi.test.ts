@@ -75,6 +75,28 @@ describe('Demo mode API', () => {
     expect(byTitle['Racing Royale']).toMatchObject({ hasPlatinum: true, trophyPlatinum: 1 });
   });
 
+  it('serves cross-platform achievement rarity data', async () => {
+    const profiles = {
+      steam: 'demo_steam_1',
+      xbox: 'demo_xbox_1',
+      playstation: 'demo_psn_1',
+    } as const;
+
+    for (const [platform, profileId] of Object.entries(profiles)) {
+      const games = await apiClient.get(`/games?platform=${platform}&profileId=${profileId}`);
+      const game = games.data.find((g: any) => g.achievementsTotal > 0);
+      const achievements = await apiClient.get(`/achievements?gameId=${game._id}`);
+
+      const withRarity = achievements.filter((a: any) => typeof a.globalPercent === 'number');
+      expect(withRarity.length).toBeGreaterThan(0);
+
+      if (platform !== 'steam') {
+        // Xbox and PlayStation also carry a platform rarity label.
+        expect(withRarity.some((a: any) => typeof a.rarityCategory === 'string')).toBe(true);
+      }
+    }
+  });
+
   it('paginates games', async () => {
     const first = await apiClient.get(
       '/games?platform=steam&profileId=demo_steam_1&limit=3&offset=0'
