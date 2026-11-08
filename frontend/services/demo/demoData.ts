@@ -230,7 +230,6 @@ export const demoGames: DemoGame[] = [
     trophySilver: 12,
     trophyGold: 5,
     trophyPlatinum: 1,
-    hasPlatinum: true,
     hasAchievementGroups: true,
     baseGameAchievementsTotal: 36,
   }),
@@ -239,7 +238,6 @@ export const demoGames: DemoGame[] = [
     trophySilver: 8,
     trophyGold: 2,
     trophyPlatinum: 0,
-    hasPlatinum: false,
     hasAchievementGroups: true,
     baseGameAchievementsTotal: 32,
   }),
@@ -248,7 +246,6 @@ export const demoGames: DemoGame[] = [
     trophySilver: 4,
     trophyGold: 1,
     trophyPlatinum: 0,
-    hasPlatinum: false,
     hasAchievementGroups: true,
     baseGameAchievementsTotal: 40,
   }),
@@ -257,7 +254,6 @@ export const demoGames: DemoGame[] = [
     trophySilver: 9,
     trophyGold: 3,
     trophyPlatinum: 1,
-    hasPlatinum: true,
     hasAchievementGroups: true,
     baseGameAchievementsTotal: 30,
   }),
@@ -355,6 +351,10 @@ for (const game of demoGames) {
   }
 
   if (game.platform === 'playstation') {
+    // `hasPlatinum` describes whether the title *defines* a Platinum trophy, not
+    // whether it has been earned. Derive it from the generated trophies so an
+    // unearned Platinum still shows as "0" in the hero/list/detail views.
+    game.hasPlatinum = gameAchievements.some((achievement) => achievement.trophyGrade === 'platinum');
     game.trophyPlatinum = unlockedAchievements.filter((achievement) => achievement.trophyGrade === 'platinum').length;
     game.trophyGold = unlockedAchievements.filter((achievement) => achievement.trophyGrade === 'gold').length;
     game.trophySilver = unlockedAchievements.filter((achievement) => achievement.trophyGrade === 'silver').length;

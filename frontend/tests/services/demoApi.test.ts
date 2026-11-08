@@ -60,6 +60,21 @@ describe('Demo mode API', () => {
     expect(game).toHaveProperty('title');
   });
 
+  it('marks unearned Platinum trophies so hero and list views show a zeroed Platinum', async () => {
+    const response = await apiClient.get('/games?platform=playstation&profileId=demo_psn_1');
+    const byTitle = Object.fromEntries(response.data.map((g: any) => [g.title, g]));
+
+    // These titles define a Platinum trophy, but it has not been earned yet, so
+    // `hasPlatinum` must stay true while the earned count is 0. The hero card and
+    // list item rely on this to render a "0 Platinum" badge.
+    expect(byTitle['Urban Ninja']).toMatchObject({ hasPlatinum: true, trophyPlatinum: 0 });
+    expect(byTitle["Dragon's Legacy"]).toMatchObject({ hasPlatinum: true, trophyPlatinum: 0 });
+
+    // Fully completed titles still report the earned Platinum.
+    expect(byTitle['Mythic Quest']).toMatchObject({ hasPlatinum: true, trophyPlatinum: 1 });
+    expect(byTitle['Racing Royale']).toMatchObject({ hasPlatinum: true, trophyPlatinum: 1 });
+  });
+
   it('paginates games', async () => {
     const first = await apiClient.get(
       '/games?platform=steam&profileId=demo_steam_1&limit=3&offset=0'
