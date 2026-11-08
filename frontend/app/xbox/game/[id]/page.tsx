@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
+import AchievementRarity from '../../../../components/AchievementRarity';
 import { isPlatformListUrl } from '../../../../lib/navigation';
 
 interface Game {
@@ -36,6 +37,10 @@ interface Achievement {
   iconPath?: string;
   iconGrayPath?: string;
   gamerscore?: number;
+  /** Global unlock percentage from Xbox rarity data (Xbox One/Series only). */
+  globalPercent?: number;
+  /** Platform rarity label ("Rare" / "Common"). */
+  rarityCategory?: string;
   groupId?: string;
   groupName?: string;
   groupOrder?: number;
@@ -88,6 +93,12 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
           {achievement.description && (
             <p className="mt-1 text-sm text-gray-500">{achievement.description}</p>
           )}
+          <AchievementRarity
+            globalPercent={achievement.globalPercent}
+            rarityCategory={achievement.rarityCategory}
+            muted
+            platform="xbox"
+          />
         </div>
       </div>
     );
@@ -118,6 +129,11 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
         {achievement.description && (
           <p className="mt-1 text-sm text-gray-400">{achievement.description}</p>
         )}
+        <AchievementRarity
+          globalPercent={achievement.globalPercent}
+          rarityCategory={achievement.rarityCategory}
+          platform="xbox"
+        />
         {achievement.unlockedAt && (
           <p className="mt-2 text-xs text-gray-500">
             Unlocked: {new Date(achievement.unlockedAt).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}

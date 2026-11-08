@@ -263,6 +263,7 @@ describe('XboxAdapter', () => {
               achievementType: 'Persistent',
               participationType: 'Individual',
               rewards: [],
+              rarity: { currentCategory: 'Rare', currentPercentage: 4.2 },
             },
             {
               id: 'ach-2',
@@ -277,6 +278,7 @@ describe('XboxAdapter', () => {
               achievementType: 'Persistent',
               participationType: 'Individual',
               rewards: [],
+              rarity: { currentCategory: 'Common', currentPercentage: 63.7 },
             },
           ],
           pagingInfo: { continuationToken: null },
@@ -293,11 +295,15 @@ describe('XboxAdapter', () => {
       expect(achievements[0].unlockedAt).toBeInstanceOf(Date);
       expect(achievements[0].iconUrl).toBe('https://example.com/icon.png');
       expect(achievements[0].isSecret).toBe(false);
+      expect(achievements[0].globalPercent).toBe(4.2);
+      expect(achievements[0].rarityCategory).toBe('Rare');
 
       // Second achievement — locked secret
       expect(achievements[1].achievementId).toBe('ach-2');
       expect(achievements[1].unlockedAt).toBeUndefined();
       expect(achievements[1].isSecret).toBe(true);
+      expect(achievements[1].globalPercent).toBe(63.7);
+      expect(achievements[1].rarityCategory).toBe('Common');
     });
 
     it('handles pagination for achievements', async () => {

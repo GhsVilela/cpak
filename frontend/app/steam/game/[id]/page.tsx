@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '../../../../services/apiClient';
+import AchievementRarity from '../../../../components/AchievementRarity';
 import { isPlatformListUrl } from '../../../../lib/navigation';
 
 interface Game {
@@ -16,7 +17,7 @@ interface Game {
   platform: string;
   lastPlayed?: string;
   playTimeMinutes?: number;
-  ownershipSource?: 'owned' | 'played_history';
+  ownershipSource?: 'owned' | 'family_shared' | 'played_history';
   achievementsFetchFailed?: boolean;
   hasAchievementGroups?: boolean;
 }
@@ -34,6 +35,8 @@ interface Achievement {
   groupOrder?: number;
   /** Global unlock percentage (0–100). Below 10 is rare on Steam. */
   globalPercent?: number;
+  /** Platform-provided rarity label when available. */
+  rarityCategory?: string;
   /** Steam: whether the achievement can still be obtained. Missing = active. */
   availability?: 'active' | 'archived' | 'removed';
 }
@@ -58,6 +61,31 @@ function formatPlaytime(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function getOwnershipSourceInfo(game: Game): { label: string; tooltip: string } | null {
+  if (game.ownershipSource === 'family_shared') {
+    return {
+      label: 'Family Sharing',
+      tooltip: 'This game is available through Steam Family Sharing.',
+    };
+  }
+
+  if (game.ownershipSource === 'played_history') {
+    if (game.achievementsFetchFailed) {
+      return {
+        label: 'Revoked License',
+        tooltip: 'This game is in your play history, but achievement data could not be fetched. The license may have been revoked, refunded, or removed.',
+      };
+    }
+
+    return {
+      label: 'Play History',
+      tooltip: 'This game is not in your owned library. It was found through play history and may be from a free weekend, trial, old family share, or removed license.',
+    };
+  }
+
+  return null;
 }
 
 interface AchievementGroup {
@@ -85,16 +113,13 @@ function groupAchievements(achievements: Achievement[]): AchievementGroup[] {
 }
 
 function GlobalPercent({ achievement, muted = false }: { achievement: Achievement; muted?: boolean }) {
-  if (achievement.globalPercent === undefined || achievement.globalPercent === null) return null;
-  const rare = achievement.globalPercent < 10;
-
   return (
-    <p className={`mt-1 text-xs ${muted ? 'text-gray-600' : 'text-gray-500'}`}>
-      <span className={rare ? 'font-semibold text-amber-400' : ''}>
-        {achievement.globalPercent.toFixed(1)}%
-      </span>{' '}
-      of players unlocked this{rare ? ' · Rare' : ''}
-    </p>
+    <AchievementRarity
+      globalPercent={achievement.globalPercent}
+      rarityCategory={achievement.rarityCategory}
+      muted={muted}
+      platform="steam"
+    />
   );
 }
 
@@ -348,6 +373,7 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
   const lockedAchievements = activeAchievements.filter(a => !a.unlockedAt);
   const groups = groupAchievements(activeAchievements);
   const showGroups = !!game.hasAchievementGroups && groups.length > 1;
+  const ownershipSourceInfo = getOwnershipSourceInfo(game);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -393,11 +419,11 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
               </div>
             </div>
           )}
-          {game.ownershipSource === 'played_history' && (
+          {ownershipSourceInfo && (
             <div className="shrink-0 whitespace-nowrap px-5">
               <div className="text-xs uppercase tracking-wide text-gray-400">Source</div>
-              <div className="mt-0.5 font-semibold text-yellow-400" title="This game is not in the owned games list">
-                {game.achievementsFetchFailed ? 'Revoked License' : 'Family Sharing'}
+              <div className="mt-0.5 font-semibold text-yellow-400" title={ownershipSourceInfo.tooltip}>
+                {ownershipSourceInfo.label}
               </div>
             </div>
           )}

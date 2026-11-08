@@ -13,10 +13,19 @@ export interface IAchievement extends Document {
   /** Xbox-specific: gamerscore value for this achievement */
   gamerscore?: number;
   /**
-   * Steam-specific: global unlock percentage for this achievement (0–100).
-   * Values below 10 are considered rare by Steam.
+   * Global unlock percentage for this achievement (0–100).
+   * Steam: global achievement percentage.
+   * Xbox One/Series: rarity.currentPercentage.
+   * PlayStation: trophyEarnedRate.
+   * Values below 10 are considered rare.
    */
   globalPercent?: number;
+  /**
+   * Platform-provided rarity label when available.
+   * Xbox: "Rare" or "Common".
+   * PlayStation: "Ultra Rare", "Very Rare", "Rare", "Common".
+   */
+  rarityCategory?: string;
   /** PlayStation-specific: trophy grade (bronze, silver, gold, platinum). null for non-PlayStation platforms. */
   trophyGrade?: 'bronze' | 'silver' | 'gold' | 'platinum' | null;
   /** PlayStation-specific: whether this is a hidden/secret trophy */
@@ -59,6 +68,7 @@ const AchievementSchema = new Schema<IAchievement>(
     iconGrayPath: String,
     gamerscore: { type: Number },
     globalPercent: { type: Number },
+    rarityCategory: { type: String },
     trophyGrade: {
       type: String,
       enum: ['bronze', 'silver', 'gold', 'platinum', null],

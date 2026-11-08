@@ -89,6 +89,10 @@ export interface PSNEarnedTrophy {
   trophyId: string;
   earned: boolean;
   earnedDateTime?: Date;
+  /** Percentage of all PSN users who earned this trophy. */
+  globalPercent?: number;
+  /** Platform rarity label: Ultra Rare, Very Rare, Rare, Common. */
+  rarityCategory?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +105,18 @@ const DEFAULT_REQUEST_DELAY_MS = 200;
 const RATE_LIMIT_INITIAL_BACKOFF_MS = 2_000;
 /** Max retries on rate-limiting or transient errors */
 const MAX_RETRIES = 3;
+
+/** Map the PSN `trophyRare` enum to a display label. */
+function getTrophyRarityLabel(rarity?: number | string | null): string | undefined {
+  const value = typeof rarity === 'string' ? Number(rarity) : rarity;
+  switch (value) {
+    case 0: return 'Ultra Rare';
+    case 1: return 'Very Rare';
+    case 2: return 'Rare';
+    case 3: return 'Common';
+    default: return undefined;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Platform normalization
@@ -360,11 +376,21 @@ export class PlayStationAdapter {
     );
 
     const trophies = response.trophies ?? [];
-    return trophies.map((t) => ({
-      trophyId: String(t.trophyId),
-      earned: t.earned ?? false,
-      earnedDateTime: t.earnedDateTime ? new Date(t.earnedDateTime) : undefined,
-    }));
+    return trophies.map((t) => {
+      const earnedRate = t.trophyEarnedRate != null && t.trophyEarnedRate !== ''
+        ? Number(String(t.trophyEarnedRate).replace('%', '').trim())
+        : undefined;
+
+      return {
+        trophyId: String(t.trophyId),
+        earned: t.earned ?? false,
+        earnedDateTime: t.earnedDateTime ? new Date(t.earnedDateTime) : undefined,
+        globalPercent: earnedRate !== undefined && Number.isFinite(earnedRate)
+          ? earnedRate
+          : undefined,
+        rarityCategory: getTrophyRarityLabel(t.trophyRare),
+      };
+    });
   }
 
   // -------------------------------------------------------------------------

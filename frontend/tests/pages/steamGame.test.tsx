@@ -346,4 +346,32 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
       expect(screen.queryByText('Removed One')).toBeTruthy();
     });
   });
+
+  it.each([
+    [{ ownershipSource: 'family_shared' as const, achievementsFetchFailed: false }, 'Family Sharing'],
+    [{ ownershipSource: 'played_history' as const, achievementsFetchFailed: false }, 'Play History'],
+    [{ ownershipSource: 'played_history' as const, achievementsFetchFailed: true }, 'Revoked License'],
+  ])('shows the correct ownership source label', async (overrides, expectedLabel) => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({ ...baseGame, ...overrides });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          { _id: 'ach-1', achievementId: 'ACH_ONE', name: 'One', unlockedAt: '2020-01-01T00:00:00Z' },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+
+    const { default: GameDetailsPage } = await import(
+      // @ts-ignore
+      '../../app/steam/game/[id]/page'
+    );
+    render(<GameDetailsPage params={Promise.resolve({ id: '12345' })} />);
+
+    await waitFor(() => {
+      expect(screen.queryByText(expectedLabel)).toBeTruthy();
+    });
+  });
 });

@@ -86,6 +86,8 @@ vi.mock('../../../src/services/adapters/playstation.js', () => ({
       trophyHidden: false,
       earned: true,
       earnedDateTime: new Date().toISOString(),
+      globalPercent: 2.9,
+      rarityCategory: 'Ultra Rare',
     }]),
     getTrophyDefinitions: vi.fn().mockResolvedValue([{
       trophyId: 1,
@@ -420,6 +422,7 @@ describe('SyncService', () => {
     const { Profile } = await import('../../../src/models/profile.js');
     const { SyncOperation } = await import('../../../src/models/syncOperation.js');
     const { Game } = await import('../../../src/models/game.js');
+    const { Achievement } = await import('../../../src/models/achievement.js');
 
     const profile = await Profile.create({
       platform: 'playstation',
@@ -442,6 +445,14 @@ describe('SyncService', () => {
     const game = await Game.findOne({ profileId: profile._id, platform: 'playstation' });
     expect(game).toBeTruthy();
     expect(game?.title).toBe('Test PS Game');
+
+    const trophy = await Achievement.findOne({
+      profileId: profile._id,
+      platform: 'playstation',
+      achievementId: '1',
+    });
+    expect(trophy?.globalPercent).toBe(2.9);
+    expect(trophy?.rarityCategory).toBe('Ultra Rare');
   });
 
   it('syncProfile refreshes expired PlayStation token', async () => {
@@ -714,5 +725,98 @@ describe('SyncService', () => {
 
     // The stale row is left untouched because the remote response is partial.
     expect(await Achievement.findOne({ gameId: game._id, achievementId: 'STALE_LOCKED' })).toBeTruthy();
+  });
+
+  it('backfills placeholder game titles during sync', async () => {
+    const { syncService } = await import('../../../src/services/syncService.js');
+    const { Profile } = await import('../../../src/models/profile.js');
+    const { Game } = await import('../../../src/models/game.js');
+    const { createSteamAdapter } = await import('../../../src/services/adapters/steam.js');
+
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-title-backfill-user',
+      displayName: 'Title Backfill User',
+      credentials: { steamApiKey: 'test-api-key' },
+    });
+
+    const game = await Game.create({
+      platform: 'steam',
+      profileId: profile._id,
+      gameId: '999888',
+      title: 'Unknown (999888)',
+      achievementsTotal: 0,
+      achievementsUnlocked: 0,
+      completionPercent: 0,
+      ownershipSource: 'played_history',
+    });
+
+    const resolveGameNameByAppId = vi.fn().mockResolvedValue('Resolved Legacy Title');
+
+    vi.mocked(createSteamAdapter).mockReturnValueOnce({
+      getPlayerSummary: vi.fn().mockResolvedValue({ personaname: 'Title Backfill User' }),
+      resolveGameNameByAppId,
+      syncGamesAndAchievements: vi.fn().mockResolvedValue({
+        games: [],
+        achievements: [],
+        adaptiveStats: null,
+      }),
+      downloadGameImages: vi.fn().mockResolvedValue(new Map()),
+      downloadAchievementIcons: vi.fn().mockResolvedValue({ iconMap: new Map(), completed: 0, failed: 0 }),
+    } as any);
+
+    await syncService.syncProfile(profile as any);
+
+    const updated = await Game.findById(game._id);
+    expect(updated?.title).toBe('Resolved Legacy Title');
+    expect(resolveGameNameByAppId).toHaveBeenCalledWith(999888);
+  });
+
+  it('preserves an existing valid title when the new sync name is empty', async () => {
+    const { syncService } = await import('../../../src/services/syncService.js');
+    const { Profile } = await import('../../../src/models/profile.js');
+    const { Game } = await import('../../../src/models/game.js');
+    const { createSteamAdapter } = await import('../../../src/services/adapters/steam.js');
+
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-title-preserve-user',
+      displayName: 'Title Preserve User',
+      credentials: { steamApiKey: 'test-api-key' },
+    });
+
+    const game = await Game.create({
+      platform: 'steam',
+      profileId: profile._id,
+      gameId: '107900',
+      title: 'War Inc. Battlezone',
+      achievementsTotal: 1,
+      achievementsUnlocked: 1,
+      completionPercent: 100,
+      ownershipSource: 'played_history',
+    });
+
+    vi.mocked(createSteamAdapter).mockReturnValueOnce({
+      getPlayerSummary: vi.fn().mockResolvedValue({ personaname: 'Title Preserve User' }),
+      syncGamesAndAchievements: vi.fn().mockResolvedValue({
+        games: [{
+          appId: 107900,
+          name: '',
+          playtimeMinutes: 10,
+          totalAchievements: 1,
+          earnedAchievements: 1,
+          ownershipSource: 'played_history',
+        }],
+        achievements: [],
+        adaptiveStats: null,
+      }),
+      downloadGameImages: vi.fn().mockResolvedValue(new Map()),
+      downloadAchievementIcons: vi.fn().mockResolvedValue({ iconMap: new Map(), completed: 0, failed: 0 }),
+    } as any);
+
+    await syncService.syncProfile(profile as any);
+
+    const updated = await Game.findById(game._id);
+    expect(updated?.title).toBe('War Inc. Battlezone');
   });
 });
