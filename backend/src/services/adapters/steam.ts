@@ -105,6 +105,8 @@ interface SteamGame {
   playtime_forever: number;
   img_icon_url?: string;
   rtime_last_played?: number;
+  /** Present when GetOwnedGames is called with include_family_licenses=1. */
+  family_shared?: boolean;
 }
 
 interface SteamPlayerSummary {
@@ -227,7 +229,11 @@ export class SteamAdapter {
   }
 
   async getOwnedGames(steamId: string): Promise<SteamGame[]> {
-    const url = `${this.baseUrl}/IPlayerService/GetOwnedGames/v1/?key=${this.apiKey}&steamid=${steamId}&include_appinfo=1&include_played_free_games=1`;
+    // include_family_licenses is an undocumented Steam parameter that also
+    // returns games shared through Steam Families and flags them with
+    // family_shared: true. If Steam ignores it, those games still arrive via
+    // play history and are classified as played_history.
+    const url = `${this.baseUrl}/IPlayerService/GetOwnedGames/v1/?key=${this.apiKey}&steamid=${steamId}&include_appinfo=1&include_played_free_games=1&include_family_licenses=1`;
     
     return rateLimiter.executeWithRetry(
       'steam',
@@ -941,7 +947,7 @@ export class SteamAdapter {
       totalAchievements: number;
       earnedAchievements: number;
       iconHash?: string;
-      ownershipSource?: 'owned' | 'played_history';
+      ownershipSource?: 'owned' | 'family_shared' | 'played_history';
       achievementsFetchFailed?: boolean;
       hasAchievementGroups?: boolean;
       archivedAchievementIds?: string[];
@@ -1001,10 +1007,10 @@ export class SteamAdapter {
     // Merge all game sources, deduplicating by appId.
     // Priority: owned games first (have full data), then play-time history, then recent, then known.
     const gameMap = new Map<number, SteamGame>();
-    const ownershipSourceMap = new Map<number, 'owned' | 'played_history'>();
+    const ownershipSourceMap = new Map<number, 'owned' | 'family_shared' | 'played_history'>();
     for (const g of ownedGames) {
       gameMap.set(g.appid, g);
-      ownershipSourceMap.set(g.appid, 'owned');
+      ownershipSourceMap.set(g.appid, g.family_shared ? 'family_shared' : 'owned');
     }
     for (const g of playedGamesHistory) {
       if (!gameMap.has(g.appid)) {
@@ -1060,7 +1066,7 @@ export class SteamAdapter {
         totalAchievements: number;
         earnedAchievements: number;
         iconHash?: string;
-        ownershipSource?: 'owned' | 'played_history';
+        ownershipSource?: 'owned' | 'family_shared' | 'played_history';
         achievementsFetchFailed?: boolean;
         hasAchievementGroups?: boolean;
         archivedAchievementIds?: string[];

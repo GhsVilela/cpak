@@ -42,7 +42,7 @@ describe('Game model', () => {
 
   it('ownershipSource field has correct enum values', () => {
     const ownershipPath = Game.schema.path('ownershipSource') as any;
-    expect(ownershipPath.enumValues).toEqual(['owned', 'played_history']);
+    expect(ownershipPath.enumValues).toEqual(['owned', 'family_shared', 'played_history']);
   });
 
   it('has unique compound index on platform + profileId + gameId', () => {
