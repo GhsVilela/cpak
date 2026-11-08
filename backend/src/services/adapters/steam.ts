@@ -11,6 +11,94 @@ import type { SteamGridDBAdapter } from './steamgriddb.js';
 import { createIGDBAdapter } from './igdb.js';
 import type { SyncProgressTracker } from '../syncProgress.js';
 
+const STEAM_BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const STEAM_COMMUNITY_MIN_INTERVAL_MS = process.env.NODE_ENV === 'test' ? 0 : 500;
+const STEAM_COMMUNITY_RETRY_DELAYS_MS = process.env.NODE_ENV === 'test' ? [0, 0, 0] : [1000, 2000, 4000];
+const STEAM_STORE_RETRY_DELAY_MS = process.env.NODE_ENV === 'test' ? 0 : 500;
+
+let communityNameQueue: Promise<void> = Promise.resolve();
+let lastCommunityNameRequestAt = 0;
+let gameNameResolutionQueue: Promise<void> = Promise.resolve();
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&#0*39;|&#x0*27;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCharCode(parseInt(code, 16)));
+}
+
+function cleanGameName(raw?: string | null): string | null {
+  if (!raw) return null;
+
+  const name = decodeHtmlEntities(String(raw))
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/^Steam Community\s*::\s*/i, '')
+    .trim();
+
+  if (!name) return null;
+  if (/^(steam community|steam store|steam|welcome to steam|error|age check|sign in|login)$/i.test(name)) {
+    return null;
+  }
+  if (/^valvetestapp/i.test(name)) return null;
+  if (/^Unknown \(\d+\)$/i.test(name) || /^App \d+$/i.test(name)) {
+    return null;
+  }
+  return name;
+}
+
+function isSuspiciousSchemaName(name: string): boolean {
+  return name.length <= 4
+    || /^(test|placeholder|unknown|valvetestapp)\b/i.test(name)
+    || /^(steam community|steam store|steam|welcome to steam|error)$/i.test(name);
+}
+
+function parseRetryAfterMs(value: string | null | undefined): number {
+  if (!value) return 0;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+
+  const date = Date.parse(value);
+  if (!Number.isNaN(date)) return Math.max(0, date - Date.now());
+
+  return 0;
+}
+
+function queueCommunityNameRequest<T>(task: () => Promise<T>): Promise<T> {
+  const run = communityNameQueue.then(async () => {
+    const wait = Math.max(
+      0,
+      STEAM_COMMUNITY_MIN_INTERVAL_MS - (Date.now() - lastCommunityNameRequestAt),
+    );
+    if (wait > 0) await sleep(wait);
+
+    try {
+      return await task();
+    } finally {
+      lastCommunityNameRequestAt = Date.now();
+    }
+  });
+
+  communityNameQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+function queueGameNameResolution<T>(task: () => Promise<T>): Promise<T> {
+  const run = gameNameResolutionQueue.then(task, task);
+  gameNameResolutionQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 interface SteamGame {
   appid: number;
   name: string;
@@ -612,86 +700,228 @@ export class SteamAdapter {
   }
 
   /**
-   * Resolve a display name for a game using the established fallback chain:
-   * owned-list name → Steam Store API → Steam Community hub → (optional) schema.
+   * Resolve a display name for a game using the fallback chain:
+   * existing name → Steam Store → Steam Community → SteamCMD PICS → schema.
    */
   private async resolveGameName(game: SteamGame, schemaGameName?: string): Promise<string> {
-    let gameName = game.name || '';
-    if (!gameName) {
-      const storeDetails = await this.getAppDetails(game.appid);
-      if (storeDetails?.name) {
-        logger.info({ appId: game.appid, newName: storeDetails.name }, 'Resolved game name from Steam Store API');
-        gameName = storeDetails.name;
+    return (await this.resolveGameNameByAppId(game.appid, game.name, schemaGameName)) ?? '';
+  }
+
+  /**
+   * Resolve a game name from an app ID. Returns null when every source fails;
+   * callers should preserve an existing valid title rather than store a
+   * placeholder.
+   */
+  async resolveGameNameByAppId(
+    appId: number,
+    initialName?: string,
+    schemaGameName?: string,
+  ): Promise<string | null> {
+    const initial = cleanGameName(initialName);
+    if (initial) return initial;
+
+    return queueGameNameResolution(async () => {
+      // 1. Steam Store. This is unavailable for most delisted apps.
+      const storeDetails = await this.getAppDetails(appId);
+      const storeName = cleanGameName(storeDetails?.name);
+      if (storeName) {
+        logger.info({ appId, newName: storeName }, 'Resolved game name from Steam Store API');
+        return storeName;
       }
-    }
-    if (!gameName) {
-      const communityName = await this.getAppNameFromCommunity(game.appid);
+
+      // 2. Steam Community hub. Includes many delisted games, but is
+      // rate-limited when many requests are sent in a short period.
+      const communityName = await this.getAppNameFromCommunity(appId);
       if (communityName) {
-        logger.info({ appId: game.appid, newName: communityName }, 'Resolved game name from Steam Community');
-        gameName = communityName;
+        logger.info({ appId, newName: communityName }, 'Resolved game name from Steam Community');
+        return communityName;
       }
-    }
-    if (!gameName && schemaGameName) {
-      gameName = schemaGameName;
-      if (gameName.length <= 4 || /^(test|placeholder|unknown|valvetestapp)/i.test(gameName)) {
-        logger.info({ appId: game.appid, schemaName: gameName }, 'Discarding suspicious schema game name');
-        gameName = '';
+
+      // 3. SteamCMD PICS data. This still exposes public names for many
+      // delisted and test apps that the Store API no longer lists.
+      const steamCmdName = await this.getAppNameFromSteamCmd(appId);
+      if (steamCmdName) {
+        logger.info({ appId, newName: steamCmdName }, 'Resolved game name from SteamCMD');
+        return steamCmdName;
       }
-    }
-    return gameName || `Unknown (${game.appid})`;
+
+      // 4. Schema name already fetched by the legacy achievement path.
+      const providedSchemaName = cleanGameName(schemaGameName);
+      if (providedSchemaName && !isSuspiciousSchemaName(providedSchemaName)) {
+        logger.info({ appId, newName: providedSchemaName }, 'Resolved game name from achievement schema');
+        return providedSchemaName;
+      }
+
+      // 5. Fetch the legacy schema name directly.
+      const schemaName = await this.getAppNameFromSchema(appId);
+      if (schemaName) {
+        logger.info({ appId, newName: schemaName }, 'Resolved game name from achievement schema');
+        return schemaName;
+      }
+
+      logger.warn({ appId }, 'Could not resolve Steam game name from any source');
+      return null;
+    });
   }
 
   /**
    * Fetch app details from the Steam Store API.
    * This is the most reliable source for game names — the community API schema
    * occasionally returns placeholder/test names for certain titles.
-   * Rate-limited to avoid Store API throttling.
    */
   async getAppDetails(appId: number): Promise<{ name: string } | null> {
-    const url = `https://store.steampowered.com/api/appdetails?appids=${appId}&filters=basic`;
+    const url = `https://store.steampowered.com/api/appdetails?appids=${appId}&filters=basic&l=english`;
 
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-      if (!response.ok) return null;
-      const data = await response.json() as any;
-      const appData = data?.[String(appId)];
-      if (appData?.success && appData.data?.name) {
-        return { name: appData.data.name };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(10_000),
+          headers: {
+            'User-Agent': STEAM_BROWSER_USER_AGENT,
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+        });
+
+        if (response.status === 429 || response.status >= 500) {
+          if (attempt === 0) {
+            await sleep(STEAM_STORE_RETRY_DELAY_MS);
+            continue;
+          }
+          return null;
+        }
+        if (!response.ok) return null;
+
+        const data = await response.json() as any;
+        const appData = data?.[String(appId)];
+        if (appData?.success && appData.data?.name) {
+          const name = cleanGameName(appData.data.name);
+          return name ? { name } : null;
+        }
+        return null;
+      } catch (error) {
+        if (attempt === 0) {
+          await sleep(STEAM_STORE_RETRY_DELAY_MS);
+          continue;
+        }
+        logger.debug({ error: String(error), appId }, 'Steam Store appdetails lookup failed');
+        return null;
       }
-      return null;
-    } catch (error) {
-      logger.debug({ error: String(error), appId }, 'Steam Store appdetails lookup failed');
-      return null;
     }
+
+    return null;
   }
 
   /**
    * Look up a game name from the Steam Community hub page.
    * Works for delisted/removed games that the Store API no longer returns,
    * as community hub pages typically persist after delisting.
+   *
+   * Requests are serialized and throttled because Steam Community rate-limits
+   * bursts with HTTP 429.
    */
   private async getAppNameFromCommunity(appId: number): Promise<string | null> {
-    const url = `https://steamcommunity.com/app/${appId}`;
+    return queueCommunityNameRequest(async () => {
+      const url = `https://steamcommunity.com/app/${appId}/?l=english`;
+      const maxAttempts = STEAM_COMMUNITY_RETRY_DELAYS_MS.length + 1;
 
-    try {
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(10_000),
-        redirect: 'follow',
-      });
-      if (!response.ok) return null;
-      const html = await response.text();
-      // The page title follows the pattern: "Steam Community :: Game Name"
-      const match = html.match(/<title>\s*Steam Community\s*::\s*(.+?)\s*<\/title>/i);
-      if (match?.[1]) {
-        const name = match[1].trim();
-        // Ignore generic error/redirect pages
-        if (name && name !== 'Error' && name !== 'Steam Community') {
-          return name;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(10_000),
+            redirect: 'follow',
+            headers: {
+              'User-Agent': STEAM_BROWSER_USER_AGENT,
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+            },
+          });
+
+          if (response.status === 429 || response.status === 403 || response.status >= 500) {
+            if (attempt < maxAttempts - 1) {
+              const retryAfterMs = parseRetryAfterMs(response.headers?.get?.('retry-after'));
+              const delay = Math.max(
+                retryAfterMs,
+                STEAM_COMMUNITY_RETRY_DELAYS_MS[attempt] ?? 0,
+              );
+              logger.debug(
+                { appId, status: response.status, attempt, delay },
+                'Steam Community name lookup throttled, retrying',
+              );
+              await sleep(delay);
+              continue;
+            }
+            return null;
+          }
+
+          if (!response.ok) return null;
+
+          const html = await response.text();
+          // The page title follows the pattern: "Steam Community :: Game Name".
+          // Also accept og:title because some pages render it more reliably.
+          const titleMatch = html.match(/<title[^>]*>\s*Steam Community\s*::\s*(.+?)\s*<\/title>/i);
+          const ogTitleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i)
+            ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+
+          const name = cleanGameName(titleMatch?.[1] ?? ogTitleMatch?.[1]);
+          if (name) return name;
+          return null;
+        } catch (error) {
+          if (attempt < maxAttempts - 1) {
+            await sleep(STEAM_COMMUNITY_RETRY_DELAYS_MS[attempt] ?? 0);
+            continue;
+          }
+          logger.debug({ error: String(error), appId }, 'Steam Community name lookup failed');
+          return null;
         }
       }
+
       return null;
+    });
+  }
+
+  /**
+   * Look up a game name from SteamCMD PICS app info.
+   * Useful for delisted apps that still have public PICS data.
+   */
+  private async getAppNameFromSteamCmd(appId: number): Promise<string | null> {
+    try {
+      const response = await fetch(`https://api.steamcmd.net/v1/info/${appId}`, {
+        signal: AbortSignal.timeout(10_000),
+        headers: {
+          'User-Agent': STEAM_BROWSER_USER_AGENT,
+          'Accept': 'application/json',
+        },
+      });
+      if (!response.ok) return null;
+
+      const data = await response.json() as any;
+      const rawName = data?.data?.[String(appId)]?.common?.name;
+      return cleanGameName(rawName);
     } catch (error) {
-      logger.debug({ error: String(error), appId }, 'Steam Community name lookup failed');
+      logger.debug({ error: String(error), appId }, 'SteamCMD name lookup failed');
+      return null;
+    }
+  }
+
+  /**
+   * Look up a game name from the legacy achievement schema.
+   * This is an official fallback for many delisted games with achievements.
+   */
+  private async getAppNameFromSchema(appId: number): Promise<string | null> {
+    try {
+      const schema = await this.getGameSchema(appId);
+      const name = cleanGameName(schema?.gameName);
+      if (!name) return null;
+
+      if (isSuspiciousSchemaName(name)) {
+        logger.info({ appId, schemaName: name }, 'Discarding suspicious schema game name');
+        return null;
+      }
+
+      return name;
+    } catch (error) {
+      logger.debug({ error: String(error), appId }, 'Steam schema name lookup failed');
       return null;
     }
   }

@@ -16,6 +16,7 @@ import { performanceMonitor } from './performanceMonitor.js';
 import { markSyncAsCompleted, isSyncCancelled } from './syncCancellation.js';
 import { SyncProgressTracker } from './syncProgress.js';
 import { imageStorage } from '../utils/imageStorage.js';
+import { isUnknownGameTitle, selectGameTitle } from '../utils/gameTitle.js';
 import pLimit from 'p-limit';
 
 class SyncService {
@@ -248,7 +249,7 @@ class SyncService {
           result.games.map(async (game) => {
             const updateData: any = {
               platform: 'steam',
-              title: game.name || previousTitles.get(game.appId.toString()) || game.appId.toString(),
+              title: selectGameTitle(game.appId, game.name, previousTitles.get(game.appId.toString())),
               achievementsTotal: game.totalAchievements,
               achievementsUnlocked: game.earnedAchievements,
               completionPercent:
@@ -351,6 +352,59 @@ class SyncService {
           }, 'Reconciled stale Steam games');
         }
       }
+    }
+
+    // Backfill missing/placeholder titles. Unowned play-history games often
+    // have no name in GetOwnedGames, and Steam Store may no longer list them.
+    const unknownTitleGames = await Game.find(
+      {
+        profileId: profile._id,
+        platform: 'steam',
+        $or: [
+          { title: '' },
+          { title: null },
+          { title: { $regex: '^Unknown \\(\\d+\\)$' } },
+          { title: { $regex: '^App \\d+$' } },
+        ],
+      },
+      { _id: 1, gameId: 1, title: 1 },
+    ).lean();
+
+    if (unknownTitleGames.length > 0) {
+      let resolvedTitles = 0;
+      const unresolvedTitles: string[] = [];
+
+      for (const game of unknownTitleGames) {
+        const appId = parseInt(game.gameId, 10);
+        if (isNaN(appId)) {
+          unresolvedTitles.push(game.gameId);
+          continue;
+        }
+
+        try {
+          const resolvedName = await steamAdapter.resolveGameNameByAppId(appId);
+          if (resolvedName && !isUnknownGameTitle(resolvedName)) {
+            await Game.updateOne({ _id: game._id }, { $set: { title: resolvedName } });
+            resolvedTitles++;
+          } else {
+            unresolvedTitles.push(game.gameId);
+          }
+        } catch (error) {
+          logger.warn({
+            error: error instanceof Error ? error.message : String(error),
+            gameId: game.gameId,
+          }, 'Failed to resolve missing Steam game title');
+          unresolvedTitles.push(game.gameId);
+        }
+      }
+
+      logger.info({
+        syncOperationId: syncOperation._id,
+        candidates: unknownTitleGames.length,
+        resolved: resolvedTitles,
+        unresolved: unresolvedTitles.length,
+        unresolvedGameIds: unresolvedTitles.slice(0, 25),
+      }, 'Backfilled missing Steam game titles');
     }
 
     // PERFORMANCE FIX: Pre-fetch all games into a Map to avoid 26k+ sequential queries
