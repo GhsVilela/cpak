@@ -537,6 +537,52 @@ describe('GET /api/games platform aggregations', () => {
     expect(body.pagination.rareAchievementsTotal).toBe(2);
   });
 
+  it('excludes archived and removed achievements from steam stats and base counts', async () => {
+    const profile = await Profile.create({
+      platform: 'steam',
+      profileId: 'steam-unavailable-test',
+      displayName: 'Steam Unavailable Test',
+      credentials: {},
+    });
+    const game = await Game.create({
+      platform: 'steam',
+      profileId: profile._id,
+      gameId: 'unavail1',
+      title: 'Game With History',
+      achievementsTotal: 2,
+      achievementsUnlocked: 1,
+      completionPercent: 50,
+      lastSyncedAt: new Date(),
+    });
+
+    await Achievement.create([
+      { platform: 'steam', profileId: profile._id, gameId: game._id, achievementId: 'active-1', name: 'Active Unlocked', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date(), globalPercent: 4 },
+      { platform: 'steam', profileId: profile._id, gameId: game._id, achievementId: 'active-2', name: 'Active Locked', groupId: '0', groupName: 'Base Game', groupOrder: 0 },
+      { platform: 'steam', profileId: profile._id, gameId: game._id, achievementId: 'archived-1', name: 'Archived Unlocked', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date(), globalPercent: 2, availability: 'archived' },
+      { platform: 'steam', profileId: profile._id, gameId: game._id, achievementId: 'removed-1', name: 'Removed Unlocked', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: new Date(), globalPercent: 1, availability: 'removed' },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=steam&profileId=${profile._id}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    expect(body.pagination.rareAchievementsTotal).toBe(1);
+    expect(body.data[0]).toMatchObject({
+      baseGameAchievementsTotal: 2,
+      baseGameAchievementsUnlocked: 1,
+    });
+
+    const completedRes = await app.inject({
+      method: 'GET',
+      url: `/api/games?platform=steam&profileId=${profile._id}&onlyBaseCompleted=true`,
+    });
+    expect(completedRes.statusCode).toBe(200);
+    expect(completedRes.json().data).toHaveLength(0);
+  });
+
   it('includes the Xbox Mythic total from the profile achievement summary', async () => {
     const profile = await Profile.create({
       platform: 'xbox',

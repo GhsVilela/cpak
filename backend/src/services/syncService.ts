@@ -160,9 +160,25 @@ class SyncService {
     // Fetch previously-synced game IDs so family-shared / removed games aren't lost
     const previousGames = await Game.find(
       { profileId: profile._id, platform: 'steam' },
-      { gameId: 1 }
+      { gameId: 1, title: 1 }
     ).lean();
     const knownGameIds = previousGames.map((g) => parseInt(g.gameId, 10)).filter((id) => !isNaN(id));
+    const previousTitles = new Map(previousGames.map((g) => [g.gameId, g.title]));
+
+    // Games with any locally unlocked achievement must keep being fetched even
+    // when Steam currently reports zero unlocks. This preserves historical
+    // progress when a developer removes/archives achievements.
+    const unlockedGameObjectIds = await Achievement.distinct('gameId', {
+      profileId: profile._id,
+      platform: 'steam',
+      unlockedAt: { $exists: true, $ne: null },
+    });
+    const historicalGames = unlockedGameObjectIds.length > 0
+      ? await Game.find({ _id: { $in: unlockedGameObjectIds } }, { gameId: 1 }).lean()
+      : [];
+    const historicalGameIds = historicalGames
+      .map((g) => parseInt(g.gameId, 10))
+      .filter((id) => !isNaN(id));
 
     await progress.begin('discovering', null, 'Fetching your Steam library...');
     const result = await steamAdapter.syncGamesAndAchievements(
@@ -170,6 +186,7 @@ class SyncService {
       syncOperation,
       knownGameIds,
       progress,
+      historicalGameIds,
     );
 
     // T031: Update SyncOperation with final counts
@@ -231,7 +248,7 @@ class SyncService {
           result.games.map(async (game) => {
             const updateData: any = {
               platform: 'steam',
-              title: game.name,
+              title: game.name || previousTitles.get(game.appId.toString()) || game.appId.toString(),
               achievementsTotal: game.totalAchievements,
               achievementsUnlocked: game.earnedAchievements,
               completionPercent:
@@ -262,7 +279,7 @@ class SyncService {
             }
 
             const saved = await Game.findOneAndUpdate(
-              { profileId: profile._id, gameId: game.appId.toString() },
+              { profileId: profile._id, platform: 'steam', gameId: game.appId.toString() },
               { $set: updateData },
               { upsert: true, new: true }
             ).catch((error) => {
@@ -297,25 +314,42 @@ class SyncService {
       gamesProcessed: result.games.length,
     }, 'Games upserted to database');
 
-    // Remove Steam games the adapter no longer reports (e.g. games with no
-    // earned achievements, or games removed from the account) so the library
-    // stays in sync. Guarded on a non-empty result set to avoid wiping the
-    // library if the sync produced nothing.
+    // Remove Steam games the adapter no longer reports (e.g. games removed from
+    // the account) so the library stays in sync. Games with locally unlocked
+    // achievements are preserved: they may have been deleted from Steam's
+    // achievement schema, but the user's earned history is still valuable.
+    // Guarded on a non-empty result set to avoid wiping the library if the sync
+    // produced nothing.
     if (result.games.length > 0) {
       const syncedGameIds = result.games.map((g) => g.appId.toString());
       const staleGames = await Game.find(
         { profileId: profile._id, platform: 'steam', gameId: { $nin: syncedGameIds } },
-        { _id: 1 }
+        { _id: 1, gameId: 1, title: 1 }
       ).lean();
 
       if (staleGames.length > 0) {
         const staleIds = staleGames.map((g) => g._id);
-        await Achievement.deleteMany({ profileId: profile._id, gameId: { $in: staleIds } });
-        await Game.deleteMany({ _id: { $in: staleIds } });
-        logger.info({
-          profileId: profile.profileId,
-          removed: staleGames.length,
-        }, 'Removed stale Steam games with no displayable achievements');
+        const gamesWithUnlocks = await Achievement.distinct('gameId', {
+          profileId: profile._id,
+          platform: 'steam',
+          gameId: { $in: staleIds },
+          unlockedAt: { $exists: true, $ne: null },
+        });
+        const gamesWithUnlocksSet = new Set(gamesWithUnlocks.map((id) => id.toString()));
+        const deletableIds = staleIds.filter((id) => !gamesWithUnlocksSet.has(id.toString()));
+
+        if (deletableIds.length > 0) {
+          await Achievement.deleteMany({ profileId: profile._id, gameId: { $in: deletableIds } });
+          await Game.deleteMany({ _id: { $in: deletableIds } });
+        }
+
+        if (deletableIds.length > 0 || gamesWithUnlocksSet.size > 0) {
+          logger.info({
+            profileId: profile.profileId,
+            removed: deletableIds.length,
+            keptWithHistory: gamesWithUnlocksSet.size,
+          }, 'Reconciled stale Steam games');
+        }
       }
     }
 
@@ -356,6 +390,128 @@ class SyncService {
       throw error;
     }
 
+    // Reconcile local achievements against the current Steam schema. Steam no
+    // longer returns achievements that were deleted, and archived achievements
+    // are hidden unless the player earned them. Delete stale locked rows, keep
+    // earned historical rows, and mark them as unavailable.
+    const remoteByAppId = new Map<string, typeof result.achievements>();
+    for (const achievement of result.achievements) {
+      const key = achievement.appId.toString();
+      const list = remoteByAppId.get(key);
+      if (list) {
+        list.push(achievement);
+      } else {
+        remoteByAppId.set(key, [achievement]);
+      }
+    }
+
+    const gameMongoIds = result.games
+      .map((game) => gameIdToMongoId.get(game.appId.toString()))
+      .filter((id): id is NonNullable<typeof id> => !!id);
+
+    const localAchievements = gameMongoIds.length > 0
+      ? await performanceMonitor.measureDbQuery(
+          'syncService.fetchLocalAchievements',
+          async () => Achievement.find(
+            {
+              profileId: profile._id,
+              platform: 'steam',
+              gameId: { $in: gameMongoIds },
+            },
+            { _id: 1, gameId: 1, achievementId: 1, unlockedAt: 1 }
+          ).lean()
+        )
+      : [];
+
+    const localByGameId = new Map<string, typeof localAchievements>();
+    for (const achievement of localAchievements) {
+      const key = achievement.gameId.toString();
+      const list = localByGameId.get(key);
+      if (list) {
+        list.push(achievement);
+      } else {
+        localByGameId.set(key, [achievement]);
+      }
+    }
+
+    const archivedStatusIds: any[] = [];
+    const removedStatusIds: any[] = [];
+    const staleAchievementIds: any[] = [];
+    const gameCountUpdates: any[] = [];
+
+    for (const game of result.games) {
+      const appKey = game.appId.toString();
+      const gameMongoId = gameIdToMongoId.get(appKey);
+      if (!gameMongoId) continue;
+
+      // A revoked-license game can return a partial schema. Do not delete or
+      // relabel anything based on that response.
+      if (game.achievementsFetchFailed) continue;
+
+      const remote = remoteByAppId.get(appKey) ?? [];
+      const local = localByGameId.get(gameMongoId.toString()) ?? [];
+      const archivedIds = new Set(game.archivedAchievementIds ?? []);
+
+      const remoteById = new Map(remote.map((achievement) => [achievement.achievementId, achievement]));
+      const localById = new Map(local.map((achievement) => [achievement.achievementId, achievement]));
+
+      const kept = new Map<string, { unlocked: boolean; availability: 'active' | 'archived' | 'removed' }>();
+
+      for (const achievement of remote) {
+        const localAchievement = localById.get(achievement.achievementId);
+        kept.set(achievement.achievementId, {
+          unlocked: !!achievement.unlocked || !!localAchievement?.unlockedAt,
+          availability: achievement.archived ? 'archived' : 'active',
+        });
+      }
+
+      for (const localAchievement of local) {
+        if (remoteById.has(localAchievement.achievementId)) {
+          continue;
+        }
+
+        if (!localAchievement.unlockedAt) {
+          staleAchievementIds.push(localAchievement._id);
+          continue;
+        }
+
+        const availability = archivedIds.has(localAchievement.achievementId) ? 'archived' : 'removed';
+        kept.set(localAchievement.achievementId, { unlocked: true, availability });
+        if (availability === 'archived') {
+          archivedStatusIds.push(localAchievement._id);
+        } else {
+          removedStatusIds.push(localAchievement._id);
+        }
+      }
+
+      // Unavailable achievements are shown separately in the UI and never
+      // counted toward the game's current totals/completion.
+      const activeKept = Array.from(kept.values()).filter((entry) => entry.availability === 'active');
+      const total = activeKept.length;
+      const unlocked = activeKept.filter((entry) => entry.unlocked).length;
+
+      gameCountUpdates.push({
+        updateOne: {
+          filter: { _id: gameMongoId },
+          update: {
+            $set: {
+              achievementsTotal: total,
+              achievementsUnlocked: unlocked,
+              completionPercent: total > 0 ? Math.round((unlocked / total) * 100) : 0,
+            },
+          },
+        },
+      });
+    }
+
+    logger.info({
+      syncOperationId: syncOperation._id,
+      localAchievements: localAchievements.length,
+      staleLockedAchievements: staleAchievementIds.length,
+      retainedArchivedAchievements: archivedStatusIds.length,
+      retainedRemovedAchievements: removedStatusIds.length,
+    }, 'Reconciled local Steam achievements against current schema');
+
     // Upsert achievements in batches using bulkWrite for better performance
     logger.info({ 
       totalAchievements: result.achievements.length,
@@ -394,12 +550,19 @@ class SyncService {
             profileId: profile._id,
             name: achievement.name,
             description: achievement.description,
-            unlockedAt: achievement.unlocked ? achievement.unlockTime : undefined,
             groupId: achievement.groupId,
             groupName: achievement.groupName,
             groupOrder: achievement.groupOrder,
             globalPercent: achievement.globalPercent,
+            availability: achievement.archived ? 'archived' : 'active',
           };
+
+          // Do not explicitly clear unlockedAt for locked achievements: Steam
+          // may transiently report a previously-earned achievement as locked,
+          // and the local unlock is the historical source of truth.
+          if (achievement.unlocked && achievement.unlockTime) {
+            updateFields.unlockedAt = achievement.unlockTime;
+          }
 
           if (icons?.iconPath) {
             updateFields.iconPath = icons.iconPath;
@@ -489,6 +652,43 @@ class SyncService {
       
       throw error;
     }
+
+    // Apply retained-history markers and remove stale locked rows only after
+    // the current achievements have been upserted, so a row cannot be deleted
+    // and immediately re-created in the same sync.
+    const statusBatchSize = 1000;
+    const applyAvailability = async (ids: any[], availability: 'archived' | 'removed') => {
+      for (let i = 0; i < ids.length; i += statusBatchSize) {
+        await Achievement.updateMany(
+          { _id: { $in: ids.slice(i, i + statusBatchSize) } },
+          { $set: { availability } },
+        );
+      }
+    };
+
+    await applyAvailability(archivedStatusIds, 'archived');
+    await applyAvailability(removedStatusIds, 'removed');
+
+    for (let i = 0; i < staleAchievementIds.length; i += statusBatchSize) {
+      await Achievement.deleteMany({ _id: { $in: staleAchievementIds.slice(i, i + statusBatchSize) } });
+    }
+
+    // Re-apply the final active-only counts. This also covers local unlocks
+    // that Steam reported as locked but we intentionally preserve.
+    if (gameCountUpdates.length > 0) {
+      await performanceMonitor.measureDbQuery(
+        'syncService.updateGameAchievementCounts',
+        async () => Game.bulkWrite(gameCountUpdates, { ordered: false }),
+      );
+    }
+
+    logger.info({
+      syncOperationId: syncOperation._id,
+      staleAchievementsRemoved: staleAchievementIds.length,
+      archivedAchievementsRetained: archivedStatusIds.length,
+      removedAchievementsRetained: removedStatusIds.length,
+      gameCountsUpdated: gameCountUpdates.length,
+    }, 'Finished reconciliation of Steam achievements');
 
     // T031: Final update of achievements synced
     await syncOperation.save();

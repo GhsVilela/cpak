@@ -31,6 +31,15 @@ export interface IAchievement extends Document {
   groupName?: string;
   /** Display order of the group (base game first). */
   groupOrder?: number;
+  /**
+   * Steam-specific: whether the achievement is still obtainable.
+   * - active: currently available on Steam
+   * - archived: Steam archived it, but the user earned it
+   * - removed: the developer deleted it, but the user earned it
+   *
+   * Missing values are treated as active for backwards compatibility.
+   */
+  availability?: 'active' | 'archived' | 'removed';
 }
 
 const AchievementSchema = new Schema<IAchievement>(
@@ -59,6 +68,11 @@ const AchievementSchema = new Schema<IAchievement>(
     groupId: { type: String },
     groupName: { type: String },
     groupOrder: { type: Number, default: null },
+    availability: {
+      type: String,
+      enum: ['active', 'archived', 'removed'],
+      default: 'active',
+    },
   },
   { timestamps: true }
 );

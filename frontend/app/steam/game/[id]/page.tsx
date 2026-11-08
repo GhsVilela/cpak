@@ -34,6 +34,8 @@ interface Achievement {
   groupOrder?: number;
   /** Global unlock percentage (0–100). Below 10 is rare on Steam. */
   globalPercent?: number;
+  /** Steam: whether the achievement can still be obtained. Missing = active. */
+  availability?: 'active' | 'archived' | 'removed';
 }
 
 // Make this page dynamic (not static)
@@ -99,7 +101,7 @@ function GlobalPercent({ achievement, muted = false }: { achievement: Achievemen
 function AchievementCard({ achievement, locked = false }: { achievement: Achievement; locked?: boolean }) {
   if (locked) {
     return (
-      <div className="flex items-start gap-4 rounded-xl border border-[var(--border-muted)] bg-[var(--surface-muted)] p-4 opacity-70 transition-colors">
+      <div className="flex items-center gap-4 rounded-xl border border-[var(--border-muted)] bg-[var(--surface-muted)] p-4 opacity-70 transition-colors">
         <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
           {achievement.iconGrayPath ? (
             <img
@@ -123,7 +125,7 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
   }
 
   return (
-    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+    <div className="flex items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
       <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">
         {achievement.iconPath ? (
           <img
@@ -219,6 +221,45 @@ function AchievementGroupSection({ group }: { group: AchievementGroup }) {
   );
 }
 
+function ArchivedGroupSection({ achievements }: { achievements: Achievement[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] transition-colors">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-[var(--surface-raised)]"
+      >
+        <span className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+        <span className="flex min-w-0 flex-1 items-center justify-between gap-4">
+          <span
+            className="min-w-0 flex-1 truncate text-lg font-semibold text-[var(--steam-accent)]"
+            title="Archived / Removed by developer"
+          >
+            Archived / Removed by developer
+          </span>
+          <span className="shrink-0 text-sm text-gray-400">{achievements.length}</span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-[var(--border-muted)] px-4 pb-4 pt-4">
+          <p className="mb-4 text-sm text-gray-500">
+            These achievements can no longer be earned. They are kept because you unlocked them and are not counted toward completion.
+          </p>
+          <div className="space-y-2">
+            {achievements.map((achievement) => (
+              <AchievementCard key={achievement._id} achievement={achievement} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function GameDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -297,9 +338,15 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  const unlockedAchievements = achievements.filter(a => a.unlockedAt);
-  const lockedAchievements = achievements.filter(a => !a.unlockedAt);
-  const groups = groupAchievements(achievements);
+  const activeAchievements = achievements.filter(
+    (a) => !a.availability || a.availability === 'active',
+  );
+  const archivedAchievements = achievements.filter(
+    (a) => !!a.unlockedAt && (a.availability === 'archived' || a.availability === 'removed'),
+  );
+  const unlockedAchievements = activeAchievements.filter(a => a.unlockedAt);
+  const lockedAchievements = activeAchievements.filter(a => !a.unlockedAt);
+  const groups = groupAchievements(activeAchievements);
   const showGroups = !!game.hasAchievementGroups && groups.length > 1;
 
   return (
@@ -381,9 +428,14 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
       {/* Achievements list */}
       <div className="space-y-6">
         {showGroups ? (
-          groups.map((group) => (
-            <AchievementGroupSection key={group.id} group={group} />
-          ))
+          <>
+            {groups.map((group) => (
+              <AchievementGroupSection key={group.id} group={group} />
+            ))}
+            {archivedAchievements.length > 0 && (
+              <ArchivedGroupSection achievements={archivedAchievements} />
+            )}
+          </>
         ) : (
           <>
             {/* Unlocked achievements */}
@@ -413,10 +465,28 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
                 </div>
               </div>
             )}
+
+            {/* Earned achievements that Steam no longer offers. These are shown
+                for historical credit but excluded from totals/completion. */}
+            {archivedAchievements.length > 0 && (
+              <div>
+                <h2 className="mb-2 text-xl font-semibold text-[var(--steam-accent)]">
+                  Archived / Removed by developer ({archivedAchievements.length})
+                </h2>
+                <p className="mb-4 text-sm text-gray-500">
+                  These achievements can no longer be earned. They are kept because you unlocked them and are not counted toward completion.
+                </p>
+                <div className="space-y-2">
+                  {archivedAchievements.map((achievement) => (
+                    <AchievementCard key={achievement._id} achievement={achievement} />
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
 
-        {achievements.length === 0 && (
+        {activeAchievements.length === 0 && archivedAchievements.length === 0 && (
           <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] py-12 text-center text-gray-400">
             <p>No achievement data available for this game or sync is still in progress.</p>
           </div>

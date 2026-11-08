@@ -384,9 +384,10 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
       totalAchievements: 2,
       earnedAchievements: 1,
       hasAchievementGroups: true,
+      archivedAchievementIds: ['ACH_ARCHIVED'],
     });
 
-    // Archived achievements are excluded from the totals/list
+    // Archived locked achievements are excluded from the totals/list
     expect(result.achievements).toHaveLength(2);
 
     const base = result.achievements.find((a) => a.achievementId === 'ACH_BASE');
@@ -496,5 +497,181 @@ describe('SteamAdapter.syncGamesAndAchievements', () => {
     });
     expect(result.achievements).toHaveLength(1);
     expect(result.achievements[0].unlocked).toBe(false);
+  });
+
+  it('includes archived achievements the player earned without counting them in game totals', async () => {
+    stubFetch({
+      GetOwnedGames: {
+        response: {
+          games: [{ appid: 501, name: 'Archived Game', playtime_forever: 100 }],
+        },
+      },
+      GetGameAchievements: {
+        response: {
+          achievements: [
+            { internal_name: 'ACH_BASE', internal_key: 1, localized_name: 'Current', groupid: 0 },
+            { internal_name: 'ACH_OLD', internal_key: 2, localized_name: 'Earned Old', groupid: 0, archived: true },
+            { internal_name: 'ACH_MISSED', internal_key: 3, localized_name: 'Missed Old', groupid: 0, archived: true },
+          ],
+          groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+        },
+      },
+      GetUserAchievements: {
+        response: {
+          achievements: [{ internal_key: 1, unlocked: true, unlock_time: 1700000000 }],
+          groups: [],
+        },
+      },
+      GetPlayerAchievements: {
+        playerstats: {
+          success: true,
+          achievements: [
+            { apiname: 'ACH_BASE', achieved: 1, unlocktime: 1700000000 },
+            { apiname: 'ACH_OLD', achieved: 1, unlocktime: 1600000000 },
+            { apiname: 'ACH_MISSED', achieved: 0, unlocktime: 0 },
+          ],
+        },
+      },
+    });
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+
+    expect(result.games).toHaveLength(1);
+    expect(result.games[0]).toMatchObject({
+      appId: 501,
+      totalAchievements: 1,
+      earnedAchievements: 1,
+      archivedAchievementIds: ['ACH_OLD', 'ACH_MISSED'],
+    });
+
+    // Active + earned archived only. Archived achievements are shown for
+    // history, but totalAchievements/earnedAchievements stay active-only.
+    expect(result.achievements).toHaveLength(2);
+    const archived = result.achievements.find((a) => a.achievementId === 'ACH_OLD');
+    expect(archived).toMatchObject({
+      archived: true,
+      unlocked: true,
+    });
+    expect(archived!.unlockTime).toEqual(new Date(1600000000 * 1000));
+    expect(result.achievements.find((a) => a.achievementId === 'ACH_MISSED')).toBeUndefined();
+  });
+
+  it('keeps a game with zero current unlocks when it has historical local progress', async () => {
+    stubFetch({
+      GetOwnedGames: {
+        response: {
+          games: [{ appid: 502, name: 'Historical Game', playtime_forever: 100 }],
+        },
+      },
+      GetGameAchievements: {
+        response: {
+          achievements: [
+            { internal_name: 'ACH_STILL_LOCKED', internal_key: 1, localized_name: 'Still Locked', groupid: 0 },
+          ],
+          groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+        },
+      },
+      GetUserAchievements: { response: { groups: [{ groupid: 0, completed_achievements: 0 }] } },
+    });
+
+    const result = await adapter.syncGamesAndAchievements(
+      'steamid123',
+      undefined,
+      undefined,
+      undefined,
+      [502],
+    );
+
+    expect(result.games).toHaveLength(1);
+    expect(result.games[0]).toMatchObject({
+      appId: 502,
+      totalAchievements: 1,
+      earnedAchievements: 0,
+    });
+    expect(result.achievements).toHaveLength(1);
+  });
+
+  it('does not mark a play-history game as fetch-failed when only an archived achievement was earned', async () => {
+    stubFetch({
+      GetOwnedGames: { response: { games: [] } },
+      ClientGetLastPlayedTimes: {
+        response: { games: [{ appid: 503, playtime_forever: 60 }] },
+      },
+      GetGameAchievements: {
+        response: {
+          achievements: [
+            { internal_name: 'ACH_ACTIVE', internal_key: 1, localized_name: 'Active', groupid: 0 },
+            { internal_name: 'ACH_OLD', internal_key: 2, localized_name: 'Old', groupid: 0, archived: true },
+          ],
+          groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+        },
+      },
+      GetUserAchievements: { response: { groups: [{ groupid: 0, completed_achievements: 0 }] } },
+      GetPlayerAchievements: {
+        playerstats: {
+          success: true,
+          achievements: [
+            { apiname: 'ACH_ACTIVE', achieved: 0, unlocktime: 0 },
+            { apiname: 'ACH_OLD', achieved: 1, unlocktime: 1600000000 },
+          ],
+        },
+      },
+    });
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+
+    expect(result.games).toHaveLength(1);
+    expect(result.games[0]).toMatchObject({
+      appId: 503,
+      totalAchievements: 1,
+      earnedAchievements: 0,
+      ownershipSource: 'played_history',
+    });
+    expect(result.games[0].achievementsFetchFailed).toBeUndefined();
+    expect(result.achievements.find((a) => a.achievementId === 'ACH_OLD')).toMatchObject({
+      archived: true,
+      unlocked: true,
+    });
+  });
+
+  it('prefers the precise player_percent_unlocked value from the modern schema', async () => {
+    stubFetch({
+      GetOwnedGames: {
+        response: {
+          games: [{ appid: 504, name: 'Precise Percent Game', playtime_forever: 10 }],
+        },
+      },
+      GetGameAchievements: {
+        response: {
+          achievements: [
+            {
+              internal_name: 'ACH_TINY',
+              internal_key: 1,
+              localized_name: 'Tiny Percent',
+              groupid: 0,
+              player_percent_unlocked: '0.1',
+            },
+          ],
+          groups: [{ groupid: 0, localized_name: 'Base Game', order: 0 }],
+        },
+      },
+      GetUserAchievements: {
+        response: {
+          achievements: [{ internal_key: 1, unlocked: true, unlock_time: 1700000000 }],
+          groups: [],
+        },
+      },
+      // The legacy endpoint rounds this down to 0.0.
+      GetGlobalAchievementPercentages: {
+        achievementpercentages: {
+          achievements: [{ name: 'ACH_TINY', percent: '0.0' }],
+        },
+      },
+    });
+
+    const result = await adapter.syncGamesAndAchievements('steamid123');
+    const achievement = result.achievements.find((a) => a.achievementId === 'ACH_TINY');
+
+    expect(achievement?.globalPercent).toBe(0.1);
   });
 });
