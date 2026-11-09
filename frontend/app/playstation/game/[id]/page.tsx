@@ -176,8 +176,14 @@ function TrophyCard({ trophy, locked = false }: { trophy: Achievement; locked?: 
   );
 }
 
-function TrophyGroupSection({ group }: { group: TrophyGroup }) {
-  const [open, setOpen] = useState(false);
+function TrophyGroupSection({
+  group,
+  defaultOpen = false,
+}: {
+  group: TrophyGroup;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   const groupUnlocked = sortPlatinumFirst(group.items.filter((a) => a.unlockedAt));
   const groupLocked = group.items.filter((a) => !a.unlockedAt);
   const percent = group.items.length > 0 ? Math.round((groupUnlocked.length / group.items.length) * 100) : 0;
@@ -345,7 +351,8 @@ export default function PlayStationGameDetailsPage({ params }: { params: Promise
   const unlockedAchievements = sortPlatinumFirst(achievements.filter((a) => a.unlockedAt));
   const lockedAchievements = achievements.filter((a) => !a.unlockedAt);
   const groups = groupTrophies(achievements);
-  const showGroups = !!game.hasAchievementGroups && groups.length > 1;
+  const showGroups = !!game.hasAchievementGroups && groups.length > 0;
+  const expandSingleGroup = groups.length === 1;
   const gameHasPlatinum =
     game.hasPlatinum === true || achievements.some((trophy) => trophy.trophyGrade === 'platinum');
   const hasTrophyCounts =
@@ -433,7 +440,11 @@ export default function PlayStationGameDetailsPage({ params }: { params: Promise
       <div className="space-y-6">
         {showGroups ? (
           groups.map((group) => (
-            <TrophyGroupSection key={group.id} group={group} />
+            <TrophyGroupSection
+              key={group.id}
+              group={group}
+              defaultOpen={expandSingleGroup}
+            />
           ))
         ) : (
           <>

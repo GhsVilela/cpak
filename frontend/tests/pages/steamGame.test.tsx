@@ -202,6 +202,31 @@ describe('Steam Game detail page — app/steam/game/[id]/page.tsx', () => {
     expect(screen.queryByText('Update Achievement')).toBeNull();
   });
 
+  it('expands the only achievement category by default', async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path.includes('/games/')) {
+        return Promise.resolve({ ...baseGame, hasAchievementGroups: true });
+      }
+      if (path.includes('/achievements')) {
+        return Promise.resolve([
+          { _id: 'a1', achievementId: 'BASE_1', name: 'Base Achievement', groupId: '0', groupName: 'Base Game', groupOrder: 0, unlockedAt: '2026-01-01T00:00:00Z' },
+        ]);
+      }
+      return Promise.resolve(null);
+    });
+
+    const { default: GameDetailsPage } = await import(
+      // @ts-ignore
+      '../../app/steam/game/[id]/page'
+    );
+    render(<GameDetailsPage params={Promise.resolve({ id: '12345' })} />);
+
+    const groupButton = (await screen.findByText('Base Game')).closest('button');
+    expect(groupButton).not.toBeNull();
+    expect(groupButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Base Achievement')).toBeInTheDocument();
+  });
+
   it('keeps long achievement set names on one truncated line', async () => {
     const longGroupName = 'Update 4 — The Lost Chapters and Additional Content Pack';
     apiGetMock.mockImplementation((path: string) => {
