@@ -40,8 +40,8 @@ describe('PlayStation page — demo mode end to end', () => {
 
     expect(screen.queryByText(/Sync in progress/)).toBeNull();
     expect(screen.getAllByText('Trophies').length).toBeGreaterThan(0);
-    // 84 bronze + 33 silver + 11 gold + 2 platinum
-    expect(screen.getAllByText('130').length).toBeGreaterThan(0);
+    // 108 bronze + 40 silver + 16 gold + 2 platinum
+    expect(screen.getAllByText('166').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Platinum').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Bronze').length).toBeGreaterThan(0);
   });

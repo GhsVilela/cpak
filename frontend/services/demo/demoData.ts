@@ -173,8 +173,9 @@ export const demoGames: DemoGame[] = [
   makeGame('steam_005', 'demo_steam_1', 'steam', 'Skyward Explorers', 25, 0),
   makeGame('steam_006', 'demo_steam_1', 'steam', 'Puzzle Masters', 80, 60),
   makeGame('steam_007', 'demo_steam_1', 'steam', 'Shadow Tactics', 45, 45, {
+    // Only the base game set exists: the page shows a single, auto-expanded group.
     hasAchievementGroups: true,
-    baseGameAchievementsTotal: 35,
+    baseGameAchievementsTotal: 45,
   }),
   makeGame('steam_008', 'demo_steam_1', 'steam', 'Oceanic Adventures', 35, 12),
   // Steam profile 2
@@ -226,6 +227,14 @@ export const demoGames: DemoGame[] = [
     baseGameAchievementsTotal: 35,
     baseGameAchievementsUnlocked: 18,
   }),
+  // Xbox: base game set only (single group, auto-expanded on the game page).
+  makeGame('xbox_006', 'demo_xbox_1', 'xbox', 'Solitary Saga', 20, 12, {
+    devices: ['XboxSeries'],
+    hasAchievementGroups: true,
+    isMythic: false,
+    baseGameAchievementsTotal: 20,
+    baseGameAchievementsUnlocked: 12,
+  }),
   // PlayStation
   makeGame('psn_001', 'demo_psn_1', 'playstation', 'Mythic Quest', 48, 48, {
     trophyBronze: 30,
@@ -259,6 +268,13 @@ export const demoGames: DemoGame[] = [
     hasAchievementGroups: true,
     baseGameAchievementsTotal: 30,
   }),
+  // PlayStation: base game set only (single group, auto-expanded on the game page).
+  makeGame('psn_005', 'demo_psn_1', 'playstation', 'Base Camp Chronicles', 25, 16, {
+    hasAchievementGroups: true,
+    baseGameAchievementsTotal: 25,
+  }),
+  // PlayStation: no achievement groups at all, so trophies render directly in the list.
+  makeGame('psn_006', 'demo_psn_1', 'playstation', 'Standalone Saga', 30, 20),
 ];
 
 function generateAchievements(game: DemoGame): DemoAchievement[] {

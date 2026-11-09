@@ -3,11 +3,12 @@ import { render, screen, waitFor, cleanup, fireEvent, within } from '@testing-li
 import { demoAchievements, demoGames } from '../../services/demo/demoData';
 
 const pushMock = vi.fn();
+const testState = vi.hoisted(() => ({ gameId: 'xbox_001' }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
   useSearchParams: () => new URLSearchParams('profileId=demo_xbox_1'),
-  usePathname: () => '/xbox/game/xbox_001',
+  usePathname: () => `/xbox/game/${testState.gameId}`,
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -16,7 +17,7 @@ vi.mock('react', async (importOriginal) => {
     ...React,
     use: (promise: Promise<unknown>) => {
       if (promise instanceof Promise) {
-        return { id: 'xbox_001' };
+        return { id: testState.gameId };
       }
       return React.use(promise);
     },
@@ -27,6 +28,7 @@ describe('Xbox game detail page — demo mode end to end', () => {
   beforeEach(() => {
     vi.stubEnv('NEXT_PUBLIC_DEMO_MODE', 'true');
     localStorage.clear();
+    testState.gameId = 'xbox_001';
   });
 
   afterEach(() => {
@@ -80,5 +82,20 @@ describe('Xbox game detail page — demo mode end to end', () => {
     await waitFor(() => {
       expect(screen.getByText('Eternal Guardians - Challenge 1')).toBeTruthy();
     });
+  });
+
+  it('auto-expands the only base game group', async () => {
+    testState.gameId = 'xbox_006';
+    const { default: GamePage } = await import('../../app/xbox/game/[id]/page');
+
+    render(<GamePage params={Promise.resolve({ id: 'xbox_006' })} />);
+
+    const groupButton = (
+      await screen.findByText('Base Game', undefined, { timeout: 10000 })
+    ).closest('button');
+    expect(groupButton).not.toBeNull();
+    expect(groupButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByText('DLC / Update')).toBeNull();
+    expect(screen.getByText('Solitary Saga - Challenge 1')).toBeTruthy();
   });
 });
