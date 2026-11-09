@@ -194,8 +194,8 @@ These variables configure the container infrastructure (not application settings
 |----------|-------------|---------|----------|
 | `ENCRYPTION_KEY` | Encryption key for secret settings (API keys, tokens) | Plain text storage | Optional (recommended) |
 | `HTTPS_MODE` | `self-signed` - Caddy-issued self-signed cert; `custom-cert` - user-provided cert | HTTP only | Optional |
-| `EXTERNAL_DB` | Use external MongoDB | (empty = bundled) | No |
-| `MONGO_URI` | MongoDB connection (external mode) | `mongodb://mongo:27017/cpak` | External DB mode only |
+| `EXTERNAL_DB` | Boolean. `true`/`1`/`yes`/`on` uses an external MongoDB (requires `MONGO_URI`); `false`/`0`/`no`/`off`/empty uses the bundled MongoDB. Case-insensitive. | `false` (bundled) | No |
+| `MONGO_URI` | MongoDB connection string. Setting it alone also enables external DB mode. | `mongodb://localhost:27017/cpak` (bundled) | Required when `EXTERNAL_DB=true` |
 
 ### Volume Configuration
 

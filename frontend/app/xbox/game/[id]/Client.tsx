@@ -174,8 +174,14 @@ function groupAchievements(achievements: Achievement[]): AchievementGroup[] {
   return Array.from(map.values()).sort((a, b) => a.order - b.order);
 }
 
-function AchievementGroupSection({ group }: { group: AchievementGroup }) {
-  const [open, setOpen] = useState(false);
+function AchievementGroupSection({
+  group,
+  defaultOpen = false,
+}: {
+  group: AchievementGroup;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   const groupUnlocked = group.items.filter((a) => a.unlockedAt);
   const groupLocked = group.items.filter((a) => !a.unlockedAt);
   const percent = group.items.length > 0 ? Math.round((groupUnlocked.length / group.items.length) * 100) : 0;
@@ -332,6 +338,7 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
     (game.baseGameAchievementsTotal ?? 0) > 0 ||
     !!game.hasAchievementGroups;
   const showGroups = groups.length > 0 && (supportsMythic || groups.length > 1);
+  const expandSingleGroup = groups.length === 1;
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -403,7 +410,11 @@ export default function XboxGameDetailsPage({ params }: { params: Promise<{ id: 
       <div className="space-y-6">
         {showGroups ? (
           groups.map((group) => (
-            <AchievementGroupSection key={group.id} group={group} />
+            <AchievementGroupSection
+              key={group.id}
+              group={group}
+              defaultOpen={expandSingleGroup}
+            />
           ))
         ) : (
           <>
