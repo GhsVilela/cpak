@@ -178,8 +178,14 @@ function AchievementCard({ achievement, locked = false }: { achievement: Achieve
   );
 }
 
-function AchievementGroupSection({ group }: { group: AchievementGroup }) {
-  const [open, setOpen] = useState(false);
+function AchievementGroupSection({
+  group,
+  defaultOpen = false,
+}: {
+  group: AchievementGroup;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   const groupUnlocked = group.items.filter((a) => a.unlockedAt);
   const groupLocked = group.items.filter((a) => !a.unlockedAt);
   const percent = group.items.length > 0 ? Math.round((groupUnlocked.length / group.items.length) * 100) : 0;
@@ -372,7 +378,8 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
   const unlockedAchievements = activeAchievements.filter(a => a.unlockedAt);
   const lockedAchievements = activeAchievements.filter(a => !a.unlockedAt);
   const groups = groupAchievements(activeAchievements);
-  const showGroups = !!game.hasAchievementGroups && groups.length > 1;
+  const showGroups = !!game.hasAchievementGroups && groups.length > 0;
+  const expandSingleGroup = groups.length === 1;
   const ownershipSourceInfo = getOwnershipSourceInfo(game);
 
   return (
@@ -456,7 +463,11 @@ export default function GameDetailsPage({ params }: { params: Promise<{ id: stri
         {showGroups ? (
           <>
             {groups.map((group) => (
-              <AchievementGroupSection key={group.id} group={group} />
+              <AchievementGroupSection
+                key={group.id}
+                group={group}
+                defaultOpen={expandSingleGroup}
+              />
             ))}
             {archivedAchievements.length > 0 && (
               <ArchivedGroupSection achievements={archivedAchievements} />
